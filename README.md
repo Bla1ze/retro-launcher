@@ -227,6 +227,10 @@ docker run --rm --platform linux/amd64 -v "$SDK:/workspace" \
   atgames-external-sdk:glibc-2.26-sdl2-v1 bash /workspace/cores-src/build-cores.sh
 ```
 
+Flycast (Dreamcast, NAOMI, Atomiswave) needs a newer compiler than the SDK's;
+`tools/build-flycast.sh` describes the toolchain and builds it. (The launcher
+does not play it yet: it needs the GPU drawing path, in progress.)
+
 The cores land in `cores-src/out/`. Copy them to the app's `cores/` folder, and
 make the arcade ROM lists there from the same checkouts:
 

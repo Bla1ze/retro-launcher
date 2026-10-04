@@ -1,0 +1,26 @@
+diff --git a/core/oslib/oslib.cpp b/core/oslib/oslib.cpp
+index 9d308df..b6dd0a0 100644
+--- a/core/oslib/oslib.cpp
++++ b/core/oslib/oslib.cpp
+@@ -55,7 +55,7 @@ std::string getVmuPath(const std::string& port, bool save)
+ 	{
+ 		if (settings.platform.isConsole() && !settings.content.gameId.empty())
+ 		{
+-			constexpr std::string_view INVALID_CHARS { " /\\:*?|<>\"" };
++			const std::string_view INVALID_CHARS { " /\\:*?|<>\"" };
+ 			vmuName = settings.content.gameId;
+ 			for (char &c: vmuName)
+ 				if (INVALID_CHARS.find(c) != INVALID_CHARS.npos)
+diff --git a/shell/libretro/oslib.cpp b/shell/libretro/oslib.cpp
+index a32d109..93927b6 100644
+--- a/shell/libretro/oslib.cpp
++++ b/shell/libretro/oslib.cpp
+@@ -45,7 +45,7 @@ std::string getVmuPath(const std::string& port, bool save)
+ 		std::string vmuDir = vmu_dir_no_slash + std::string(PATH_DEFAULT_SLASH());
+ 		if (settings.platform.isConsole() && !settings.content.gameId.empty())
+ 		{
+-			constexpr std::string_view INVALID_CHARS { " /\\:*?|<>" };
++			const std::string_view INVALID_CHARS { " /\\:*?|<>" };
+ 			std::string vmuName = settings.content.gameId;
+ 			for (char &c: vmuName)
+ 				if (INVALID_CHARS.find(c) != INVALID_CHARS.npos)

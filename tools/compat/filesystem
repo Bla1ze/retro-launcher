@@ -1,0 +1,5 @@
+// GCC 7 has only the Filesystem TS; C++17 <filesystem> as an alias of it, for
+// cores built with the Bootlin GCC 7.2 toolchain (link with -lstdc++fs).
+#pragma once
+#include <experimental/filesystem>
+namespace std { namespace filesystem = experimental::filesystem; }
