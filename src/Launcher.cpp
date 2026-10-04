@@ -1118,19 +1118,6 @@ void Menu::present() {
     SDL_RenderPresent(m_renderer);
 }
 
-static const char* eventName(AtGames::ControlEvent e) {
-    using CE = AtGames::ControlEvent;
-    switch (e) {
-    case CE::Up: return "UP"; case CE::Down: return "DOWN"; case CE::Left: return "LEFT"; case CE::Right: return "RIGHT";
-    case CE::A: return "A"; case CE::B: return "B"; case CE::X: return "X"; case CE::Y: return "Y";
-    case CE::Start: return "START"; case CE::Back: return "BACK"; case CE::Guide: return "HOME";
-    case CE::Rewind: return "REWIND"; case CE::Rewind2: return "REWIND2";
-    case CE::LeftShoulder: return "LEFT FLIPPER"; case CE::RightShoulder: return "RIGHT FLIPPER";
-    case CE::LeftTrigger: return "LEFT FLIPPER 2"; case CE::RightTrigger: return "RIGHT FLIPPER 2";
-    default: return "?";
-    }
-}
-
 // Reads the held directions from every controller (D-pad and left stick) and the
 // keyboard, fires on the press, then repeats while held: after 400 ms, every
 // 110 ms, speeding up to every 40 ms after 1.5 s.
@@ -1162,7 +1149,6 @@ void Menu::pollDirections(bool& running) {
         bool tap = m_dirTap[d];  // pressed and released between two polls
         m_dirTap[d] = false;
         if ((held[d] || tap) && !m_dirHeld[d]) {
-            log("input: %s", eventName(kEv[d]));
             m_repeating = false;
             handle(kEv[d], running);
             m_dirSince[d] = now;
@@ -1221,7 +1207,6 @@ int Menu::run() {
             if (ce == CE::Down) { m_dirTap[DirDown] = true; continue; }
             if (ce == CE::Left) { m_dirTap[DirLeft] = true; continue; }
             if (ce == CE::Right) { m_dirTap[DirRight] = true; continue; }
-            log("input: %s", eventName(ce));
             handle(ce, running);
         }
         pollDirections(running);
