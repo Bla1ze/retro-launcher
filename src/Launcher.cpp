@@ -477,6 +477,8 @@ void Menu::handleSearch(AtGames::ControlEvent ev) {
         if (!m_query.empty()) { m_query.pop_back(); runQuery(); return; }
         m_view = m_searchReturn;
     };
+    bool favKey = ev == CE::Rewind || ev == CE::Rewind2 || ev == CE::Y;
+    if (m_inHits && favKey && !m_hits.empty()) { toggleFav(m_hits[m_hitSel].sys, m_hits[m_hitSel].game); return; }
     if (ev == CE::B || ev == CE::Back || ev == CE::Rewind || ev == CE::Rewind2) { back(); return; }
     if (ev == CE::LeftShoulder) { if (!m_query.empty()) { m_query.pop_back(); runQuery(); } return; }
     if (ev == CE::RightShoulder) { if (!m_hits.empty()) m_inHits = true; return; }
@@ -484,8 +486,7 @@ void Menu::handleSearch(AtGames::ControlEvent ev) {
         int n = (int)m_hits.size();
         if (ev == CE::Up) { if (m_hitSel == 0) m_inHits = false; else --m_hitSel; }
         else if (ev == CE::Down) m_hitSel = std::min(n - 1, m_hitSel + 1);
-        else if (ev == CE::A) launch(m_hits[m_hitSel].sys, m_hits[m_hitSel].game);
-        else if (ev == CE::Start || ev == CE::Y) toggleFav(m_hits[m_hitSel].sys, m_hits[m_hitSel].game);
+        else if (ev == CE::A || ev == CE::Start) launch(m_hits[m_hitSel].sys, m_hits[m_hitSel].game);
         return;
     }
     // Keyboard. Columns map proportionally between rows of different widths.
@@ -539,8 +540,10 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
         if (m_view != View::Settings) openSearch();
         break;
     case CE::Y:
-    case CE::Start:
-        // In a game list: toggle Favourite. Elsewhere Start acts like A.
+    case CE::Rewind:
+    case CE::Rewind2:
+        // Rewind (or Y on the Arcade Control Panel) toggles a Favourite on the
+        // highlighted game. Outside game lists Rewind still goes back.
         if (m_view == View::Games && !m_systems[sysIndex()].games.empty()) { toggleFav(sysIndex(), m_gameSel); break; }
         if (m_view == View::Recent && !m_recent.empty()) {
             toggleFav(m_recent[m_recentSel].sys, m_recent[m_recentSel].game);
@@ -553,15 +556,18 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             break;
         }
         if (ev == CE::Y) break;
-        // fall through
+        if (m_view == View::Games || m_view == View::Recent || m_view == View::Settings) m_view = View::Systems;
+        else if (m_view == View::Systems) running = false;
+        break;
     case CE::A:
+    case CE::Start:
         if (m_view == View::Settings) { changeSetting(1); break; }
         if (m_view == View::Systems) {
             if (m_sysRow == 0) { openSearch(); break; }
             if (m_sysRow == 1 || m_sysRow == 2) {
                 openList(m_sysRow == 2);
                 if (m_recent.empty()) {
-                    m_toast = m_sysRow == 2 ? "No favourites yet - press START on a game to add it"
+                    m_toast = m_sysRow == 2 ? "No favourites yet - press REWIND on a game to add it"
                                             : "Nothing played yet - games you start will show up here";
                     m_toastTime = 0.0f;
                 } else {
@@ -591,8 +597,6 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
         break;
     case CE::B:
     case CE::Back:
-    case CE::Rewind:
-    case CE::Rewind2:
         if (m_view == View::Games || m_view == View::Recent || m_view == View::Settings) m_view = View::Systems;
         else running = false;
         break;
@@ -712,7 +716,7 @@ void Menu::renderSystems() {
         if (i == 2) {
             Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, "F", Theme::Rose);
             AppFont::draw(r, "Favourites", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
-            AppFont::draw(r, m_favs.empty() ? "Press START on a game to add it" : std::to_string(m_favs.size()) + " games",
+            AppFont::draw(r, m_favs.empty() ? "Press REWIND on a game to add it" : std::to_string(m_favs.size()) + " games",
                           tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
         }
@@ -767,7 +771,7 @@ void Menu::renderGames() {
     }
     endListClip();
     drawHeader(e.sys->verified ? "Games" : "Games - untested core", e.sys->name, m_gameSel + 1, (int)e.games.size());
-    Theme::footerHints(r, w, "A Play   START Favourite   LEFT/RIGHT Screen   LB/RB Letter   B Back", "");
+    Theme::footerHints(r, w, "A Play   REWIND Favourite   LEFT/RIGHT Screen   LB/RB Letter   B Back", "");
 }
 
 void Menu::renderSearch() {
@@ -847,7 +851,7 @@ void Menu::renderSearch() {
         AppFont::drawCentered(r, "No games match", w * 0.5f, kHitsTop + 30.0f, Theme::Type::Small, Theme::Muted);
 
     drawHeader("Search", "All systems", 0, 0);
-    Theme::footerHints(r, w, m_inHits ? "A Play   START Favourite   B Keyboard" : "A Type   LB Delete   RB Results   B Back", "");
+    Theme::footerHints(r, w, m_inHits ? "A Play   REWIND Favourite   B Keyboard" : "A Type   LB Delete   RB Results   B Back", "");
 }
 
 void Menu::renderRecent() {
@@ -878,7 +882,7 @@ void Menu::renderRecent() {
     }
     endListClip();
     drawHeader("Consoles", m_listIsFav ? "Favourites" : "Recently played", m_recentSel + 1, (int)m_recent.size());
-    Theme::footerHints(r, w, "A Play   START Favourite   LEFT/RIGHT Screen   B Back", "");
+    Theme::footerHints(r, w, "A Play   REWIND Favourite   LEFT/RIGHT Screen   B Back", "");
 }
 
 void Menu::renderSettings() {

@@ -101,8 +101,8 @@ ROM.
 | Where | Control | Action |
 |---|---|---|
 | Lists | Up / Down | Move |
-| Lists | A | Open / play |
-| Game lists | Start (or Y) | Add to / remove from Favourites |
+| Lists | A or Start | Open / play |
+| Game lists | Rewind (or Y) | Add to / remove from Favourites |
 | Game lists | Left / Right | Screen for this game: default, backglass, playfield |
 | Lists | B | Back (exit on the systems list) |
 | Games list | Flippers | Previous / next letter |
