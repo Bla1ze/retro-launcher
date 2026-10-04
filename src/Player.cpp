@@ -377,11 +377,20 @@ void loadOptionOverrides(const std::string& path) {
     }
 }
 
+// Options the launcher decides itself, kept at the core's default and left out
+// of the Core options menu: the picture's orientation is handled here (vertical
+// games turned to fit the screen they play on), and the cores' "vertical" /
+// TATE modes, meant for monitors turned on their side, would undo it.
+bool pinnedOption(const std::string& key) {
+    return key == "fbneo-vertical-mode" || key == "mame2003-plus_tate_mode";
+}
+
 void declareOption(const char* key, const char* spec) {
     std::string v = spec ? spec : "";
     size_t semi = v.find("; ");
     std::string opts = semi == std::string::npos ? v : v.substr(semi + 2);
     std::string def = opts.substr(0, opts.find('|'));
+    if (pinnedOption(key)) { g_options[key] = def; return; }
     auto o = g_optionOverrides.find(key);
     g_options[key] = o != g_optionOverrides.end() ? o->second : def;
     OptDef d;
