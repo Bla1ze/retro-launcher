@@ -1018,7 +1018,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     const int picAngle = ((rotate - 90 * (int)g_coreRotation) % 360 + 360) % 360;
     const bool picSideways = picAngle == 90 || picAngle == 270;
     if (picAngle != 0 && bezel.tex) { SDL_DestroyTexture(bezel.tex); bezel.tex = nullptr; }
-    if (g_coreRotation) log("picture turned %d degrees", picAngle);
+    log("picture: core rotation %u, screen %d, drawn at %d degrees, frame %ux%u, aspect %.3f", g_coreRotation, rotate,
+        picAngle, g_av.geometry.base_width, g_av.geometry.base_height, g_av.geometry.aspect_ratio);
     Uint32 started = SDL_GetTicks(), statsAt = started, startHeld = 0;
     unsigned long statFrames = 0, coreFrames = 0, underruns = 0, catchUps = 0;
     Uint32 lastPresent = SDL_GetTicks();
@@ -1240,9 +1241,14 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             float shownAspect = aspect * (float)src.w / (float)g_frameW;
             // The area the picture fits in: the bezel's window, or the screen.
             // Arcade games give their own shape (and may change it).
-            if (sys->id == "arcade" && g_av.geometry.base_height > 0)
+            // The core's aspect ratio is the picture as shown, after its rotation
+            // (as RetroArch reads it), so a frame that still has to turn a
+            // quarter has the inverse shape.
+            if (sys->id == "arcade" && g_av.geometry.base_height > 0) {
                 aspect = g_av.geometry.aspect_ratio > 0 ? g_av.geometry.aspect_ratio
                                                         : (float)g_av.geometry.base_width / g_av.geometry.base_height;
+                if ((g_coreRotation & 1) && g_av.geometry.aspect_ratio > 0) aspect = 1.0f / aspect;
+            }
             float bx = 0, by = 0, bw = picSideways ? winH : winW, bh = picSideways ? winW : winH;
             if (bezel.tex) {
                 float sx = (float)winW / bezel.w, sy = (float)winH / bezel.h;
