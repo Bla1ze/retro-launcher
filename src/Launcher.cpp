@@ -445,6 +445,7 @@ ScreenId Menu::gameScreen(int sys, int game) const {
 std::string Menu::artFor(int sys, const Library::Game& g) const {
     std::string p = findArt(m_appDir, m_systems[sys].sys->id, g.file);
     if (p.empty() && g.arcade) p = findArt(m_appDir, m_systems[sys].sys->id, g.title + ".zip");
+    if (p.empty() && !g.altTitle.empty()) p = findArt(m_appDir, m_systems[sys].sys->id, g.altTitle + ".zip");
     return p;
 }
 

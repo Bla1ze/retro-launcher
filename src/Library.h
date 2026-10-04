@@ -49,6 +49,7 @@ struct Game {
     // can run it, its orientation, and what is wrong with it ("" if nothing).
     bool arcade = false, vertical = false;
     std::string core, problem;
+    std::string altTitle;  // the other emulator's name for it, tried for box art too
     std::vector<std::string> cores;
 };
 

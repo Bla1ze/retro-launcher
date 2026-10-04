@@ -547,7 +547,9 @@ std::string subtitleOf(const std::string& title) {
     return dash == std::string::npos ? "" : title.substr(dash + 3);
 }
 
-std::string titleKey(std::string t) {
+// `underscoreAnd`: libretro file names spell both & and / (and : ? ...) as _,
+// so covers are indexed under both readings.
+std::string titleKey(std::string t, bool underscoreAnd = true) {
     // A trailing article moves to the front: at the end ("Legend of Zelda, The")
     // or before a subtitle ("Ren & Stimpy Show Presents, The - Stimpy's Invention").
     for (const char* art : {", The", ", An", ", A"}) {
@@ -574,7 +576,7 @@ std::string titleKey(std::string t) {
     std::string k;
     for (size_t i = 0; i < t.size(); ++i) {
         unsigned char c = (unsigned char)t[i];
-        if (c == '&' || c == '_') k += "and";  // libretro file names spell & as _
+        if (c == '&' || (c == '_' && underscoreAnd)) k += "and";
         else if (std::isalnum(c)) k += (char)std::tolower(c);
     }
     if (k.compare(0, 5, "adand") == 0) k = "advanceddungeonsanddragons" + k.substr(5);  // "AD&D Hillsfar"
@@ -635,13 +637,20 @@ const std::vector<std::string>* coversFor(const std::string& dir, const std::str
             while (struct dirent* e = ::readdir(d)) {
                 std::string n = e->d_name;
                 if (n.empty() || n[0] == '.') continue;
-                std::string k = titleKey(titleOf(n.substr(0, n.find_last_of('.'))));
-                if (k.empty()) continue;
-                index[k].push_back(n);
-                if (k.compare(0, 3, "the") == 0 && k.size() > 3) index[k.substr(3)].push_back(n);
-                std::string m = titleKey(mainTitle(titleOf(n.substr(0, n.find_last_of('.')))));
-                if (!m.empty()) index["\x01" + m].push_back(n);  // by main title
-                if (m.compare(0, 3, "the") == 0 && m.size() > 3) index["\x01" + m.substr(3)].push_back(n);
+                const std::string t = titleOf(n.substr(0, n.find_last_of('.')));
+                for (int pass = 0; pass < (t.find('_') != std::string::npos ? 2 : 1); ++pass) {
+                    std::string k = titleKey(t, pass == 0);
+                    if (k.empty()) continue;
+                    auto add = [&](const std::string& key) {
+                        std::vector<std::string>& v = index[key];
+                        if (v.empty() || v.back() != n) v.push_back(n);
+                    };
+                    add(k);
+                    if (k.compare(0, 3, "the") == 0 && k.size() > 3) add(k.substr(3));
+                    std::string m = titleKey(mainTitle(t), pass == 0);
+                    if (!m.empty()) add("\x01" + m);  // by main title
+                    if (m.compare(0, 3, "the") == 0 && m.size() > 3) add("\x01" + m.substr(3));
+                }
             }
             ::closedir(d);
         }
@@ -725,8 +734,16 @@ std::string matchCover(const std::string& base, const std::string& stem) {
                 return titleKey(subtitleOf(titleOf(file.substr(0, file.find_last_of('.')))));
             };
             std::string romSub = titleKey(subtitleOf(title));
+            // Count the different subtitles among the covers from the ROM's own
+            // region (all covers if it has none): other regions' releases and
+            // archive copies spelled differently ("Buckaroo$" / "Buckeroo$!")
+            // aren't another game.
+            bool anyInRegion = false;
+            for (const std::string& n : *loose)
+                if (tagsOf(n.substr(0, n.find_last_of('.'))).find(region) != std::string::npos) anyInRegion = true;
             std::set<std::string> subs;
             for (const std::string& n : *loose) {
+                if (anyInRegion && tagsOf(n.substr(0, n.find_last_of('.'))).find(region) == std::string::npos) continue;
                 std::string cs = subKey(n);
                 if (!cs.empty()) subs.insert(cs);
             }

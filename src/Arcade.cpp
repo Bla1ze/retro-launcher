@@ -278,6 +278,10 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         if (g.cores.empty() && !bestCore.empty()) g.cores.push_back(bestCore);
         g.core = bestCore;
         g.problem = bestProblem;
+        for (const auto& db : dbs) {
+            auto e = db.second.find(set);
+            if (e != db.second.end() && named && e->second.title != named->title) { g.altTitle = e->second.title; break; }
+        }
         if (named) {
             g.title = named->title;
             g.vertical = named->vertical();

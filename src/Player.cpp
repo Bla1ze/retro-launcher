@@ -940,6 +940,10 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             tags = ae.year + (ae.maker.empty() ? "" : "  " + ae.maker);
             if (item.artPath.empty()) item.artPath = findArt(appDir, sys->id, ae.title + ".zip");
         }
+        if (sys->id == "arcade" && item.artPath.empty())  // the other emulator's name for it
+            for (const std::string& c : sys->cores)
+                if (Arcade::lookup(appDir, c, lower(stem(file)), ae) && item.artPath.empty())
+                    item.artPath = findArt(appDir, sys->id, ae.title + ".zip");
         item.title = title;
         item.detail = tags;
         item.controls = Library::controlHints(sys->id);
