@@ -278,7 +278,11 @@ static void writeGuides(const std::string& appDir) {
         for (const std::string& e : s.extensions) if (e != "zip") exts += "." + e + ", ";
         std::string bios = biosNote(s.id);
         writeIfMissing(appDir + "/roms/" + s.id + "/README.txt",
-            s.name + " games go here.\n\nFile types: " + exts + ".zip\n" +
+            s.name + " games go here.\n\nFile types: " +
+            (s.id == "psx" ? exts.substr(0, exts.size() - 2) +
+                                 "\nUse .chd if you can (one small file per disc). A .cue needs its .bin tracks\n"
+                                 "beside it; an .m3u lists a multi-disc game's discs. Don't zip disc images.\n"
+                           : exts + ".zip\n") +
             (bios.empty() ? "" : (s.id == "arcade" ? "BIOS: " : "BIOS (in system/): ") + bios + "\n") +
             (s.id == "arcade"
                  ? std::string("Leave the zips as they are (don't unpack them). Each one is checked against the\n"
