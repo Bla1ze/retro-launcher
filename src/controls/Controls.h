@@ -1,6 +1,6 @@
 // Based on the controls helper (sdk/controls) from the AtGames External
 // Applications SDK, https://www.atgames.net/features/external-apps, modified.
-// Included with attribution to AtGames (the SDK carries no licence file).
+// Included with attribution to AtGames (the SDK carries no license file).
 
 #pragma once
 
@@ -16,12 +16,12 @@
 // SDL only emits events for devices it has opened, so opening just one left the
 // other's buttons producing nothing at all -- no error, simply dead inputs, and
 // which half died depended on enumeration order. open() therefore opens every
-// recognised controller. That is safe: the two are distinct hardware, so a
+// recognized controller. That is safe: the two are distinct hardware, so a
 // given physical button belongs to exactly one of them and no press is
 // reported twice. Confirmed on hardware 2026-07-25.
 //
-// The key_mapping.ini fallback (used when SDL recognises no GameController)
-// covers the full control set, honours [sections] -- the two devices disagree
+// The key_mapping.ini fallback (used when SDL recognizes no GameController)
+// covers the full control set, honors [sections] -- the two devices disagree
 // on raw button numbers, B being b3 on one and b2 on the other -- and handles
 // hat events, without which the D-pad was unreachable.
 //

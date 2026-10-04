@@ -29,7 +29,7 @@ void shutdown();
 
 // --- primitives -------------------------------------------------------------
 
-// Solid rect (alpha honoured). Thin wrapper so callers needn't touch blend state.
+// Solid rect (alpha honored). Thin wrapper so callers needn't touch blend state.
 void rect(SDL_Renderer* r, const FRect& rc, SDL_Color c);
 
 // Filled anti-aliased disc.
@@ -66,7 +66,7 @@ void triangle(SDL_Renderer* r, const FRect& box, double degrees, SDL_Color c);
 void heart(SDL_Renderer* r, float cx, float cy, float size, SDL_Color c);
 
 // Vertical gradient over a plain rect (a 1xN ramp texture stretched: one draw,
-// no banding). `top`/`bottom` alpha honoured.
+// no banding). `top`/`bottom` alpha honored.
 void vGradient(SDL_Renderer* r, const FRect& rc, SDL_Color top, SDL_Color bottom);
 
 // Horizontal gradient over a plain rect.

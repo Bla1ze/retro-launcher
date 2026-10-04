@@ -109,7 +109,7 @@ void execMenu(const std::string& appDir, const std::string& sys, int index, cons
 void execPlay(const std::string& appDir, const std::string& sys, const std::string& romPath, ScreenId screen,
               int index, const std::string& returnTo = "", const std::string& core = "");
 
-// Favourites: data/favorites.txt, same format, any order.
+// Favorites: data/favorites.txt, same format, any order.
 std::vector<std::pair<std::string, std::string>> loadFavorites(const std::string& appDir);
 void saveFavorites(const std::string& appDir, const std::vector<std::pair<std::string, std::string>>& list);
 

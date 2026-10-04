@@ -7,11 +7,11 @@
 
 // Fills the bars beside a game with light taken from the game itself, instead
 // of flat black:
-//   - glow:   the frame averaged to a 16x9 colour grid, stretched over the whole
+//   - glow:   the frame averaged to a 16x9 color grid, stretched over the whole
 //             screen with linear filtering and darkened, so each bar picks up
-//             the colours at that edge of the picture;
+//             the colors at that edge of the picture;
 //   - shadow: a soft falloff around the picture so it sits above the glow.
-// Colours ease toward the game's, so flashes in the game don't strobe the bars.
+// Colors ease toward the game's, so flashes in the game don't strobe the bars.
 // Only CPU work is a sparse sample of the frame every few frames.
 class Ambient {
 public:

@@ -4,7 +4,7 @@ cmake_minimum_required(VERSION 3.5)
 # Builds with the AtGames External Applications SDK toolchain (see README.md).
 # Plays ROMs from the app folder with the firmware's emulator cores (or cores
 # shipped in cores/) on the playfield, backglass or DMD, chosen per game.
-# The SDK toolchain sets no optimisation level, so builds were -O0. The panel
+# The SDK toolchain sets no optimization level, so builds were -O0. The panel
 # compositing, audio resampler and frame sampling all need a real -O2.
 if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)

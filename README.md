@@ -17,7 +17,7 @@ already in the cabinet's firmware, or better ones built for it (see
 ## Features
 
 - **Menu on the playfield**: Neon-styled systems and game lists, search across
-  every system with an on-screen keyboard, Recently played, Favourites, A–Z
+  every system with an on-screen keyboard, Recently played, Favorites, A–Z
   letter jumps on the flippers, and an in-app Settings screen.
 - **Arcade**: FBNeo and MAME 2003-Plus, chosen per game by checking each zip
   against both emulators' ROM lists; real game names; vertical games full-size
@@ -31,9 +31,9 @@ already in the cabinet's firmware, or better ones built for it (see
   without art get a generated cover.
 - **Games on the backglass** (or the playfield), with the picture shape correct
   per system. Bezels (The Bezel Project format) or an ambient glow taken from the
-  game's own colours fill the sides. Smooth, sharp or pixel-perfect scaling, and
+  game's own colors fill the sides. Smooth, sharp or pixel-perfect scaling, and
   optional CRT scanlines. Blank edge columns (Master System, NES) are cropped so the
-  picture is centred.
+  picture is centered.
 - **While playing**: a "Now playing" card on the playfield with the cover and the
   game's controls, and a photo of the console on the DMD.
 - **Pause menu**: hold Start or press Home for Resume, Save state, Load state,
@@ -147,8 +147,8 @@ ROM.
 | Lists | A or Start | Open / play |
 | Lists | Flippers | Previous / next letter in a games list, a page elsewhere |
 | Games list | Second flippers | Previous / next system |
-| Game lists | Rewind (or Y) | Add to / remove from Favourites |
-| Game lists | Home | Game options: Play, Favourite, Screen (default / backglass / playfield), Emulator (arcade), Search |
+| Game lists | Rewind (or Y) | Add to / remove from Favorites |
+| Game lists | Home | Game options: Play, Favorite, Screen (default / backglass / playfield), Emulator (arcade), Search |
 | Consoles | Home or X | Search |
 | Lists | B | Back; on the consoles list, asks before exiting |
 | Settings | Left / Right | Change the highlighted setting |
@@ -163,7 +163,7 @@ each system's mapping while you play.
 
 ## Settings
 
-The **Settings** row (under Favourites on the consoles list) changes these; they are
+The **Settings** row (under Favorites on the consoles list) changes these; they are
 stored in `data/settings.cfg` (key = value):
 
 | Setting | Key | Values | Default |
@@ -197,7 +197,7 @@ docker run --rm --platform linux/amd64 -v "$SDK:/workspace" \
 
 The output is `dist/external/retro-launcher/`. The build ends with the SDK's
 compatibility check (glibc ≤ 2.26). The SDK's toolchain file sets no
-optimisation level, so this project forces a Release (`-O3`) build itself.
+optimization level, so this project forces a Release (`-O3`) build itself.
 
 ### Building the cores
 
@@ -243,9 +243,9 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 
 **Code included in this repository**
 
-| Component | Source | Licence |
+| Component | Source | License |
 |---|---|---|
-| Controls helper (`src/controls/`), font renderer base (`src/AppFont.cpp`), screen layout table (`src/DisplayProfile.h`) | AtGames External Applications SDK, [atgames.net/features/external-apps](https://www.atgames.net/features/external-apps), modified | No licence stated; included with attribution to AtGames |
+| Controls helper (`src/controls/`), font renderer base (`src/AppFont.cpp`), screen layout table (`src/DisplayProfile.h`) | AtGames External Applications SDK, [atgames.net/features/external-apps](https://www.atgames.net/features/external-apps), modified | No license stated; included with attribution to AtGames |
 | `libretro_min.h` (subset of `libretro.h`) | [libretro-common](https://github.com/libretro/libretro-common) | MIT |
 | `stb_truetype.h`, `stb_image.h` | [nothings/stb](https://github.com/nothings/stb), Sean Barrett | Public domain / MIT |
 | `drm_mode.h` | Linux kernel DRM UAPI | MIT |
@@ -254,17 +254,17 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 
 **Emulator cores** (not in this repository; built from these sources)
 
-| Core | Source | Licence |
+| Core | Source | License |
 |---|---|---|
-| Snes9x | [libretro/snes9x](https://github.com/libretro/snes9x) | Snes9x licence (non-commercial) |
+| Snes9x | [libretro/snes9x](https://github.com/libretro/snes9x) | Snes9x license (non-commercial) |
 | FCEUmm | [libretro/libretro-fceumm](https://github.com/libretro/libretro-fceumm) | GPL-2.0 |
 | Gearcoleco | [drhelius/Gearcoleco](https://github.com/drhelius/Gearcoleco) | GPL-3.0 |
 | Gambatte | [libretro/gambatte-libretro](https://github.com/libretro/gambatte-libretro) | GPL-2.0 |
 | gpSP | [libretro/gpsp](https://github.com/libretro/gpsp) (with `tools/patches/gpsp-arm64-old-gas.patch`) | GPL-2.0 |
 | Beetle PCE Fast | [libretro/beetle-pce-fast-libretro](https://github.com/libretro/beetle-pce-fast-libretro) | GPL-2.0 |
 | Handy | [libretro/libretro-handy](https://github.com/libretro/libretro-handy) | zlib |
-| FBNeo | [libretro/FBNeo](https://github.com/libretro/FBNeo) | FBNeo licence (non-commercial) |
-| MAME 2003-Plus | [libretro/mame2003-plus-libretro](https://github.com/libretro/mame2003-plus-libretro) | MAME licence (non-commercial) |
+| FBNeo | [libretro/FBNeo](https://github.com/libretro/FBNeo) | FBNeo license (non-commercial) |
+| MAME 2003-Plus | [libretro/mame2003-plus-libretro](https://github.com/libretro/mame2003-plus-libretro) | MAME license (non-commercial) |
 
 The firmware's own cores (Genesis Plus GX, QuickNES, SNES Faust, Stella and
 others) are loaded from the cabinet at run time and are not distributed here.
@@ -280,8 +280,8 @@ Thanks to the libretro and RetroArch developers, the authors of every core
 listed above, The Bezel Project, and AtGames for opening the cabinets to
 External Applications.
 
-## Licence
+## License
 
 Retro Launcher's own code is released under the
 [GNU General Public License v3.0](LICENSE). Third-party components keep their
-own licences, listed above.
+own licenses, listed above.

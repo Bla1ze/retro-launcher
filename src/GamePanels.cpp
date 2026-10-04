@@ -173,7 +173,7 @@ void blitFit(std::vector<uint8_t>& c, int W, int H, const std::vector<uint8_t>& 
 
 // ---- placeholder cover --------------------------------------------------------
 // Until real box art exists, each game gets a generated cover in the same layout
-// real art uses: colours picked from its name (stable between visits), a system
+// real art uses: colors picked from its name (stable between visits), a system
 // banner, the title in the display face, and a faint giant initial behind it.
 
 uint32_t fnv(const std::string& s) {
@@ -268,7 +268,7 @@ std::vector<uint8_t> makeCover(const std::string& system, const std::string& tit
     PanelFont::draw(c.data(), W, H, sys, (W - sw) * 0.5f, (bandH - spx) * 0.5f - 4.0f, spx, 255, 255, 255,
                     PanelFont::Face::Display);
 
-    // Title, wrapped and centred in the lower body, with a drop shadow.
+    // Title, wrapped and centered in the lower body, with a drop shadow.
     float tpx = 112.0f;
     std::vector<std::string> lines = wrap(title, tpx, W * 0.84f, 4);
     while (tpx > 56.0f && (lines.size() > 3 || [&] {
@@ -318,11 +318,11 @@ namespace {
 // the background transparent:
 //   1. flood-fill near-white pixels connected to the border;
 //   2. also clear enclosed pockets (inside a cable loop, between a controller
-//      and the console) when they are very white and not tiny, so light grey
+//      and the console) when they are very white and not tiny, so light gray
 //      plastic survives;
 //   2b. turn soft drop shadows into transparent black (see below);
 //   3. soften a 3-pixel band around the result: alpha from how close a pixel is
-//      to white, with the white that bled into its colour removed, so there is
+//      to white, with the white that bled into its color removed, so there is
 //      no pale halo on a dark panel.
 void keyOutWhite(std::vector<uint8_t>& img, int w, int h) {
     for (size_t i = 3; i < img.size(); i += 4)
@@ -373,14 +373,14 @@ void keyOutWhite(std::vector<uint8_t>& img, int w, int h) {
         if (region.size() < N / 2000)
             for (int j : region) bg[j] = 3;  // too small: keep (a highlight, a label)
     }
-    // 2b. soft drop shadows: from the background, spread into low-colour grey
+    // 2b. soft drop shadows: from the background, spread into low-color gray
     //     pixels only while brightness changes gently (a shadow fades; a
     //     console's outline is a sharp edge). Shadow pixels become black with
     //     alpha from their darkness, which vanishes on a dark panel.
     std::vector<uint8_t> shadow(N, 0);
     auto lum = [&](size_t i) { const uint8_t* p = &img[i * 4]; return (p[0] * 3 + p[1] * 6 + p[2]) / 10; };
     // Only for a mostly dark console (median brightness of what is left): under
-    // light grey plastic a shadow barely shows, and its soft near-white edges
+    // light gray plastic a shadow barely shows, and its soft near-white edges
     // are indistinguishable from the plastic itself (the NES top went black).
     int hist[256] = {0}, fg = 0;
     for (size_t i = 0; i < N; ++i) if (bg[i] == 0 || bg[i] == 3) { ++hist[lum(i)]; ++fg; }
@@ -391,7 +391,7 @@ void keyOutWhite(std::vector<uint8_t>& img, int w, int h) {
         // copy. A shadow changes a little over dozens of pixels; an object's
         // outline (even a soft, anti-aliased one) changes a lot over a few.
         // The shadow never spreads into an edge pixel, so it cannot leak across
-        // the outline into light grey plastic (the NES top did, before).
+        // the outline into light gray plastic (the NES top did, before).
         std::vector<int16_t> sm(N);
         for (int y = 0; y < h; ++y)
             for (int x = 0; x < w; ++x) {

@@ -323,7 +323,7 @@ bool Settings::save() const {
     if (!f) { log("could not save %s: %s", m_path.c_str(), std::strerror(errno)); return false; }
     std::fprintf(f, "# Retro Launcher settings. sys.<system> = default screen, game.<system>/<file> = per-game screen,\n"
                     "# rotate.<screen> = picture rotation in degrees (0/90/180/270).\n"
-                    "# bars = ambient (glow + bokeh from the game's colours) or black.\n");
+                    "# bars = ambient (glow + bokeh from the game's colors) or black.\n");
     for (const auto& kv : m_values) std::fprintf(f, "%s = %s\n", kv.first.c_str(), kv.second.c_str());
     std::fclose(f);
     return true;

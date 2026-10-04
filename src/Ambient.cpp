@@ -84,7 +84,7 @@ void Ambient::draw(const SDL_Rect& game, int winW, int winH, float dt) {
     if (m_style == Style::Black || !m_grid || !m_haveColors) return;
     m_time += dt;
 
-    // Ease toward the game's colours (about a quarter second).
+    // Ease toward the game's colors (about a quarter second).
     float k = std::min(1.0f, dt * 4.0f);
     for (int i = 0; i < kCols * kRows; ++i) {
         m_shown[i].r += (m_target[i].r - m_shown[i].r) * k;
@@ -102,7 +102,7 @@ void Ambient::draw(const SDL_Rect& game, int winW, int winH, float dt) {
         px[i] = 0xff000000u | ((uint32_t)ch(c.r) << 16) | ((uint32_t)ch(c.g) << 8) | (uint32_t)ch(c.b);
     }
     SDL_UpdateTexture(m_grid, nullptr, px, kCols * 4);
-    // Inset by half a cell so the outer cells' colour reaches the screen edge.
+    // Inset by half a cell so the outer cells' color reaches the screen edge.
     SDL_Rect full{-winW / (2 * kCols), -winH / (2 * kRows), winW + winW / kCols, winH + winH / kRows};
     SDL_RenderCopy(m_r, m_grid, nullptr, &full);
 

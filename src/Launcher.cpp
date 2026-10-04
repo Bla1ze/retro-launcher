@@ -94,7 +94,7 @@ public:
     int run();
 
 private:
-    enum class View { Systems, Games, Search, Recent, Settings };  // Recent also shows Favourites
+    enum class View { Systems, Games, Search, Recent, Settings };  // Recent also shows Favorites
 
     bool initVideo();
     void shutdown();
@@ -130,7 +130,7 @@ private:
     Library::Settings m_settings;
     std::vector<SystemEntry> m_systems;
     View m_view = View::Systems;
-    int m_sysRow = 0;   // 0 Search, 1 Recently played, 2 Favourites, 3 Settings, 4.. = m_systems[row - 4]
+    int m_sysRow = 0;   // 0 Search, 1 Recently played, 2 Favorites, 3 Settings, 4.. = m_systems[row - 4]
     int m_gameSel = 0;
     float m_sysScroll = 0.0f, m_gameScroll = 0.0f;
     float m_clock = 0.0f;
@@ -165,18 +165,18 @@ private:
     AtGames::Controls m_controls;
 
     int sysIndex() const { return m_sysRow - kFixedRows; }
-    static constexpr int kFixedRows = 4;  // Search, Recently played, Favourites, Settings
+    static constexpr int kFixedRows = 4;  // Search, Recently played, Favorites, Settings
     int settingsRow() const { return 3; }
     int systemRows() const { return (int)m_systems.size() + kFixedRows; }
 
-    // Favourites, as (system id, ROM file).
+    // Favorites, as (system id, ROM file).
     std::set<std::pair<std::string, std::string>> m_favs;
-    bool m_listIsFav = false;  // the Recent view is showing Favourites
+    bool m_listIsFav = false;  // the Recent view is showing Favorites
     bool isFav(int sys, int game) const {
         return m_favs.count({m_systems[sys].sys->id, m_systems[sys].games[game].file}) > 0;
     }
     void toggleFav(int sys, int game);
-    void openList(bool favourites);
+    void openList(bool favorites);
     void cycleGameScreen(int sys, int game, int dir);
     ScreenId gameScreen(int sys, int game) const;
 
@@ -402,7 +402,7 @@ void Menu::launch(int sys, int game, const std::string& returnTo, int returnInde
     m_toast = "Could not start the game (see data/launcher.log).";
 }
 
-// ------------------------------------------------- favourites / screens
+// ------------------------------------------------- favorites / screens
 
 void Menu::toggleFav(int sys, int game) {
     auto key = std::make_pair(m_systems[sys].sys->id, m_systems[sys].games[game].file);
@@ -410,14 +410,14 @@ void Menu::toggleFav(int sys, int game) {
     if (added) m_favs.insert(key);
     else m_favs.erase(key);
     Library::saveFavorites(m_appDir, {m_favs.begin(), m_favs.end()});
-    m_toast = (added ? "Added to Favourites: " : "Removed from Favourites: ") + m_systems[sys].games[game].title;
+    m_toast = (added ? "Added to Favorites: " : "Removed from Favorites: ") + m_systems[sys].games[game].title;
     m_toastTime = 0.0f;
 }
 
-// Recently played (newest first) or Favourites (A-Z), in the same list view.
-void Menu::openList(bool favourites) {
-    m_listIsFav = favourites;
-    if (favourites) {
+// Recently played (newest first) or Favorites (A-Z), in the same list view.
+void Menu::openList(bool favorites) {
+    m_listIsFav = favorites;
+    if (favorites) {
         m_recent.clear();
         for (int s = 0; s < (int)m_systems.size(); ++s)
             for (int g = 0; g < (int)m_systems[s].games.size(); ++g)
@@ -618,7 +618,7 @@ void Menu::handleSearch(AtGames::ControlEvent ev) {
     } else if (ev == CE::A || ev == CE::Start) pressKey();
 }
 
-// The game under the cursor in a games list, Recent / Favourites or search results.
+// The game under the cursor in a games list, Recent / Favorites or search results.
 bool Menu::highlightedGame(int& sys, int& game) const {
     if (m_view == View::Games && !m_systems[sysIndex()].games.empty()) { sys = sysIndex(); game = m_gameSel; return true; }
     if (m_view == View::Recent && !m_recent.empty()) { sys = m_recent[m_recentSel].sys; game = m_recent[m_recentSel].game; return true; }
@@ -712,7 +712,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     case CE::Y:
     case CE::Rewind:
     case CE::Rewind2:
-        // Favourite the highlighted game. Nothing anywhere else.
+        // Favorite the highlighted game. Nothing anywhere else.
         if (m_view == View::Games && onGame) { toggleFav(hs, hg); break; }
         if (m_view == View::Recent && onGame) {
             toggleFav(hs, hg);
@@ -732,7 +732,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             if (m_sysRow == 1 || m_sysRow == 2) {
                 openList(m_sysRow == 2);
                 if (m_recent.empty()) {
-                    m_toast = m_sysRow == 2 ? "No favourites yet - press REWIND on a game to add it"
+                    m_toast = m_sysRow == 2 ? "No favorites yet - press REWIND on a game to add it"
                                             : "Nothing played yet - games you start will show up here";
                     m_toastTime = 0.0f;
                 } else {
@@ -798,7 +798,7 @@ void Menu::updatePanels(float dt) {
     } else if (m_sysRow == 1 || m_sysRow == 2) {
         key = m_sysRow == 1 ? "row:recent" : "row:favorites";
         if (key != m_panelKey)
-            m_panelItem = {key, m_sysRow == 1 ? "Recently played" : "Favourites", "",
+            m_panelItem = {key, m_sysRow == 1 ? "Recently played" : "Favorites", "",
                            m_sysRow == 1 ? "Your last games" : std::to_string(m_favs.size()) + " games", ""};
     } else {
         const SystemEntry& e = m_systems[sysIndex()];
@@ -838,9 +838,9 @@ void Menu::endListClip() {
     SDL_RenderSetScale(m_renderer, m_canvasScale, m_canvasScale);
 }
 
-// Right side of a game row: a heart for favourites and a screen chip. The chip
+// Right side of a game row: a heart for favorites and a screen chip. The chip
 // shows on the highlighted row, and on any row whose screen was chosen for it
-// (accent colour). Returns the width it took.
+// (accent color). Returns the width it took.
 float drawGameExtras(SDL_Renderer* r, const FRect& row, bool active, bool fav, bool overridden, ScreenId screen) {
     float right = row.x + row.w - 20.0f, used = 20.0f;
     if (active || overridden) {
@@ -943,7 +943,7 @@ void Menu::renderSystems() {
             continue;
         }
         if (i == 2) {
-            AppFont::draw(r, "Favourites", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+            AppFont::draw(r, "Favorites", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
             AppFont::draw(r, m_favs.empty() ? "Press REWIND on a game to add it" : std::to_string(m_favs.size()) + " games",
                           tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
@@ -997,7 +997,7 @@ void Menu::renderGames() {
     }
     endListClip();
     drawHeader(e.sys->verified ? "Games" : "Games - untested core", e.sys->name, m_gameSel + 1, (int)e.games.size());
-    Theme::footerHints(r, w, "A Play   HOME Options   REWIND Favourite   B Back", "");
+    Theme::footerHints(r, w, "A Play   HOME Options   REWIND Favorite   B Back", "");
 }
 
 void Menu::renderSearch() {
@@ -1078,7 +1078,7 @@ void Menu::renderSearch() {
         AppFont::drawCentered(r, "No games match", w * 0.5f, kHitsTop + 30.0f, Theme::Type::Small, Theme::Muted);
 
     drawHeader("Search", "All systems", 0, 0);
-    Theme::footerHints(r, w, m_inHits ? "A Play   HOME Options   REWIND Favourite   B Keyboard" : "A Type   LB Delete   RB Results   B Back", "");
+    Theme::footerHints(r, w, m_inHits ? "A Play   HOME Options   REWIND Favorite   B Keyboard" : "A Type   LB Delete   RB Results   B Back", "");
 }
 
 void Menu::renderRecent() {
@@ -1108,8 +1108,8 @@ void Menu::renderRecent() {
                       tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
     }
     endListClip();
-    drawHeader("Consoles", m_listIsFav ? "Favourites" : "Recently played", m_recentSel + 1, (int)m_recent.size());
-    Theme::footerHints(r, w, "A Play   HOME Options   REWIND Favourite   B Back", "");
+    drawHeader("Consoles", m_listIsFav ? "Favorites" : "Recently played", m_recentSel + 1, (int)m_recent.size());
+    Theme::footerHints(r, w, "A Play   HOME Options   REWIND Favorite   B Back", "");
 }
 
 void Menu::renderSettings() {
@@ -1158,7 +1158,7 @@ void Menu::drawHeader(const std::string& caption, const std::string& title, int 
     if (total > 0) Theme::counter(r, w, index, total);
 }
 
-// Home on a game: Play, Favourite, Screen, Search.
+// Home on a game: Play, Favorite, Screen, Search.
 void Menu::renderPopup() {
     SDL_Renderer* r = m_renderer;
     const int w = AppConfig::kLogicalWidth, h = AppConfig::kLogicalHeight;
@@ -1183,7 +1183,7 @@ void Menu::renderPopup() {
     std::string core = coreOver.empty() ? "Auto (" + Arcade::coreLabel(g.core) + ")" : Arcade::coreLabel(coreOver);
     for (int i = 0; i < count; ++i) {
         const int it = items[i];
-        std::string label = it == PopPlay ? "Play" : it == PopFav ? (isFav(m_popupSys, m_popupGame) ? "Remove from Favourites" : "Add to Favourites")
+        std::string label = it == PopPlay ? "Play" : it == PopFav ? (isFav(m_popupSys, m_popupGame) ? "Remove from Favorites" : "Add to Favorites")
                           : it == PopScreen ? "Screen" : it == PopCore ? "Emulator" : "Search";
         FRect row{px + 40.0f, py + 160.0f + i * (itemH + gap), pw - 80.0f, itemH};
         bool active = i == m_popupSel;

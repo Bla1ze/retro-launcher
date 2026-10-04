@@ -34,7 +34,7 @@
 //  2. `ForceConnectID` tells the CABINET'S SDL which connector to open, before
 //     SDL_Init. Upstream SDL ignores it (it just takes the first connected
 //     connector, which is the backglass on an HA9919) — the firmware's vendor
-//     SDL honours it, which is what puts our window on the playfield.
+//     SDL honors it, which is what puts our window on the playfield.
 namespace DisplayProfile {
 
 struct Screen {

@@ -148,7 +148,7 @@ void draw(SDL_Renderer* renderer, const std::string& text, float x, float y,
     // (3x on a 4K panel), so rounding glyph rects in logical units snapped
     // every edge to 3-pixel steps: narrow glyphs like 'i' and 'l' got squeezed
     // or stretched by up to a third of a logical pixel and their stems blurred,
-    // reading visibly lighter than their neighbours. Drop to scale 1 for the
+    // reading visibly lighter than their neighbors. Drop to scale 1 for the
     // glyph copies and round in physical space instead, carrying the clip rect
     // (stored in logical units) across the change.
     float rsx = 1.0f, rsy = 1.0f;

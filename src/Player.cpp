@@ -494,7 +494,7 @@ Uint32 sdlFormat(retro_pixel_format f) {
 
 // Blank edge columns. Master System games (and some NES games) blank the
 // leftmost 8 pixels, so the picture carries a black strip on one side and looks
-// off-centre. Every half second, count fully black columns at each edge (up to
+// off-center. Every half second, count fully black columns at each edge (up to
 // 16); a result seen three times in a row becomes the crop.
 int g_cropL = 0, g_cropR = 0;
 bool g_noCrop = false;   // arcade: black edges are part of the game

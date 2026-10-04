@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build the arcade ROM databases Retro Launcher uses to recognise arcade zips,
+"""Build the arcade ROM databases Retro Launcher uses to recognize arcade zips,
 pick the emulator for each, and name and orient the games.
 
 Usage:  make_arcade_db.py <cores-src folder> <out folder>

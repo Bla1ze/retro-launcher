@@ -1,7 +1,7 @@
 // Based on the controls helper (sdk/controls) from the AtGames External
 // Applications SDK, https://www.atgames.net/features/external-apps, modified
 // for Retro Launcher (both input devices opened, full key_mapping.ini fallback,
-// hat handling). The SDK carries no licence file; this file is included with
+// hat handling). The SDK carries no license file; this file is included with
 // attribution to AtGames.
 
 #include "Controls.h"
@@ -122,7 +122,7 @@ bool Controls::open()
         }
     }
 
-    // Open EVERY recognised controller.
+    // Open EVERY recognized controller.
     //
     // A cabinet can expose both CE's virtual controller and the USB arcade
     // control panel, and the physical controls are split between them. SDL only
@@ -523,7 +523,7 @@ ControlEvent Controls::eventFromMappedJoystickButton(Uint8 button) const
 
 // The ini stores the D-pad as H1/H2/H4/H8, which are exactly SDL's hat bits.
 // Without this, the fallback path had no directions at all — a cabinet SDL did
-// not recognise as a GameController could not be navigated.
+// not recognize as a GameController could not be navigated.
 ControlEvent Controls::eventFromJoystickHat(Uint8 value) const
 {
     switch (value) {
@@ -531,7 +531,7 @@ ControlEvent Controls::eventFromJoystickHat(Uint8 value) const
     case SDL_HAT_DOWN:  return ControlEvent::DpadDown;
     case SDL_HAT_LEFT:  return ControlEvent::DpadLeft;
     case SDL_HAT_RIGHT: return ControlEvent::DpadRight;
-    default:            return ControlEvent::None;   // centred or diagonal
+    default:            return ControlEvent::None;   // centered or diagonal
     }
 }
 
