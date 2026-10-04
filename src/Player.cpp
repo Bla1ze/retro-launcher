@@ -867,10 +867,20 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     Uint32 toastAt = 0;
     uint16_t prevButtons = 0;
     bool prevGuide = false, suppressInput = false;
+    // A state only loads in the core that wrote it (a QuickNES state means
+    // nothing to FCEUmm), so each one records its core in "<state>.core".
+    // States without that record predate it and are treated as foreign.
+    const std::string coreTag = std::string(info.library_name ? info.library_name : "?") + " " +
+                                (info.library_version ? info.library_version : "");
+    auto stateMatches = [&](const std::string& path) {
+        std::vector<uint8_t> tag;
+        return fileExists(path) && readFile(path + ".core", tag) && std::string(tag.begin(), tag.end()) == coreTag;
+    };
     auto saveState = [&](const std::string& path) {
         if (!canState) return false;
         std::vector<uint8_t> buf(core.serialize_size());
-        bool ok = core.serialize(buf.data(), buf.size()) && writeFile(path, buf.data(), buf.size());
+        bool ok = core.serialize(buf.data(), buf.size()) && writeFile(path, buf.data(), buf.size()) &&
+                  writeFile(path + ".core", coreTag.data(), coreTag.size());
         log("save state %s: %s", path.c_str(), ok ? "ok" : "failed");
         return ok;
     };
@@ -904,7 +914,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         startHeld = 0;
         pauseAudio(false);
     };
-    if (canState && fileExists(autoPath)) {
+    if (canState && fileExists(autoPath) && !stateMatches(autoPath))
+        log("not offering %s: saved with a different core", autoPath.c_str());
+    if (canState && stateMatches(autoPath)) {
         // Show the game's first frame behind the question.
         g_audioBatch.clear();
         core.run();
@@ -931,7 +943,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         std::vector<bool> enabled;
         if (menu == Menu::Pause) {
             items = {"Resume", "Save state", "Load state", "Reset", "Quit to menu"};
-            enabled = {true, canState, canState && fileExists(statePath), core.reset != nullptr, true};
+            enabled = {true, canState, canState && stateMatches(statePath), core.reset != nullptr, true};
         } else if (menu == Menu::Continue) {
             items = {"Continue where you left off", "Start from the beginning"};
             enabled = {true, true};
@@ -959,7 +971,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             if (menu == Menu::Pause && (back || (pressed(RETRO_DEVICE_ID_JOYPAD_START) && !confirm))) {
                 closeMenu();
             } else if (confirm && !enabled[menuSel]) {
-                toast = menuSel == 2 ? "No saved state yet" : "This emulator can't do that";
+                toast = menuSel != 2              ? "This emulator can't do that"
+                        : fileExists(statePath) ? "Saved with a different emulator"
+                                                : "No saved state yet";
                 toastAt = t;
             } else if (confirm && menu == Menu::Continue) {
                 if (menuSel == 0) loadState(autoPath);
