@@ -868,9 +868,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     // Arcade cores take the zip itself (and find parent / BIOS zips beside it).
     std::vector<std::string> coreExts = splitExts(info.valid_extensions);
     const bool zipToCore = hasExt(romPath, "zip") && std::find(coreExts.begin(), coreExts.end(), "zip") != coreExts.end();
+    // Cores that open the file themselves get it where it is: a disc image can be
+    // 700 MB, and a .cue needs its track files beside it.
+    const bool direct = zipToCore || (info.need_fullpath && !hasExt(romPath, "zip"));
     g_noCrop = sys->id == "arcade";
     std::vector<uint8_t> romData;
-    if (!zipToCore && !readFile(romPath, romData)) return fail("Could not read the ROM file.");
+    if (!direct && !readFile(romPath, romData)) return fail("Could not read the ROM file.");
     std::string romName = baseName(romPath);
     if (zipToCore) {
         if (!info.need_fullpath) return fail("This core wants the game in memory, not a zip.");
@@ -885,7 +888,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     }
     ::mkdir("/tmp/retrofe", 0755);
     std::string romFile = "/tmp/retrofe/" + romName;
-    if (zipToCore) {
+    if (direct) {
         romFile = romPath;
     } else if (!writeFile(romFile, romData.data(), romData.size())) {
         log("could not write %s (%s); passing the original path", romFile.c_str(), std::strerror(errno));

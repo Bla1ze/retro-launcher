@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstring>
 #include <fstream>
+#include <set>
 
 namespace Library {
 namespace {
@@ -140,6 +141,9 @@ const std::vector<System>& systems() {
         {"gba", "Game Boy Advance", "GBA", {"gpsp_libretro.so"}, {"gba"}, 3.0f / 2.0f, false},
         {"pce", "PC Engine / TurboGrafx-16", "PCE", {"mednafen_pce_fast_libretro.so"}, {"pce", "sgx"}, 4.0f / 3.0f, false},
         {"lynx", "Atari Lynx", "LNX", {"handy_libretro.so"}, {"lnx"}, 160.0f / 102.0f, false},
+        // Disc images are passed to the core where they are (cue tracks beside them).
+        {"psx", "PlayStation", "PS1", {"pcsx_rearmed_libretro.so"}, {"chd", "cue", "pbp", "m3u", "iso", "img", "bin"},
+         4.0f / 3.0f, false},
     };
     return list;
 }
@@ -163,6 +167,9 @@ std::vector<std::pair<std::string, std::string>> controlHints(const std::string&
         return {{"A", "B"}, {"B", "A"}, {"LB / RB", "L / R"}, {"START", "Start"}, {"REWIND", "Select"}};
     if (id == "pce")
         return {{"A", "II"}, {"B", "I"}, {"START", "Run"}, {"REWIND", "Select"}};
+    if (id == "psx")
+        return {{"A", "Cross"}, {"B", "Circle"}, {"X", "Square"}, {"Y", "Triangle"}, {"LB / RB", "L1 / R1"},
+                {"LB2 / RB2", "L2 / R2"}, {"START", "Start"}, {"REWIND", "Select"}};
     if (id == "arcade")
         return {{"A", "Button 1"}, {"B", "Button 2"}, {"X", "Button 3"}, {"Y", "Button 4"},
                 {"LB / RB", "Button 5 / 6"}, {"REWIND", "Coin"}, {"START", "Start"}};
@@ -198,6 +205,32 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
         games.push_back(g);
     }
     ::closedir(d);
+    // A .cue's track files and an .m3u's discs are parts of one game: list only
+    // the .cue / .m3u.
+    std::set<std::string> parts;
+    for (const Game& g : games) {
+        std::string ext = extOf(g.file);
+        if (ext != "cue" && ext != "m3u") continue;
+        std::ifstream in(g.path);
+        std::string line;
+        while (std::getline(in, line)) {
+            if (!line.empty() && line.back() == '\r') line.pop_back();
+            std::string ref;
+            if (ext == "cue") {
+                size_t a = line.find('"'), b = line.rfind('"');
+                if (lower(line).find("file") == std::string::npos || a == std::string::npos || b <= a) continue;
+                ref = line.substr(a + 1, b - a - 1);
+            } else {
+                ref = trim(line);
+                if (ref.empty() || ref[0] == '#') continue;
+            }
+            parts.insert(lower(ref.substr(ref.find_last_of('/') + 1)));
+        }
+    }
+    if (!parts.empty())
+        games.erase(std::remove_if(games.begin(), games.end(),
+                                   [&](const Game& g) { return parts.count(lower(g.file)) > 0; }),
+                    games.end());
     std::sort(games.begin(), games.end(), [](const Game& a, const Game& b) {
         return lower(a.title + " " + a.tags) < lower(b.title + " " + b.tags);
     });
@@ -214,6 +247,9 @@ static const char* biosNote(const std::string& id) {
         return "Optional: gba_bios.bin. gpSP has a built-in BIOS; the original improves compatibility with a few games.";
     if (id == "lynx") return "Recommended: lynxboot.img (512 bytes). Handy can start most games without it.";
     if (id == "pce") return "None for HuCard games (CD games are not supported).";
+    if (id == "psx")
+        return "Optional: scph5501.bin (USA), scph5500.bin (Japan), scph5502.bin (Europe). PCSX ReARMed has a "
+               "built-in BIOS; a real one runs more games.";
     if (id == "arcade") return "BIOS zips (neogeo.zip, pgm.zip...) go in roms/arcade/ with the games, not in system/.";
     return "";
 }

@@ -37,6 +37,7 @@ build gambatte     gambatte-libretro -f Makefile.libretro
 build gpsp         gpsp CPU_ARCH=arm64 HAVE_DYNAREC=1 MMAP_JIT_CACHE=1
 build pce_fast     beetle-pce-fast-libretro
 build handy        libretro-handy
+build pcsx_rearmed pcsx_rearmed -f Makefile.libretro HAVE_PHYSICAL_CDROM=0
 # Arcade. Each ships with the ROM database of the same commit (tools/make_arcade_db.py).
 build fbneo        FBNeo/src/burner/libretro CXX="aarch64-linux-gnu-g++ -std=gnu++11"
 build mame2003_plus mame2003-plus-libretro

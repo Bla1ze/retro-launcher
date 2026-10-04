@@ -60,10 +60,18 @@ already in the cabinet's firmware, or better ones built for it (see
 | Game Boy Advance | `roms/gba` | gpSP | `cores/` |
 | PC Engine / TurboGrafx-16 | `roms/pce` | Beetle PCE Fast | `cores/` |
 | Atari Lynx | `roms/lynx` | Handy | `cores/` |
+| PlayStation | `roms/psx` | PCSX ReARMed | `cores/` |
 | Arcade | `roms/arcade` | FBNeo or MAME 2003-Plus, picked per game | `cores/` |
 
 Genesis is verified on a Legends Pinball 4KP; the others are marked "untested"
 in the menu until confirmed. ROMs can be plain files or `.zip`.
+
+### PlayStation
+
+Put games in `roms/psx/` as `.chd` (smallest, recommended), `.pbp`, or `.cue` with
+its `.bin` tracks beside it. Only the `.cue` is listed, and an `.m3u` playlist
+hides the discs it names. Don't zip disc images. PCSX ReARMed has a built-in
+BIOS; a real one (`scph5501.bin` for USA games) in `system/` runs more games.
 
 ### Arcade
 
@@ -209,10 +217,11 @@ mkdir -p "$SDK/cores-src" && cd "$SDK/cores-src"
 for r in libretro/snes9x libretro/libretro-fceumm drhelius/Gearcoleco \
          libretro/gambatte-libretro libretro/gpsp \
          libretro/beetle-pce-fast-libretro libretro/libretro-handy \
-         libretro/FBNeo libretro/mame2003-plus-libretro; do
+         libretro/FBNeo libretro/mame2003-plus-libretro libretro/pcsx_rearmed; do
   git clone --depth 1 "https://github.com/$r.git"
 done
 git -C gpsp apply /path/to/retro-launcher/tools/patches/gpsp-arm64-old-gas.patch
+git -C pcsx_rearmed apply /path/to/retro-launcher/tools/patches/pcsx_rearmed-arm64-old-gas.patch
 cp /path/to/retro-launcher/tools/build-cores.sh .
 docker run --rm --platform linux/amd64 -v "$SDK:/workspace" \
   atgames-external-sdk:glibc-2.26-sdl2-v1 bash /workspace/cores-src/build-cores.sh
@@ -263,6 +272,7 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 | gpSP | [libretro/gpsp](https://github.com/libretro/gpsp) (with `tools/patches/gpsp-arm64-old-gas.patch`) | GPL-2.0 |
 | Beetle PCE Fast | [libretro/beetle-pce-fast-libretro](https://github.com/libretro/beetle-pce-fast-libretro) | GPL-2.0 |
 | Handy | [libretro/libretro-handy](https://github.com/libretro/libretro-handy) | zlib |
+| PCSX ReARMed | [libretro/pcsx_rearmed](https://github.com/libretro/pcsx_rearmed) (with `tools/patches/pcsx_rearmed-arm64-old-gas.patch`) | GPL-2.0 |
 | FBNeo | [libretro/FBNeo](https://github.com/libretro/FBNeo) | FBNeo license (non-commercial) |
 | MAME 2003-Plus | [libretro/mame2003-plus-libretro](https://github.com/libretro/mame2003-plus-libretro) | MAME license (non-commercial) |
 

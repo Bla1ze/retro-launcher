@@ -20,6 +20,9 @@
 #include <thread>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
+#include <cstring>
+#include <map>
 #include <memory>
 #include <set>
 #include <string>
@@ -229,6 +232,58 @@ private:
 
 // ----------------------------------------------------------------- setup
 
+// What the cabinet is, for planning GPU cores (Flycast, PPSSPP): the chip, its
+// cores and memory, the firmware's SDL and the GL ES version behind its renderer.
+static void logHardware(SDL_Renderer* renderer) {
+    std::string compat;
+    if (FILE* f = std::fopen("/proc/device-tree/compatible", "rb")) {
+        char buf[256];
+        size_t n = std::fread(buf, 1, sizeof(buf) - 1, f);
+        std::fclose(f);
+        for (size_t i = 0; i < n; ++i) compat += buf[i] ? buf[i] : ' ';
+    }
+    int cpus = 0;
+    std::map<std::string, int> parts;  // "CPU part" -> count (0xd0b A76, 0xd05 A55)
+    if (FILE* f = std::fopen("/proc/cpuinfo", "r")) {
+        char line[256];
+        while (std::fgets(line, sizeof(line), f)) {
+            if (std::strncmp(line, "processor", 9) == 0) ++cpus;
+            if (std::strncmp(line, "CPU part", 8) == 0) {
+                const char* v = std::strchr(line, ':');
+                std::string part = v ? v + 2 : "?";
+                while (!part.empty() && (part.back() == '\n' || part.back() == ' ')) part.pop_back();
+                ++parts[part];
+            }
+        }
+        std::fclose(f);
+    }
+    std::string partList;
+    for (const auto& kv : parts) partList += (partList.empty() ? "" : ", ") + std::to_string(kv.second) + "x " + kv.first;
+    long memMb = 0;
+    if (FILE* f = std::fopen("/proc/meminfo", "r")) {
+        long kb = 0;
+        if (std::fscanf(f, "MemTotal: %ld kB", &kb) == 1) memMb = kb / 1024;
+        std::fclose(f);
+    }
+    SDL_version v;
+    SDL_GetVersion(&v);
+    SDL_RendererInfo info{};
+    SDL_GetRendererInfo(renderer, &info);
+    log("hw: %s| %d cpus (%s), %ld MB, SDL %d.%d.%d, renderer %s", compat.c_str(), cpus, partList.c_str(), memMb,
+        v.major, v.minor, v.patch, info.name ? info.name : "?");
+    typedef const unsigned char* (*GetString)(unsigned);
+    GetString glGetString = (GetString)SDL_GL_GetProcAddress("glGetString");
+    if (glGetString && SDL_GL_GetCurrentContext()) {
+        const unsigned char* ver = glGetString(0x1F02);   // GL_VERSION
+        const unsigned char* rend = glGetString(0x1F01);  // GL_RENDERER
+        const unsigned char* sl = glGetString(0x8B8C);    // GL_SHADING_LANGUAGE_VERSION
+        log("hw: GL %s | %s | GLSL %s", ver ? (const char*)ver : "?", rend ? (const char*)rend : "?",
+            sl ? (const char*)sl : "?");
+    } else {
+        log("hw: no GL context behind the renderer");
+    }
+}
+
 bool Menu::initVideo() {
     m_topo = DisplayProfile::detect();
     log("model '%s' %s: main %u, backglass %u, dmd %u", m_topo.model.c_str(), m_topo.known ? "known" : "unknown",
@@ -274,6 +329,7 @@ bool Menu::initVideo() {
     }
     SDL_SetTextureBlendMode(m_canvas, SDL_BLENDMODE_NONE);
     log("menu output %dx%d, canvas scale %.2f", ow, oh, m_canvasScale);
+    logHardware(m_renderer);
     Gfx::init(m_renderer, m_canvasScale);
     m_controls.open();
 

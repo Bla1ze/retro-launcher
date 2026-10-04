@@ -36,6 +36,7 @@ REPOS = {
     "gba": ["Nintendo_-_Game_Boy_Advance"],
     "pce": ["NEC_-_PC_Engine_-_TurboGrafx_16", "NEC_-_PC_Engine_SuperGrafx"],
     "lynx": ["Atari_-_Lynx"],
+    "psx": ["Sony_-_PlayStation"],
 }
 UA = {"User-Agent": "retro-launcher-prefill"}
 
