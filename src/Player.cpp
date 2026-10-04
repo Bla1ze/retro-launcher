@@ -401,6 +401,9 @@ void declareOption(const char* key, const char* spec) {
 // --------------------------------------------------------------- callbacks
 
 void coreLog(enum retro_log_level level, const char* fmt, ...) {
+    // Debug output is skipped: MAME writes a line for nearly everything (21 MB
+    // in one session), all of it to the USB stick while the game runs.
+    if (level == RETRO_LOG_DEBUG) return;
     char buf[1024];
     va_list ap;
     va_start(ap, fmt);
