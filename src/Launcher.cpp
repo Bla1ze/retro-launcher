@@ -846,9 +846,12 @@ void Menu::drawRowIcon(int row, const FRect& slot, bool dim) {
         }
         if (ic.tex) {
             float w = ic.w / m_canvasScale, h = ic.h / m_canvasScale;
-            SDL_FRect dst{slot.x + (slot.w - w) * 0.5f, slot.y + (slot.h - h) * 0.5f, w, h};
+            // Integer SDL_RenderCopy: the cabinet's SDL has no SDL_RenderCopyF (2.0.10+),
+            // though the SDK headers declare it; it fails at the first call.
+            SDL_Rect dst{(int)std::lround(slot.x + (slot.w - w) * 0.5f), (int)std::lround(slot.y + (slot.h - h) * 0.5f),
+                         (int)std::lround(w), (int)std::lround(h)};
             SDL_SetTextureAlphaMod(ic.tex, dim ? 90 : 255);
-            SDL_RenderCopyF(r, ic.tex, nullptr, &dst);
+            SDL_RenderCopy(r, ic.tex, nullptr, &dst);
             return;
         }
     }
