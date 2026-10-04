@@ -1,0 +1,9 @@
+<root>
+    <name>Retro Launcher</name>
+    <developer>Bla1ze</developer>
+    <category>Emulation</category>
+    <year>2026</year>
+    <copyright>Bla1ze</copyright>
+    <description>Play console ROMs on the backglass, picked from a menu on the playfield. Put ROMs (plain or .zip) in this app's roms/ folders: genesis, mastersystem, gamegear, nes, snes, atari2600, colecovision, gb, gbc, gba, pce, lynx. In a game, hold Start or press Home for the pause menu (save states, reset, quit).</description>
+    <logging>true</logging>
+</root>

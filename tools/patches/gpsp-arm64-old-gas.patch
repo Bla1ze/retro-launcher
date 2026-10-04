@@ -1,0 +1,148 @@
+diff --git a/arm/arm64_stub.S b/arm/arm64_stub.S
+index 6b76781..9bcaa39 100644
+--- a/arm/arm64_stub.S
++++ b/arm/arm64_stub.S
+@@ -145,7 +145,7 @@ _##symbol:
+ 
+ defsymbl(a64_update_gba)
+   str w0, [reg_base, #REG_PC]             // update the PC value
+-  str lr, [reg_base, #REG_SAVE]           // Save LR for later if needed
++  str x30, [reg_base, #REG_SAVE]           // Save LR for later if needed
+ 
+   consolidate_flags(w0)                   // update the CPSR
+   store_registers()                       // save out registers
+@@ -161,7 +161,7 @@ defsymbl(a64_update_gba)
+ 
+   tbnz w0, #30, 1f                        // check if PC changed
+ 
+-  ldr lr, [reg_base, #REG_SAVE]           // Restore return point
++  ldr x30, [reg_base, #REG_SAVE]           // Restore return point
+   load_registers()                        // reload registers
+   ret                                     // resume execution, no PC change
+ 
+@@ -185,9 +185,9 @@ defsymbl(a64_update_gba)
+ 
+ defsymbl(a64_cheat_hook)
+   store_registers()
+-  str lr, [reg_base, #REG_SAVE]
++  str x30, [reg_base, #REG_SAVE]
+   bl process_cheats
+-  ldr lr, [reg_base, #REG_SAVE]
++  ldr x30, [reg_base, #REG_SAVE]
+   load_registers()
+   ret
+ 
+@@ -250,13 +250,13 @@ defsymbl(execute_store_cpsr)
+   orr w0, w3, w4                          // w2 = final CPSR value
+   extract_flags_reg(w0)                   // Update cached flags too
+ 
+-  str lr, [reg_base, #REG_SAVE]
++  str x30, [reg_base, #REG_SAVE]
+   store_registers()
+   bl execute_store_cpsr_body              // Do the remaining work in C mode
+ 
+   cbnz w0, 1f                             // If PC has changed due to this
+ 
+-  ldr lr, [reg_base, #REG_SAVE]           // Resume execution where we left it
++  ldr x30, [reg_base, #REG_SAVE]           // Resume execution where we left it
+   load_registers()
+   ret
+ 
+@@ -303,10 +303,10 @@ defsymbl(execute_spsr_restore)
+   extract_flags_reg(w3)                   // update cached flag values
+ 
+   // This function call will pass r0 (address) and return it.
+-  str lr, [reg_base, #REG_SAVE]
++  str x30, [reg_base, #REG_SAVE]
+   store_registers()                       // save ARM registers
+   bl execute_spsr_restore_body
+-  ldr lr, [reg_base, #REG_SAVE]
++  ldr x30, [reg_base, #REG_SAVE]
+   load_registers()
+ 
+ 1:
+@@ -320,7 +320,7 @@ defsymbl(execute_spsr_restore)
+ // r0: current pc
+ 
+ defsymbl(execute_swi)
+-  str lr, [reg_base, #REG_SAVE]
++  str x30, [reg_base, #REG_SAVE]
+   str w0, [reg_base, #SUPERVISOR_LR]      // Store next PC into supervisor LR
+   consolidate_flags(w1)                   // Calculate current CPSR flags
+   str w1, [reg_base, #SUPERVISOR_SPSR]    // Store them in the SPSR  
+@@ -333,7 +333,7 @@ defsymbl(execute_swi)
+   bl set_cpu_mode                         // Set supervisor mode
+   ldr w0, =0xe3a02004
+   str w0, [reg_base, REG_BUS_VALUE]
+-  ldr lr, [reg_base, #REG_SAVE]
++  ldr x30, [reg_base, #REG_SAVE]
+   load_registers()
+   ret
+ .size execute_swi, .-execute_swi
+@@ -486,10 +486,10 @@ ld_rdmap_##load_type:                                                        ;\
+                                                                              ;\
+ ld_slow_##load_type:                      /* Slow C path                   */;\
+   str w1, [reg_base, #REG_PC]             /* write out PC                  */;\
+-  str lr, [reg_base, #REG_SAVE]           /* Save LR                       */;\
++  str x30, [reg_base, #REG_SAVE]           /* Save LR                       */;\
+   store_registers()                                                          ;\
+   bl ldfn                                                                    ;\
+-  ldr lr, [reg_base, #REG_SAVE]                                              ;\
++  ldr x30, [reg_base, #REG_SAVE]                                              ;\
+   load_registers()                                                           ;\
+   ret                                                                        ;\
+ .size execute_load_##load_type, .-execute_load_##load_type
+@@ -522,10 +522,10 @@ defsymbl(execute_aligned_load32)
+   ldr x3, [x4, x3, lsl #3]
+   br x3
+ ld_slow_aligned_u32:                      // Slow C path for multiple loads
+-  str lr, [reg_base, #REG_SAVE]           // Save LR
++  str x30, [reg_base, #REG_SAVE]           // Save LR
+   store_registers()
+   bl read_memory32
+-  ldr lr, [reg_base, #REG_SAVE]
++  ldr x30, [reg_base, #REG_SAVE]
+   load_registers()
+   ret
+ ld_bios_aligned_u32:
+@@ -574,11 +574,11 @@ defsymbl(execute_store_u##store_type)                                        ;\
+ ext_store_u##store_type:                                                     ;\
+ ext_store_u##store_type##_safe:                                              ;\
+   str w2, [reg_base, #REG_PC]             /* write out PC                  */;\
+-  str lr, [reg_base, #REG_SAVE]           /* Preserve LR                   */;\
++  str x30, [reg_base, #REG_SAVE]           /* Preserve LR                   */;\
+   store_align_##store_type()                                                 ;\
+   store_registers()                                                          ;\
+   bl write_memory##store_type                                                ;\
+-  ldr lr, [reg_base, #REG_SAVE]                                              ;\
++  ldr x30, [reg_base, #REG_SAVE]                                              ;\
+   load_registers()                                                           ;\
+   ret                                     /* resume if no side effects     */;\
+                                                                              ;\
+@@ -622,11 +622,11 @@ ext_store_oam_ram_u##store_type##_safe:                                      ;\
+                                                                              ;\
+ ext_store_ioreg_u##store_type:                                               ;\
+   str w2, [reg_base, #REG_PC]             /* write out PC                  */;\
+-  str lr, [reg_base, #REG_SAVE]           /* Preserve LR                   */;\
++  str x30, [reg_base, #REG_SAVE]           /* Preserve LR                   */;\
+   store_registers()                                                          ;\
+   bl write_io_register##store_type                                           ;\
+   cbnz w0, write_epilogue                 /* handle additional write stuff */;\
+-  ldr lr, [reg_base, #REG_SAVE]                                              ;\
++  ldr x30, [reg_base, #REG_SAVE]                                              ;\
+   load_registers()                                                           ;\
+   ret                                     /* resume if no side effects     */;\
+                                                                              ;\
+@@ -720,10 +720,10 @@ ext_store_ewram_u32_safe:
+   str w1, [x0, x3]                        // store data
+   ret                                     // Return
+ ext_store_ioreg_u32_safe:
+-  str lr, [reg_base, #REG_SAVE]
++  str x30, [reg_base, #REG_SAVE]
+   store_registers()
+   bl write_io_register32
+-  ldr lr, [reg_base, #REG_SAVE]
++  ldr x30, [reg_base, #REG_SAVE]
+   load_registers()
+   ret
+ .size execute_aligned_store32, .-execute_aligned_store32

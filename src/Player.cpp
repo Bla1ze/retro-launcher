@@ -1,0 +1,1090 @@
+#include "Player.h"
+
+#include "Ambient.h"
+#include "AppFont.h"
+#include "Gfx.h"
+#include "Theme.h"
+#include "GamePanels.h"
+#include "DisplayProfile.h"
+#include "Library.h"
+#include "libretro_min.h"
+#include "vendor/stb_image.h"  // implementation lives in GamePanels.cpp
+
+#include <SDL.h>
+
+#include <dlfcn.h>
+#include <signal.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <algorithm>
+#include <cerrno>
+#include <cmath>
+#include <fstream>
+#include <map>
+#include <memory>
+#include <cstdarg>
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+#include <string>
+#include <vector>
+
+// A minimal libretro front-end: one game per process, then back to the menu by
+// exec. Proven on a 4KP with Genesis Plus GX on the backglass (byog-player-test).
+
+namespace {
+
+using Library::log;
+
+// ------------------------------------------------------------ small helpers
+
+std::string lower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(), [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
+bool hasExt(const std::string& name, const std::string& ext) {
+    std::string n = lower(name);
+    return n.size() > ext.size() + 1 && n[n.size() - ext.size() - 1] == '.' &&
+           n.compare(n.size() - ext.size(), ext.size(), ext) == 0;
+}
+
+std::string baseName(const std::string& p) {
+    size_t s = p.find_last_of('/');
+    return s == std::string::npos ? p : p.substr(s + 1);
+}
+
+std::string stem(const std::string& name) {
+    size_t dot = name.find_last_of('.');
+    return dot == std::string::npos ? name : name.substr(0, dot);
+}
+
+bool readFile(const std::string& path, std::vector<uint8_t>& out) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    std::fseek(f, 0, SEEK_END);
+    long n = std::ftell(f);
+    std::fseek(f, 0, SEEK_SET);
+    out.resize(n > 0 ? (size_t)n : 0);
+    bool ok = n <= 0 || std::fread(out.data(), 1, (size_t)n, f) == (size_t)n;
+    std::fclose(f);
+    return ok;
+}
+
+bool writeFile(const std::string& path, const void* data, size_t size) {
+    FILE* f = std::fopen(path.c_str(), "wb");
+    if (!f) return false;
+    bool ok = std::fwrite(data, 1, size, f) == size;
+    std::fclose(f);
+    return ok;
+}
+
+std::vector<std::string> splitExts(const char* list) {
+    std::vector<std::string> out;
+    std::string cur;
+    for (const char* p = list ? list : ""; ; ++p) {
+        if (*p == '|' || *p == 0) { if (!cur.empty()) out.push_back(lower(cur)); cur.clear(); if (!*p) break; }
+        else cur += *p;
+    }
+    return out;
+}
+
+// ------------------------------------------------------- zip via system libz
+// The cabinet ships libz.so.1; the SDK image has no arm64 zlib headers, so we
+// declare z_stream ourselves and dlopen it.
+
+struct ZStream {
+    const uint8_t* next_in; unsigned avail_in; unsigned long total_in;
+    uint8_t* next_out; unsigned avail_out; unsigned long total_out;
+    const char* msg; void* state;
+    void* zalloc; void* zfree; void* opaque;
+    int data_type; unsigned long adler; unsigned long reserved;
+};
+
+bool inflateRaw(const uint8_t* in, size_t inLen, uint8_t* out, size_t outLen) {
+    static void* z = ::dlopen("libz.so.1", RTLD_NOW);
+    if (!z) { log("dlopen libz.so.1 failed: %s", ::dlerror()); return false; }
+    auto init = (int (*)(ZStream*, int, const char*, int))::dlsym(z, "inflateInit2_");
+    auto inflate = (int (*)(ZStream*, int))::dlsym(z, "inflate");
+    auto end = (int (*)(ZStream*))::dlsym(z, "inflateEnd");
+    if (!init || !inflate || !end) { log("libz symbols missing"); return false; }
+    ZStream s;
+    std::memset(&s, 0, sizeof(s));
+    s.next_in = in; s.avail_in = (unsigned)inLen;
+    s.next_out = out; s.avail_out = (unsigned)outLen;
+    if (init(&s, -15, "1.2.11", (int)sizeof(ZStream)) != 0) return false;
+    int r = inflate(&s, 4 /* Z_FINISH */);
+    end(&s);
+    return r == 1 /* Z_STREAM_END */;
+}
+
+uint32_t rd32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
+uint16_t rd16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+
+// Extracts the entry whose extension the core accepts (else the first file).
+bool unzipRom(const std::vector<uint8_t>& zip, const std::vector<std::string>& exts, std::string& name,
+              std::vector<uint8_t>& out) {
+    if (zip.size() < 22) return false;
+    size_t eocd = std::string::npos;
+    for (size_t i = zip.size() - 22;; --i) {
+        if (rd32(&zip[i]) == 0x06054b50) { eocd = i; break; }
+        if (i == 0 || zip.size() - i > 65557) break;
+    }
+    if (eocd == std::string::npos) return false;
+    unsigned entries = rd16(&zip[eocd + 10]);
+    size_t cd = rd32(&zip[eocd + 16]);
+    struct Entry { std::string name; unsigned method; size_t csize, usize, local; };
+    std::vector<Entry> list;
+    for (unsigned i = 0; i < entries && cd + 46 <= zip.size(); ++i) {
+        if (rd32(&zip[cd]) != 0x02014b50) break;
+        Entry e;
+        e.method = rd16(&zip[cd + 10]);
+        e.csize = rd32(&zip[cd + 20]);
+        e.usize = rd32(&zip[cd + 24]);
+        unsigned nl = rd16(&zip[cd + 28]), xl = rd16(&zip[cd + 30]), cl = rd16(&zip[cd + 32]);
+        e.local = rd32(&zip[cd + 42]);
+        e.name.assign((const char*)&zip[cd + 46], nl);
+        if (!e.name.empty() && e.name.back() != '/') list.push_back(e);
+        cd += 46 + nl + xl + cl;
+    }
+    if (list.empty()) return false;
+    const Entry* pick = &list[0];
+    for (const Entry& e : list) {
+        bool match = false;
+        for (const std::string& x : exts) match = match || (x != "zip" && hasExt(e.name, x));
+        if (match) { pick = &e; break; }
+    }
+    log("zip: %zu file(s), using '%s' (method %u, %zu -> %zu bytes)", list.size(), pick->name.c_str(),
+        pick->method, pick->csize, pick->usize);
+    size_t lh = pick->local;
+    if (lh + 30 > zip.size() || rd32(&zip[lh]) != 0x04034b50) return false;
+    size_t data = lh + 30 + rd16(&zip[lh + 26]) + rd16(&zip[lh + 28]);
+    if (data + pick->csize > zip.size()) return false;
+    out.resize(pick->usize);
+    name = baseName(pick->name);
+    if (pick->method == 0) { std::memcpy(out.data(), &zip[data], pick->usize); return true; }
+    if (pick->method == 8) return inflateRaw(&zip[data], pick->csize, out.data(), out.size());
+    log("zip: unsupported compression method %u", pick->method);
+    return false;
+}
+
+// ------------------------------------------------------------------- core
+
+struct Core {
+    void* handle = nullptr;
+    void (*init)() = nullptr;
+    void (*deinit)() = nullptr;
+    unsigned (*api_version)() = nullptr;
+    void (*get_system_info)(retro_system_info*) = nullptr;
+    void (*get_system_av_info)(retro_system_av_info*) = nullptr;
+    void (*set_environment)(retro_environment_t) = nullptr;
+    void (*set_video_refresh)(retro_video_refresh_t) = nullptr;
+    void (*set_audio_sample)(retro_audio_sample_t) = nullptr;
+    void (*set_audio_sample_batch)(retro_audio_sample_batch_t) = nullptr;
+    void (*set_input_poll)(retro_input_poll_t) = nullptr;
+    void (*set_input_state)(retro_input_state_t) = nullptr;
+    void (*set_controller_port_device)(unsigned, unsigned) = nullptr;
+    void (*run)() = nullptr;
+    bool (*load_game)(const retro_game_info*) = nullptr;
+    void (*unload_game)() = nullptr;
+    void* (*get_memory_data)(unsigned) = nullptr;
+    size_t (*get_memory_size)(unsigned) = nullptr;
+    // Optional (save states / reset); null when a core lacks them.
+    size_t (*serialize_size)() = nullptr;
+    bool (*serialize)(void*, size_t) = nullptr;
+    bool (*unserialize)(const void*, size_t) = nullptr;
+    void (*reset)() = nullptr;
+};
+
+template <typename T>
+bool bindSym(void* h, T& fn, const char* name) {
+    fn = reinterpret_cast<T>(::dlsym(h, name));
+    if (!fn) log("core is missing %s", name);
+    return fn != nullptr;
+}
+
+std::string loadCore(const std::string& path, Core& c) {
+    c.handle = ::dlopen(path.c_str(), RTLD_LAZY | RTLD_LOCAL);
+    if (!c.handle) {
+        const char* e = ::dlerror();
+        log("dlopen %s: %s", path.c_str(), e ? e : "?");
+        return "The emulator core would not load.";
+    }
+    bool ok = bindSym(c.handle, c.init, "retro_init") & bindSym(c.handle, c.deinit, "retro_deinit") &
+              bindSym(c.handle, c.api_version, "retro_api_version") &
+              bindSym(c.handle, c.get_system_info, "retro_get_system_info") &
+              bindSym(c.handle, c.get_system_av_info, "retro_get_system_av_info") &
+              bindSym(c.handle, c.set_environment, "retro_set_environment") &
+              bindSym(c.handle, c.set_video_refresh, "retro_set_video_refresh") &
+              bindSym(c.handle, c.set_audio_sample, "retro_set_audio_sample") &
+              bindSym(c.handle, c.set_audio_sample_batch, "retro_set_audio_sample_batch") &
+              bindSym(c.handle, c.set_input_poll, "retro_set_input_poll") &
+              bindSym(c.handle, c.set_input_state, "retro_set_input_state") &
+              bindSym(c.handle, c.set_controller_port_device, "retro_set_controller_port_device") &
+              bindSym(c.handle, c.run, "retro_run") & bindSym(c.handle, c.load_game, "retro_load_game") &
+              bindSym(c.handle, c.unload_game, "retro_unload_game") &
+              bindSym(c.handle, c.get_memory_data, "retro_get_memory_data") &
+              bindSym(c.handle, c.get_memory_size, "retro_get_memory_size");
+    c.serialize_size = reinterpret_cast<size_t (*)()>(::dlsym(c.handle, "retro_serialize_size"));
+    c.serialize = reinterpret_cast<bool (*)(void*, size_t)>(::dlsym(c.handle, "retro_serialize"));
+    c.unserialize = reinterpret_cast<bool (*)(const void*, size_t)>(::dlsym(c.handle, "retro_unserialize"));
+    c.reset = reinterpret_cast<void (*)()>(::dlsym(c.handle, "retro_reset"));
+    return ok ? "" : "The emulator core is not a libretro core.";
+}
+
+// ------------------------------------------------------------- shared state
+
+std::string g_systemDir, g_saveDir;
+retro_pixel_format g_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
+retro_system_av_info g_av{};
+
+SDL_Renderer* g_renderer = nullptr;
+SDL_Texture* g_texture = nullptr;
+Uint32 g_textureFormat = 0;
+int g_texW = 0, g_texH = 0, g_frameW = 0, g_frameH = 0;
+bool g_newFrame = false;
+unsigned long g_frames = 0, g_dupes = 0;
+
+Ambient g_ambient;
+std::vector<int16_t> g_audioBatch;
+std::vector<SDL_GameController*> g_pads;
+uint16_t g_buttons = 0;
+
+// Watchdog: if a frame takes longer than this, a core has hung; go back to
+// the menu instead of leaving the cabinet frozen. execv is async-signal-safe.
+std::vector<std::string> g_watchdogArgs;
+std::vector<char*> g_watchdogArgv;
+std::string g_watchdogPath;
+
+std::vector<std::string> g_crashArgs;
+std::vector<char*> g_crashArgv;
+
+void onWatchdog(int) {
+    const char msg[] = "[launcher] watchdog: the game stopped responding, returning to the menu\n";
+    ssize_t ignored = ::write(1, msg, sizeof(msg) - 1);
+    (void)ignored;
+    ::execv(g_watchdogPath.c_str(), g_watchdogArgv.data());
+    ::_exit(1);
+}
+
+// A core that crashes (segfault, abort from an uncaught C++ exception...) would
+// otherwise take the whole app down and drop the cabinet back to its own menu.
+void onCrash(int sig) {
+    char msg[96];
+    int n = std::snprintf(msg, sizeof(msg), "[launcher] the game crashed (signal %d), returning to the menu\n", sig);
+    ssize_t ignored = ::write(1, msg, n > 0 ? (size_t)n : 0);
+    (void)ignored;
+    ::execv(g_watchdogPath.c_str(), g_crashArgv.data());
+    ::_exit(1);
+}
+
+void installHandlers() {
+    // SA_NODEFER: these handlers exec, and a signal blocked while its handler
+    // runs would stay blocked in the menu and every later game.
+    struct sigaction sa;
+    std::memset(&sa, 0, sizeof(sa));
+    sa.sa_flags = SA_NODEFER | SA_RESETHAND;
+    sigemptyset(&sa.sa_mask);
+    sa.sa_handler = onCrash;
+    for (int sig : {SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) ::sigaction(sig, &sa, nullptr);
+    sa.sa_flags = SA_NODEFER;
+    sa.sa_handler = onWatchdog;
+    ::sigaction(SIGALRM, &sa, nullptr);
+    sigset_t set;
+    sigemptyset(&set);
+    for (int sig : {SIGALRM, SIGSEGV, SIGBUS, SIGILL, SIGFPE, SIGABRT}) sigaddset(&set, sig);
+    ::sigprocmask(SIG_UNBLOCK, &set, nullptr);
+}
+
+// Core options. Cores declare them with SET_VARIABLES ("Description; default|other|...");
+// we answer GET_VARIABLE with the default, or with a value from
+// data/core-options.cfg (key = value). Some cores abort if a variable is missing.
+std::map<std::string, std::string> g_options;
+std::map<std::string, std::string> g_optionOverrides;
+
+void loadOptionOverrides(const std::string& path) {
+    std::ifstream in(path);
+    std::string line;
+    while (std::getline(in, line)) {
+        size_t eq = line.find('=');
+        if (line.empty() || line[0] == '#' || eq == std::string::npos) continue;
+        auto trim = [](std::string v) {
+            size_t a = v.find_first_not_of(" \t\r"), b = v.find_last_not_of(" \t\r");
+            return a == std::string::npos ? std::string() : v.substr(a, b - a + 1);
+        };
+        g_optionOverrides[trim(line.substr(0, eq))] = trim(line.substr(eq + 1));
+    }
+}
+
+void declareOption(const char* key, const char* spec) {
+    std::string v = spec ? spec : "";
+    size_t semi = v.find("; ");
+    std::string opts = semi == std::string::npos ? v : v.substr(semi + 2);
+    std::string def = opts.substr(0, opts.find('|'));
+    auto o = g_optionOverrides.find(key);
+    g_options[key] = o != g_optionOverrides.end() ? o->second : def;
+}
+
+// --------------------------------------------------------------- callbacks
+
+void coreLog(enum retro_log_level level, const char* fmt, ...) {
+    char buf[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    std::vsnprintf(buf, sizeof(buf), fmt, ap);
+    va_end(ap);
+    size_t n = std::strlen(buf);
+    while (n && (buf[n - 1] == '\n' || buf[n - 1] == '\r')) buf[--n] = 0;
+    static const char* names[] = {"debug", "info", "warn", "error"};
+    log("core %s: %s", names[(unsigned)level <= 3 ? level : 1], buf);
+}
+
+bool environment(unsigned cmd, void* data) {
+    switch (cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL) {
+    case RETRO_ENVIRONMENT_GET_CAN_DUPE: *(bool*)data = true; return true;
+    case RETRO_ENVIRONMENT_SET_MESSAGE:
+        if (data) log("core message: %s", ((const retro_message*)data)->msg);
+        return true;
+    case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: *(const char**)data = g_systemDir.c_str(); return true;
+    case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: *(const char**)data = g_saveDir.c_str(); return true;
+    case RETRO_ENVIRONMENT_SET_PIXEL_FORMAT: {
+        retro_pixel_format f = *(const retro_pixel_format*)data;
+        if ((unsigned)f > RETRO_PIXEL_FORMAT_RGB565) return false;
+        g_pixelFormat = f;
+        return true;
+    }
+    case RETRO_ENVIRONMENT_SET_INPUT_DESCRIPTORS:
+    case RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME:
+        return true;
+    case RETRO_ENVIRONMENT_SET_VARIABLES:
+        for (const retro_variable* v = (const retro_variable*)data; v && v->key; ++v) declareOption(v->key, v->value);
+        log("core declared %zu option(s)", g_options.size());
+        return true;
+    case RETRO_ENVIRONMENT_GET_VARIABLE: {
+        retro_variable* v = (retro_variable*)data;
+        auto it = v && v->key ? g_options.find(v->key) : g_options.end();
+        if (it == g_options.end()) {
+            auto o = v && v->key ? g_optionOverrides.find(v->key) : g_optionOverrides.end();
+            if (o == g_optionOverrides.end()) {
+                log("core asked for undeclared option %s", v && v->key ? v->key : "?");
+                if (v) v->value = nullptr;
+                return false;
+            }
+            it = g_options.insert({o->first, o->second}).first;
+        }
+        v->value = it->second.c_str();
+        return true;
+    }
+    case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: *(bool*)data = false; return true;
+    case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: ((retro_log_callback*)data)->log = coreLog; return true;
+    case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: g_av = *(const retro_system_av_info*)data; return true;
+    case RETRO_ENVIRONMENT_SET_GEOMETRY: g_av.geometry = *(const retro_game_geometry*)data; return true;
+    case RETRO_ENVIRONMENT_GET_LANGUAGE: *(unsigned*)data = 0; return true;
+    case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION: *(unsigned*)data = 0; return true;
+    default: {
+        // Untested cores: log each unhandled request once, so one cabinet run
+        // shows what a core wanted.
+        static std::vector<unsigned> seen;
+        if (std::find(seen.begin(), seen.end(), cmd) == seen.end()) {
+            seen.push_back(cmd);
+            log("environment request %u (0x%x) not handled", cmd & 0xffff, cmd);
+        }
+        return false;
+    }
+    }
+}
+
+Uint32 sdlFormat(retro_pixel_format f) {
+    if (f == RETRO_PIXEL_FORMAT_XRGB8888) return SDL_PIXELFORMAT_ARGB8888;
+    if (f == RETRO_PIXEL_FORMAT_RGB565) return SDL_PIXELFORMAT_RGB565;
+    return SDL_PIXELFORMAT_RGB555;
+}
+
+// Blank edge columns. Master System games (and some NES games) blank the
+// leftmost 8 pixels, so the picture carries a black strip on one side and looks
+// off-centre. Every half second, count fully black columns at each edge (up to
+// 16); a result seen three times in a row becomes the crop.
+int g_cropL = 0, g_cropR = 0;
+int g_candL = -1, g_candR = -1, g_candSeen = 0;
+unsigned g_cropW = 0;
+
+bool nearBlack(const uint8_t* row, unsigned x, int fmt) {
+    if (fmt == RETRO_PIXEL_FORMAT_XRGB8888) {
+        uint32_t v;
+        std::memcpy(&v, row + x * 4, 4);
+        return ((v >> 16) & 0xff) < 16 && ((v >> 8) & 0xff) < 16 && (v & 0xff) < 16;
+    }
+    uint16_t v;
+    std::memcpy(&v, row + x * 2, 2);
+    if (fmt == RETRO_PIXEL_FORMAT_RGB565) return ((v >> 11) & 31) < 2 && ((v >> 5) & 63) < 4 && (v & 31) < 2;
+    return ((v >> 10) & 31) < 2 && ((v >> 5) & 31) < 2 && (v & 31) < 2;
+}
+
+void detectBlankEdges(const void* data, unsigned w, unsigned h, size_t pitch) {
+    if (w != g_cropW) { g_cropW = w; g_cropL = g_cropR = 0; g_candSeen = 0; }
+    if (g_frames % 30 != 0 || w < 64 || h < 16) return;
+    const uint8_t* base = static_cast<const uint8_t*>(data);
+    auto blankCol = [&](unsigned x) {
+        for (unsigned y = 0; y < h; y += 4)
+            if (!nearBlack(base + y * pitch, x, (int)g_pixelFormat)) return false;
+        return true;
+    };
+    int l = 0, r = 0;
+    while (l < 16 && blankCol((unsigned)l)) ++l;
+    while (r < 16 && blankCol(w - 1 - (unsigned)r)) ++r;
+    if (blankCol(w / 2) || l == 16 || r == 16) return;  // a dark scene, not a border: decide later
+    if (l < 4) l = 0;
+    if (r < 4) r = 0;
+    if (l == g_candL && r == g_candR) ++g_candSeen;
+    else { g_candL = l; g_candR = r; g_candSeen = 1; }
+    if (g_candSeen >= 3 && (l != g_cropL || r != g_cropR)) {
+        g_cropL = l;
+        g_cropR = r;
+        log("cropping blank edges: %d px left, %d px right", l, r);
+    }
+}
+
+// Bezel artwork (The Bezel Project format): a 1920x1080 PNG with a transparent
+// window for the game. Per game media/<system>/bezels/<rom>.png, else the system
+// one media/<system>/bezel.png. The window is found from the alpha channel.
+struct Bezel {
+    SDL_Texture* tex = nullptr;
+    int w = 0, h = 0;
+    SDL_Rect window{0, 0, 0, 0};  // in image pixels
+};
+
+Bezel loadBezel(const std::string& appDir, const std::string& sys, const std::string& romFile) {
+    Bezel b;
+    std::string stemName = romFile.substr(0, romFile.find_last_of('.'));
+    for (const std::string& path : {appDir + "/media/" + sys + "/bezels/" + stemName + ".png",
+                                    appDir + "/media/" + sys + "/bezel.png"}) {
+        int n = 0;
+        uint8_t* px = stbi_load(path.c_str(), &b.w, &b.h, &n, 4);
+        if (!px) continue;
+        // Bounding box of the clearly transparent pixels near the middle rows.
+        int x0 = b.w, x1 = -1, y0 = b.h, y1 = -1;
+        for (int y = 0; y < b.h; y += 2)
+            for (int x = 0; x < b.w; x += 2)
+                if (px[((size_t)y * b.w + x) * 4 + 3] < 40) {
+                    x0 = std::min(x0, x); x1 = std::max(x1, x); y0 = std::min(y0, y); y1 = std::max(y1, y);
+                }
+        if (x1 > x0 && y1 > y0 && (x1 - x0) * (y1 - y0) > b.w * b.h / 5)
+            b.window = {x0, y0, x1 - x0 + 1, y1 - y0 + 1};
+        else
+            b.window = {0, 0, b.w, b.h};
+        b.tex = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, b.w, b.h);
+        if (b.tex) {
+            SDL_UpdateTexture(b.tex, nullptr, px, b.w * 4);
+            SDL_SetTextureBlendMode(b.tex, SDL_BLENDMODE_BLEND);
+        }
+        stbi_image_free(px);
+        log("bezel %s (%dx%d, window %d,%d %dx%d)", path.c_str(), b.w, b.h, b.window.x, b.window.y, b.window.w,
+            b.window.h);
+        return b;
+    }
+    return b;
+}
+
+void videoRefresh(const void* data, unsigned w, unsigned h, size_t pitch) {
+    if (!data) { ++g_dupes; return; }
+    Uint32 fmt = sdlFormat(g_pixelFormat);
+    int tw = (int)std::max(w, g_av.geometry.max_width), th = (int)std::max(h, g_av.geometry.max_height);
+    if (!g_texture || fmt != g_textureFormat || tw > g_texW || th > g_texH) {
+        if (g_texture) SDL_DestroyTexture(g_texture);
+        g_texture = SDL_CreateTexture(g_renderer, fmt, SDL_TEXTUREACCESS_STREAMING, tw, th);
+        g_textureFormat = fmt; g_texW = tw; g_texH = th;
+        log("texture %dx%d %s: %s", tw, th, SDL_GetPixelFormatName(fmt), g_texture ? "ok" : SDL_GetError());
+    }
+    if (!g_texture) return;
+    SDL_Rect r{0, 0, (int)w, (int)h};
+    SDL_UpdateTexture(g_texture, &r, data, (int)pitch);
+    g_frameW = (int)w; g_frameH = (int)h;
+    g_ambient.sample(data, w, h, pitch, (int)g_pixelFormat);
+    detectBlankEdges(data, w, h, pitch);
+    g_newFrame = true;
+    ++g_frames;
+}
+
+size_t audioBatch(const int16_t* data, size_t frames) {
+    g_audioBatch.insert(g_audioBatch.end(), data, data + frames * 2);
+    return frames;
+}
+
+void audioSample(int16_t l, int16_t r) { g_audioBatch.push_back(l); g_audioBatch.push_back(r); }
+void inputPoll() {}
+
+int16_t inputState(unsigned port, unsigned device, unsigned, unsigned id) {
+    if (port != 0 || (device & 0xff) != RETRO_DEVICE_JOYPAD) return 0;
+    if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)g_buttons;
+    return id < 16 ? (int16_t)((g_buttons >> id) & 1) : 0;
+}
+
+// Dynamic rate control: the screen's real refresh is never exactly what the
+// mode claims, so a vsync-locked stream slowly over- or under-fills. Resample
+// each frame's audio by a tiny ratio (at most +/-0.5%, inaudible) steered by
+// how far the queue is from its target, so it hovers at the target instead.
+std::vector<int16_t> g_drcOut;
+double g_drcPos = 0.0;  // fractional read position carried across frames
+
+int16_t g_drcPrev[2] = {0, 0};
+bool g_drcHavePrev = false;
+
+const std::vector<int16_t>& resampleStereo(const std::vector<int16_t>& in, double ratio) {
+    // Prepend the previous batch's last frame so interpolation runs straight
+    // across batch boundaries; g_drcPos is measured from that frame.
+    static std::vector<int16_t> buf;
+    buf.clear();
+    if (g_drcHavePrev) { buf.push_back(g_drcPrev[0]); buf.push_back(g_drcPrev[1]); }
+    buf.insert(buf.end(), in.begin(), in.end());
+    g_drcOut.clear();
+    size_t frames = buf.size() / 2;
+    if (frames < 2) { g_drcOut = in; return g_drcOut; }
+    double step = 1.0 / ratio;  // input frames advanced per output frame
+    double pos = g_drcHavePrev ? g_drcPos : 0.0;
+    while (pos < frames - 1) {
+        size_t i = (size_t)pos;
+        double t = pos - i;
+        for (int c = 0; c < 2; ++c) {
+            double v = buf[i * 2 + c] * (1.0 - t) + buf[(i + 1) * 2 + c] * t;
+            g_drcOut.push_back((int16_t)std::max(-32768.0, std::min(32767.0, v)));
+        }
+        pos += step;
+    }
+    g_drcPos = pos - (frames - 1);
+    g_drcPrev[0] = buf[(frames - 1) * 2];
+    g_drcPrev[1] = buf[(frames - 1) * 2 + 1];
+    g_drcHavePrev = true;
+    return g_drcOut;
+}
+
+// ------------------------------------------------------------------- input
+
+void openPads() {
+    for (SDL_GameController* p : g_pads) SDL_GameControllerClose(p);
+    g_pads.clear();
+    // Open EVERY controller: the cabinet splits its buttons across two devices.
+    for (int i = 0; i < SDL_NumJoysticks(); ++i)
+        if (SDL_IsGameController(i))
+            if (SDL_GameController* p = SDL_GameControllerOpen(i)) g_pads.push_back(p);
+    log("%zu controller(s) open", g_pads.size());
+}
+
+bool padButton(SDL_GameControllerButton b) {
+    for (SDL_GameController* p : g_pads)
+        if (SDL_GameControllerGetButton(p, b)) return true;
+    return false;
+}
+
+int padAxis(SDL_GameControllerAxis a) {
+    int best = 0;
+    for (SDL_GameController* p : g_pads) {
+        int v = SDL_GameControllerGetAxis(p, a);
+        if (std::abs(v) > std::abs(best)) best = v;
+    }
+    return best;
+}
+
+uint16_t readButtons() {
+    const int dz = 16000;
+    uint16_t b = 0;
+    auto set = [&b](int id, bool on) { if (on) b |= (uint16_t)(1u << id); };
+    // Cabinet A/B/X/Y -> libretro B/A/Y/X (the usual SNES-style layout; on
+    // Genesis Plus GX that makes A/B/X = Genesis B/C/A, confirmed on hardware).
+    set(RETRO_DEVICE_ID_JOYPAD_B, padButton(SDL_CONTROLLER_BUTTON_A));
+    set(RETRO_DEVICE_ID_JOYPAD_A, padButton(SDL_CONTROLLER_BUTTON_B));
+    set(RETRO_DEVICE_ID_JOYPAD_Y, padButton(SDL_CONTROLLER_BUTTON_X));
+    set(RETRO_DEVICE_ID_JOYPAD_X, padButton(SDL_CONTROLLER_BUTTON_Y));
+    set(RETRO_DEVICE_ID_JOYPAD_START, padButton(SDL_CONTROLLER_BUTTON_START));
+    set(RETRO_DEVICE_ID_JOYPAD_SELECT, padButton(SDL_CONTROLLER_BUTTON_BACK));
+    set(RETRO_DEVICE_ID_JOYPAD_L, padButton(SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
+    set(RETRO_DEVICE_ID_JOYPAD_R, padButton(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
+    set(RETRO_DEVICE_ID_JOYPAD_L2, padAxis(SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dz);
+    set(RETRO_DEVICE_ID_JOYPAD_R2, padAxis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dz);
+    int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY);
+    set(RETRO_DEVICE_ID_JOYPAD_UP, padButton(SDL_CONTROLLER_BUTTON_DPAD_UP) || ly < -dz);
+    set(RETRO_DEVICE_ID_JOYPAD_DOWN, padButton(SDL_CONTROLLER_BUTTON_DPAD_DOWN) || ly > dz);
+    set(RETRO_DEVICE_ID_JOYPAD_LEFT, padButton(SDL_CONTROLLER_BUTTON_DPAD_LEFT) || lx < -dz);
+    set(RETRO_DEVICE_ID_JOYPAD_RIGHT, padButton(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || lx > dz);
+    return b;
+}
+
+// ------------------------------------------------------------- pause menu
+// Drawn over the frozen game in the Neon style, in a 1280x720 logical space
+// scaled to the screen (Gfx/AppFont/Theme bake per renderer).
+
+void drawPauseMenu(SDL_Renderer* r, int winW, int winH, const std::string& title, const std::vector<std::string>& items,
+                   const std::vector<bool>& enabled, int sel, const std::string& toast) {
+    const float scale = winH / 720.0f;
+    const float W = winW / scale, H = 720.0f;
+    SDL_RenderSetScale(r, scale, scale);
+    Gfx::rect(r, {0, 0, W, H}, {4, 6, 12, 190});
+    const float rowH = 62.0f, gap = 10.0f, pw = 560.0f;
+    const float ph = 150.0f + items.size() * (rowH + gap) + 40.0f;
+    const float px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+    Gfx::softRect(r, {px, py, pw, ph}, 30.0f, 36.0f, {0, 0, 0, 200}, false);
+    Gfx::panel(r, {px, py, pw, ph}, 30.0f, {30, 36, 58, 250}, {18, 22, 38, 250}, {255, 255, 255, 30}, 1.0f);
+    Gfx::hGradient(r, {px + 30.0f, py, pw - 60.0f, 4.0f}, Theme::Accent, Theme::Accent2);
+    Theme::glowTitle(r, title, W * 0.5f, py + 34.0f, 54.0f, Theme::Accent, AppFont::Face::Display);
+    for (size_t i = 0; i < items.size(); ++i) {
+        FRect row{px + 36.0f, py + 120.0f + i * (rowH + gap), pw - 72.0f, rowH};
+        bool active = (int)i == sel;
+        Theme::rowCard(r, row, active);
+        SDL_Color c = !enabled[i] ? Theme::Faint : active ? Theme::Text : Theme::TextDim;
+        AppFont::drawCentered(r, items[i], W * 0.5f, row.y + 15.0f, 30.0f, c);
+    }
+    AppFont::drawCentered(r, "A Select     B Resume", W * 0.5f, py + ph - 38.0f, 20.0f, Theme::Muted);
+    if (!toast.empty()) {
+        float tw = AppFont::measureWidth(r, toast, 24.0f) + 60.0f;
+        FRect t{(W - tw) * 0.5f, py + ph + 20.0f, tw, 52.0f};
+        Gfx::panel(r, t, 26.0f, {36, 42, 66, 250}, {24, 28, 46, 250}, Theme::alpha(Theme::Accent, 200), 2.0f);
+        AppFont::drawCentered(r, toast, W * 0.5f, t.y + 12.0f, 24.0f, Theme::Text);
+    }
+    SDL_RenderSetScale(r, 1.0f, 1.0f);
+}
+
+bool fileExists(const std::string& p) {
+    struct stat st;
+    return ::stat(p.c_str(), &st) == 0;
+}
+
+} // namespace
+
+int runPlayer(const std::string& appDir, const std::string& sysId, const std::string& romPath,
+              const std::string& screenArg, int menuIndex, const std::string& returnTo) {
+    const std::string menuSys = returnTo.empty() ? sysId : returnTo;  // where the menu comes back to
+    Library::openLog(appDir, "play");
+    auto fail = [&](const std::string& message) -> int {
+        log("FAILED: %s", message.c_str());
+        SDL_Quit();
+        Library::execMenu(appDir, menuSys, menuIndex, message);
+        return 1;
+    };
+
+    const Library::System* sys = Library::findSystem(sysId);
+    if (!sys) return fail("Unknown system '" + sysId + "'.");
+    Library::ScreenId screen = Library::ScreenId::Backglass;
+    Library::parseScreen(screenArg, screen);
+    Library::Settings settings;
+    settings.load(appDir);
+    log("system %s, rom %s, screen %s", sys->id.c_str(), romPath.c_str(), Library::screenName(screen));
+
+    // Watchdog first, so even a hang while loading goes back to the menu.
+    // signal() blocks SIGALRM while its handler runs, and the handler execs, so
+    // that mask would be inherited by the menu and every later game: a second
+    // hang would then never be caught. Unblock it explicitly every time.
+    g_watchdogPath = Library::selfPath();
+    g_watchdogArgs = {"retro-launcher", "--menu", appDir, menuSys, std::to_string(menuIndex),
+                      "The game stopped responding."};
+    for (std::string& a : g_watchdogArgs) g_watchdogArgv.push_back(&a[0]);
+    g_watchdogArgv.push_back(nullptr);
+    g_crashArgs = {"retro-launcher", "--menu", appDir, menuSys, std::to_string(menuIndex),
+                   "The game crashed. This core may not support it."};
+    for (std::string& a : g_crashArgs) g_crashArgv.push_back(&a[0]);
+    g_crashArgv.push_back(nullptr);
+    installHandlers();
+    ::alarm(30);
+    loadOptionOverrides(appDir + "/data/core-options.cfg");
+
+    // Screen: pick the connector for this model, before SDL_Init.
+    DisplayProfile::Topology topo = DisplayProfile::detect();
+    DisplayProfile::Screen target = screen == Library::ScreenId::Playfield ? topo.main
+                                    : screen == Library::ScreenId::Dmd    ? topo.dmd
+                                                                          : topo.backglass;
+    if (!target.available) {
+        log("%s not available on model '%s', using the backglass", Library::screenName(screen), topo.model.c_str());
+        screen = Library::ScreenId::Backglass;
+        target = topo.backglass.available ? topo.backglass : topo.main;
+    }
+    SDL_setenv("ForceConnectID", std::to_string(target.connectorId).c_str(), 1);
+    if (topo.keepFirmwareDisplay && screen == Library::ScreenId::Playfield) SDL_setenv("SDL2_DISPLAY_PLANE_TYPE", "OVERLAY", 1);
+    else ::unsetenv("SDL2_DISPLAY_PLANE_TYPE");
+    // Backglass is upright (0, proven); playfield and DMD follow the panel's
+    // mounting from DisplayProfile. All overridable as rotate.<screen>.
+    int rotate = settings.rotation(screen, screen == Library::ScreenId::Backglass ? 0 : target.rotationDegrees);
+    log("model %s: connector %u %dx%d, rotate %d", topo.model.c_str(), target.connectorId, target.width, target.height,
+        rotate);
+
+    // ROM: read, unzip if needed, and leave a real file for cores that want one.
+    std::string where;
+    std::string corePath = Library::findCore(appDir, *sys, where);
+    if (corePath.empty()) return fail("No emulator core found for " + sys->name + ".");
+    log("core %s (%s)", corePath.c_str(), where.c_str());
+    Core core;
+    std::string err = loadCore(corePath, core);
+    if (!err.empty()) return fail(err);
+    retro_system_info info{};
+    core.get_system_info(&info);
+    log("core %s %s, extensions '%s', need_fullpath %d", info.library_name ? info.library_name : "?",
+        info.library_version ? info.library_version : "?", info.valid_extensions ? info.valid_extensions : "",
+        info.need_fullpath);
+
+    std::vector<uint8_t> romData;
+    if (!readFile(romPath, romData)) return fail("Could not read the ROM file.");
+    std::string romName = baseName(romPath);
+    if (hasExt(romPath, "zip")) {
+        std::vector<std::string> exts = splitExts(info.valid_extensions);
+        if (exts.empty()) exts = sys->extensions;
+        std::vector<uint8_t> inner;
+        std::string innerName;
+        if (!unzipRom(romData, exts, innerName, inner)) return fail("Could not open the zip file.");
+        romData.swap(inner);
+        romName = innerName;
+    }
+    ::mkdir("/tmp/retrofe", 0755);
+    std::string romFile = "/tmp/retrofe/" + romName;
+    if (!writeFile(romFile, romData.data(), romData.size())) {
+        log("could not write %s (%s); passing the original path", romFile.c_str(), std::strerror(errno));
+        romFile = romPath;
+    }
+
+    g_systemDir = appDir + "/system";
+    g_saveDir = appDir + "/saves/" + sys->id;
+
+    // SDL on the chosen screen.
+    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) != 0)
+        return fail(std::string("Video would not start: ") + SDL_GetError());
+    SDL_GameControllerAddMappingsFromFile("/userdata/customer_controller_db_3rd.txt");
+    SDL_DisplayMode mode{};
+    SDL_GetCurrentDisplayMode(0, &mode);
+    SDL_Window* window = SDL_CreateWindow("Retro Launcher", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
+                                          mode.w > 0 ? mode.w : target.width, mode.h > 0 ? mode.h : target.height,
+                                          SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP);
+    if (!window) return fail(std::string("Could not open the screen: ") + SDL_GetError());
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
+    g_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    if (!g_renderer) g_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    if (!g_renderer) return fail(std::string("Could not draw on the screen: ") + SDL_GetError());
+    int winW = 0, winH = 0;
+    SDL_GetRendererOutputSize(g_renderer, &winW, &winH);
+    log("SDL %s, mode %dx%d @%dHz, output %dx%d", SDL_GetCurrentVideoDriver(), mode.w, mode.h, mode.refresh_rate,
+        winW, winH);
+    SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 255);
+    SDL_RenderClear(g_renderer);
+    SDL_RenderPresent(g_renderer);
+    Gfx::init(g_renderer, winH / 720.0f);  // pause menu shapes, baked at screen scale
+    openPads();
+    // Playfield + DMD while the game runs on the backglass: a "Now playing"
+    // card with the controls. Drawn once on GamePanels' worker thread.
+    std::unique_ptr<GamePanels> panels;
+    if (settings.value("panels", "on") != "off" && screen == Library::ScreenId::Backglass) {
+        panels.reset(new GamePanels());
+        int up = panels->init(topo, GamePanels::Mode::Playing);
+        log("panels (playing): %d up", up);
+        GamePanels::Item item;
+        item.key = "play";
+        item.system = sys->name;
+        std::string file = baseName(romPath), title = stem(file), tags;
+        size_t cut = title.find_first_of("([");
+        if (cut != std::string::npos && cut > 0) { tags = title.substr(cut); title = title.substr(0, cut); }
+        while (!title.empty() && title.back() == ' ') title.pop_back();
+        item.title = title;
+        item.detail = tags;
+        item.artPath = findArt(appDir, sys->id, file);
+        item.controls = Library::controlHints(sys->id);
+        item.consolePath = findConsoleArt(appDir, sys->id);
+        panels->show(item, 0.0f);
+    }
+    Bezel bezel;
+    if (settings.value("bezels", "on") != "off" && rotate == 0) bezel = loadBezel(appDir, sys->id, baseName(romPath));
+    std::string bars = settings.value("bars", "ambient");
+    g_ambient.init(g_renderer, bars == "black" ? Ambient::Style::Black : Ambient::Style::Ambient);
+    log("bars: %s", bars == "black" ? "black" : "ambient");
+
+    // Start the game.
+    core.set_environment(environment);
+    core.init();
+    core.set_video_refresh(videoRefresh);
+    core.set_audio_sample(audioSample);
+    core.set_audio_sample_batch(audioBatch);
+    core.set_input_poll(inputPoll);
+    core.set_input_state(inputState);
+    retro_game_info game{romFile.c_str(), info.need_fullpath ? nullptr : romData.data(),
+                         info.need_fullpath ? 0 : romData.size(), nullptr};
+    if (!core.load_game(&game)) return fail("The emulator could not start this ROM.");
+    core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+    core.get_system_av_info(&g_av);
+    log("loaded: %ux%u (max %ux%u), %.3f fps, %.0f Hz audio", g_av.geometry.base_width, g_av.geometry.base_height,
+        g_av.geometry.max_width, g_av.geometry.max_height, g_av.timing.fps, g_av.timing.sample_rate);
+
+    std::string srm = g_saveDir + "/" + stem(romName) + ".srm";
+    if (size_t n = core.get_memory_size(RETRO_MEMORY_SAVE_RAM)) {
+        std::vector<uint8_t> sav;
+        if (readFile(srm, sav) && sav.size() == n) {
+            std::memcpy(core.get_memory_data(RETRO_MEMORY_SAVE_RAM), sav.data(), n);
+            log("loaded save %s", srm.c_str());
+        }
+    }
+
+    // Pacing. A game that runs at (nearly) the screen's rate is locked to vsync,
+    // with the audio stream declared at sample_rate * refresh/fps so one frame
+    // of audio lasts exactly one refresh (proven drift-free on the 4KP).
+    // Anything else (50 Hz PAL games, odd arcade rates) would play too fast and
+    // high-pitched that way, so it is paced by the audio clock at its true rate
+    // instead, showing its latest frame on each refresh.
+    double fps = g_av.timing.fps > 0 ? g_av.timing.fps : 60.0;
+    double refresh = mode.refresh_rate > 0 ? mode.refresh_rate : 60.0;
+    double rate = g_av.timing.sample_rate > 0 ? g_av.timing.sample_rate : 44100.0;
+    const bool vsyncLock = std::fabs(fps - refresh) / refresh < 0.02;
+    SDL_AudioSpec want{}, have{};
+    want.freq = (int)(vsyncLock ? rate * refresh / fps + 0.5 : rate + 0.5);
+    want.format = AUDIO_S16SYS;
+    want.channels = 2;
+    want.samples = 1024;
+    SDL_AudioDeviceID audio = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
+    const Uint32 bytesPerSec = (Uint32)want.freq * 4;
+    const Uint32 cushion = bytesPerSec * 60 / 1000;   // keep ~60 ms queued...
+    const Uint32 maxQueue = bytesPerSec * 120 / 1000; // ...and never more than 120 ms
+    if (audio) {
+        std::vector<uint8_t> silence(cushion, 0);
+        SDL_QueueAudio(audio, silence.data(), (Uint32)silence.size());
+        SDL_PauseAudioDevice(audio, 0);
+        log("audio %d Hz stream, %s pacing (%.3f fps game, %.0f Hz screen)", want.freq,
+            vsyncLock ? "vsync" : "audio-clock", fps, refresh);
+    } else {
+        log("audio failed: %s (continuing silent)", SDL_GetError());
+    }
+
+    // Main loop.
+    float aspect = sys->aspect;
+    bool sideways = rotate == 90 || rotate == 270;
+    Uint32 started = SDL_GetTicks(), statsAt = started, startHeld = 0;
+    unsigned long statFrames = 0, coreFrames = 0, underruns = 0, catchUps = 0;
+    Uint32 lastPresent = SDL_GetTicks();
+    const Uint32 drcTarget = bytesPerSec * 50 / 1000;  // hold ~50 ms queued
+    double ratioSum = 0.0;
+    unsigned long ratioCount = 0;
+    std::string reason;
+
+    // Pause menu / save states. One manual slot plus an automatic one written
+    // when you quit, offered back the next time the game starts.
+    const std::string statePath = g_saveDir + "/" + stem(romName) + ".state";
+    const std::string autoPath = g_saveDir + "/" + stem(romName) + ".auto.state";
+    const bool canState = core.serialize_size && core.serialize && core.unserialize && core.serialize_size() > 0;
+    enum class Menu { None, Pause, Continue } menu = Menu::None;
+    int menuSel = 0;
+    std::string toast;
+    Uint32 toastAt = 0;
+    uint16_t prevButtons = 0;
+    bool prevGuide = false, suppressInput = false;
+    auto saveState = [&](const std::string& path) {
+        if (!canState) return false;
+        std::vector<uint8_t> buf(core.serialize_size());
+        bool ok = core.serialize(buf.data(), buf.size()) && writeFile(path, buf.data(), buf.size());
+        log("save state %s: %s", path.c_str(), ok ? "ok" : "failed");
+        return ok;
+    };
+    auto loadState = [&](const std::string& path) {
+        std::vector<uint8_t> buf;
+        bool ok = canState && readFile(path, buf) && core.unserialize(buf.data(), buf.size());
+        log("load state %s: %s", path.c_str(), ok ? "ok" : "failed");
+        return ok;
+    };
+    auto pauseAudio = [&](bool pause) {
+        if (!audio) return;
+        if (pause) {
+            SDL_PauseAudioDevice(audio, 1);
+            SDL_ClearQueuedAudio(audio);
+        } else {
+            std::vector<uint8_t> silence(cushion, 0);
+            SDL_QueueAudio(audio, silence.data(), (Uint32)silence.size());
+            g_drcHavePrev = false;
+            SDL_PauseAudioDevice(audio, 0);
+        }
+    };
+    auto openMenu = [&](Menu m) {
+        menu = m;
+        menuSel = 0;
+        toast.clear();
+        pauseAudio(true);
+    };
+    auto closeMenu = [&]() {
+        menu = Menu::None;
+        suppressInput = true;  // don't hand the confirming press to the game
+        startHeld = 0;
+        pauseAudio(false);
+    };
+    if (canState && fileExists(autoPath)) {
+        // Show the game's first frame behind the question.
+        g_audioBatch.clear();
+        core.run();
+        openMenu(Menu::Continue);
+        log("offering to continue from %s", autoPath.c_str());
+    }
+
+    while (reason.empty()) {
+        ::alarm(10);  // a single frame taking 10 s means the core is stuck
+        SDL_Event e;
+        while (SDL_PollEvent(&e)) {
+            if (e.type == SDL_QUIT) reason = "quit";
+            if (e.type == SDL_CONTROLLERDEVICEADDED || e.type == SDL_CONTROLLERDEVICEREMOVED) openPads();
+        }
+        uint16_t raw = readButtons();
+        uint16_t down = raw & ~prevButtons;
+        prevButtons = raw;
+        bool guide = padButton(SDL_CONTROLLER_BUTTON_GUIDE), guideDown = guide && !prevGuide;
+        prevGuide = guide;
+        Uint32 t = SDL_GetTicks();
+        auto pressed = [&](int id) { return (down >> id) & 1; };
+
+        std::vector<std::string> items;
+        std::vector<bool> enabled;
+        if (menu == Menu::Pause) {
+            items = {"Resume", "Save state", "Load state", "Reset", "Quit to menu"};
+            enabled = {true, canState, canState && fileExists(statePath), core.reset != nullptr, true};
+        } else if (menu == Menu::Continue) {
+            items = {"Continue where you left off", "Start from the beginning"};
+            enabled = {true, true};
+        }
+
+        if (menu == Menu::None) {
+            // While the game runs: Home, or Start held a second, opens the menu.
+            if (suppressInput && raw == 0) suppressInput = false;
+            g_buttons = suppressInput ? 0 : raw;
+            if (raw & (1u << RETRO_DEVICE_ID_JOYPAD_START)) {
+                if (!startHeld) startHeld = t;
+                else if (t - startHeld >= 1000) openMenu(Menu::Pause);
+            } else {
+                startHeld = 0;
+            }
+            if (guideDown) openMenu(Menu::Pause);
+        } else {
+            g_buttons = 0;
+            int n = (int)items.size();
+            if (pressed(RETRO_DEVICE_ID_JOYPAD_UP)) menuSel = (menuSel + n - 1) % n;
+            if (pressed(RETRO_DEVICE_ID_JOYPAD_DOWN)) menuSel = (menuSel + 1) % n;
+            // Cabinet A arrives as libretro B, cabinet B as libretro A.
+            bool confirm = pressed(RETRO_DEVICE_ID_JOYPAD_B);
+            bool back = pressed(RETRO_DEVICE_ID_JOYPAD_A) || guideDown;
+            if (menu == Menu::Pause && (back || (pressed(RETRO_DEVICE_ID_JOYPAD_START) && !confirm))) {
+                closeMenu();
+            } else if (confirm && !enabled[menuSel]) {
+                toast = menuSel == 2 ? "No saved state yet" : "This emulator can't do that";
+                toastAt = t;
+            } else if (confirm && menu == Menu::Continue) {
+                if (menuSel == 0) loadState(autoPath);
+                else { ::unlink(autoPath.c_str()); if (core.reset) core.reset(); }
+                closeMenu();
+            } else if (confirm) {
+                switch (menuSel) {
+                case 0: closeMenu(); break;
+                case 1: toast = saveState(statePath) ? "State saved" : "Could not save the state"; toastAt = t; break;
+                case 2:
+                    if (loadState(statePath)) closeMenu();
+                    else { toast = "Could not load the state"; toastAt = t; }
+                    break;
+                case 3: core.reset(); closeMenu(); break;
+                case 4:
+                    if (canState) saveState(autoPath);  // resume here next time
+                    reason = "menu";
+                    break;
+                }
+            }
+            if (!toast.empty() && t - toastAt > 2500) toast.clear();
+        }
+
+        auto runFrame = [&]() {
+            g_audioBatch.clear();
+            core.run();
+            ++coreFrames;
+            if (audio && !g_audioBatch.empty()) {
+                Uint32 queued = SDL_GetQueuedAudioSize(audio);
+                if (queued == 0) ++underruns;
+                if (vsyncLock) {
+                    double err = ((double)drcTarget - queued) / drcTarget;  // + = running low
+                    double ratio = 1.0 + 0.005 * std::max(-1.0, std::min(1.0, err));
+                    ratioSum += ratio;
+                    ++ratioCount;
+                    const std::vector<int16_t>& out = resampleStereo(g_audioBatch, ratio);
+                    SDL_QueueAudio(audio, out.data(), (Uint32)(out.size() * sizeof(int16_t)));
+                } else {
+                    SDL_QueueAudio(audio, g_audioBatch.data(), (Uint32)(g_audioBatch.size() * sizeof(int16_t)));
+                }
+            }
+        };
+        if (menu != Menu::None) {
+            // Frozen while the menu is open.
+        } else if (vsyncLock || !audio) {
+            runFrame();
+            // Running low (a slow frame, a log write): emulate one extra frame
+            // to refill the audio; its picture is simply superseded.
+            if (audio && SDL_GetQueuedAudioSize(audio) < bytesPerSec * 15 / 1000) { runFrame(); ++catchUps; }
+        } else {
+            for (int i = 0; i < 3 && SDL_GetQueuedAudioSize(audio) < cushion; ++i) runFrame();
+        }
+
+        // Present every refresh (vsync paces the loop), so the bar animation
+        // stays smooth even when the game itself runs at 50 fps.
+        bool presented = false;
+        if (g_texture && g_frameW > 0) {
+            presented = true;
+            g_newFrame = false;
+            // Crop blank edge columns; the display aspect shrinks with them.
+            int cropL = std::min(g_cropL, g_frameW / 4), cropR = std::min(g_cropR, g_frameW / 4);
+            SDL_Rect src{cropL, 0, g_frameW - cropL - cropR, g_frameH};
+            float shownAspect = aspect * (float)src.w / (float)g_frameW;
+            // The area the picture fits in: the bezel's window, or the screen.
+            float bx = 0, by = 0, bw = sideways ? winH : winW, bh = sideways ? winW : winH;
+            if (bezel.tex) {
+                float sx = (float)winW / bezel.w, sy = (float)winH / bezel.h;
+                bx = bezel.window.x * sx; by = bezel.window.y * sy;
+                bw = bezel.window.w * sx; bh = bezel.window.h * sy;
+            }
+            float cw = std::min(bw, bh * shownAspect), ch = cw / shownAspect;
+            SDL_Rect dst{(int)(bx + (bw - cw) / 2), (int)(by + (bh - ch) / 2), (int)cw, (int)ch};
+            if (!bezel.tex) dst = SDL_Rect{(int)((winW - cw) / 2), (int)((winH - ch) / 2), (int)cw, (int)ch};
+            // The picture's on-screen footprint after rotation, for the bars.
+            SDL_Rect shown = sideways ? SDL_Rect{(int)((winW - ch) / 2), (int)((winH - cw) / 2), (int)ch, (int)cw} : dst;
+            float frameDt = std::min(0.1f, (t - lastPresent) / 1000.0f);
+            lastPresent = t;
+            if (bezel.tex) {
+                SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 255);
+                SDL_RenderClear(g_renderer);
+            } else {
+                g_ambient.draw(shown, winW, winH, frameDt);
+            }
+            SDL_RenderCopyEx(g_renderer, g_texture, &src, &dst, rotate, nullptr, SDL_FLIP_NONE);
+            if (bezel.tex) SDL_RenderCopy(g_renderer, bezel.tex, nullptr, nullptr);
+            if (menu != Menu::None)
+                drawPauseMenu(g_renderer, winW, winH, menu == Menu::Continue ? "WELCOME BACK" : "PAUSED", items, enabled,
+                              menuSel, toast);
+            SDL_RenderPresent(g_renderer);
+        }
+        if (!presented) SDL_Delay(2);
+        while (audio && SDL_GetQueuedAudioSize(audio) > maxQueue) SDL_Delay(1);
+
+        if (t - statsAt >= 10000) {
+            log("stats: %.1f game fps, frame %dx%d, audio %u ms, rate %+.3f%%, underruns %lu, catch-ups %lu, dupes %lu",
+                (coreFrames - statFrames) * 1000.0 / (t - statsAt), g_frameW, g_frameH,
+                audio ? SDL_GetQueuedAudioSize(audio) * 1000 / bytesPerSec : 0,
+                ratioCount ? (ratioSum / ratioCount - 1.0) * 100.0 : 0.0, underruns, catchUps, g_dupes);
+            ratioSum = 0.0;
+            ratioCount = 0;
+            statsAt = t;
+            statFrames = coreFrames;
+        }
+    }
+    ::alarm(30);  // still guarded while saving and shutting down
+    log("stopping (%s) after %u s, %lu frames", reason.c_str(), (SDL_GetTicks() - started) / 1000, g_frames);
+
+    if (size_t n = core.get_memory_size(RETRO_MEMORY_SAVE_RAM)) {
+        if (writeFile(srm, core.get_memory_data(RETRO_MEMORY_SAVE_RAM), n)) log("saved %s", srm.c_str());
+        else log("could not save %s: %s", srm.c_str(), std::strerror(errno));
+    }
+    core.unload_game();
+    core.deinit();
+    if (audio) SDL_CloseAudioDevice(audio);
+    g_ambient.shutdown();
+    Gfx::shutdown();
+    if (bezel.tex) SDL_DestroyTexture(bezel.tex);
+    panels.reset();  // join its worker and release buffers before SDL closes the fd
+    if (g_texture) SDL_DestroyTexture(g_texture);
+    SDL_DestroyRenderer(g_renderer);
+    SDL_DestroyWindow(window);
+    for (SDL_GameController* p : g_pads) SDL_GameControllerClose(p);
+    SDL_Quit();
+    if (romFile != romPath) ::unlink(romFile.c_str());
+    ::alarm(0);
+    Library::execMenu(appDir, menuSys, menuIndex, "");
+    return 0;
+}

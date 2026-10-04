@@ -1,0 +1,25 @@
+# Build output
+build/
+dist/
+*.elf
+*.o
+__pycache__/
+
+# Never commit games, BIOS files, cores or downloaded artwork
+roms/
+saves/
+system/
+cores/
+media/
+data/
+*.so
+*.zip
+*.nes
+*.sfc
+*.smc
+*.md
+!README.md
+*.gb
+*.gbc
+*.gba
+.DS_Store
