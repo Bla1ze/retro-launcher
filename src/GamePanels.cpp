@@ -657,6 +657,8 @@ void warmArtIndex(const std::string& appDir, const std::string& system) {
     coversFor(appDir + "/media/" + system + "/Named_Boxarts", "");
 }
 
+std::string matchCover(const std::string& base, const std::string& stem);
+
 // Holds findArt's filtered loose matches (best points into it until it returns).
 static std::vector<std::string>& looseKeep() {
     static thread_local std::vector<std::string> v;
@@ -679,6 +681,13 @@ std::string findArt(const std::string& appDir, const std::string& system, const 
             }
     // No cover under the ROM's own name: match the title against the prefilled
     // covers (tools/prefill_boxart.py), preferring the ROM's region.
+    std::string match = matchCover(base, stem);
+    return match.empty() ? "" : base + "Named_Boxarts/" + match;
+}
+
+// The prefilled cover (file name in media/<system>/Named_Boxarts) whose title
+// matches the ROM's, or "".
+std::string matchCover(const std::string& base, const std::string& stem) {
     std::string title = titleOf(stem), key = titleKey(title);
     if (key.empty()) return "";
     const std::string dir = base + "Named_Boxarts";
@@ -735,7 +744,28 @@ std::string findArt(const std::string& appDir, const std::string& system, const 
             consider(&keep, 3);
         }
     }
-    return best ? base + "Named_Boxarts/" + *best : "";
+    return best ? *best : "";
+}
+
+std::string niceTitle(const std::string& appDir, const std::string& system, const std::string& romFile) {
+    std::string stem = romFile.substr(0, romFile.find_last_of('.'));
+    // Only names squashed into one lowercase word ("supermarioworld").
+    if (stem.empty()) return "";
+    for (unsigned char c : stem)
+        if (!(std::islower(c) || std::isdigit(c))) return "";
+    std::string match = matchCover(appDir + "/media/" + system + "/", stem);
+    if (match.empty()) return "";
+    std::string t = titleOf(match.substr(0, match.find_last_of('.')));
+    for (char& ch : t)
+        if (ch == '_') ch = '&';  // libretro file names spell & as _
+    // "Legend of Zelda, The - A Link to the Past" -> "The Legend of Zelda - A Link to the Past"
+    for (const char* art : {", The", ", An", ", A"}) {
+        size_t n = std::strlen(art), at = std::string::npos;
+        if (t.size() > n && t.compare(t.size() - n, n, art) == 0) at = t.size() - n;
+        else at = t.find(std::string(art) + " - ");
+        if (at != std::string::npos) { t = std::string(art + 2) + " " + t.substr(0, at) + t.substr(at + n); break; }
+    }
+    return t;
 }
 
 GamePanels::~GamePanels() {

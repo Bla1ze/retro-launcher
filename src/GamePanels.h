@@ -84,6 +84,10 @@ private:
 // title screens, in our folder names or libretro-thumbnails' (Named_Boxarts...),
 // as .png or .jpg, by the ROM's file name or its libretro-sanitized form.
 std::string findArt(const std::string& appDir, const std::string& system, const std::string& romFile);
+// A readable name for a ROM whose file name is squashed into one lowercase word
+// ("supermarioworld" -> "Super Mario World"), from the prefilled cover it
+// matches; "" when the name isn't squashed or nothing matches.
+std::string niceTitle(const std::string& appDir, const std::string& system, const std::string& romFile);
 // Reads media/<system>/Named_Boxarts once so findArt's title matching is quick
 // later (thousands of files on a USB stick). Call off the UI thread.
 void warmArtIndex(const std::string& appDir, const std::string& system);

@@ -312,7 +312,21 @@ void Menu::scan() {
     m_systems.clear();
     for (const Library::System& s : Library::systems()) {
         SystemEntry e{&s, Library::scanGames(m_appDir, s)};
-        log("%s: %zu game(s)", s.id.c_str(), e.games.size());
+        int renamed = 0;
+        for (Library::Game& g : e.games) {
+            if (g.arcade) continue;
+            std::string nice = niceTitle(m_appDir, s.id, g.file);
+            if (!nice.empty()) { g.title = nice; ++renamed; }
+        }
+        if (renamed)
+            std::sort(e.games.begin(), e.games.end(), [](const Library::Game& a, const Library::Game& b) {
+                std::string x = a.title, y = b.title;
+                for (char& c : x) c = (char)std::tolower((unsigned char)c);
+                for (char& c : y) c = (char)std::tolower((unsigned char)c);
+                return x < y;
+            });
+        log("%s: %zu game(s)%s", s.id.c_str(), e.games.size(),
+            renamed ? (", " + std::to_string(renamed) + " named from their covers").c_str() : "");
         m_systems.push_back(std::move(e));
     }
 }
