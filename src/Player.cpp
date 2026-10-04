@@ -249,19 +249,23 @@ unsigned long g_frames = 0, g_dupes = 0;
 Ambient g_ambient;
 bool g_sharp = false;  // Settings > Scaling: Sharp / Pixel-perfect
 
-// CRT scanlines: a 1-pixel-wide strip with two rows per game line (clear, dark),
-// stretched over the picture with smoothing so the lines stay soft at any size.
+// CRT scanlines: two rows per game line (clear, dark), stretched over the
+// picture with smoothing so the lines stay soft at any size. 64 pixels wide and
+// made once per height: a 1-pixel-wide strip is the kind of odd texture some GPU
+// drivers mishandle (v0.6.0 froze with scanlines on).
 SDL_Texture* makeScanlines(SDL_Renderer* r, int lines, int darkness) {
-    std::vector<uint32_t> px((size_t)lines * 2);
-    for (int i = 0; i < lines; ++i) {
-        px[i * 2] = 0x00000000u;
-        px[i * 2 + 1] = (uint32_t)darkness << 24;
+    const int w = 64;
+    std::vector<uint32_t> px((size_t)w * lines * 2);
+    for (int y = 0; y < lines * 2; ++y) {
+        uint32_t v = (y & 1) ? ((uint32_t)darkness << 24) : 0u;
+        std::fill(px.begin() + (size_t)y * w, px.begin() + (size_t)(y + 1) * w, v);
     }
-    SDL_Texture* t = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 1, lines * 2);
+    SDL_Texture* t = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, w, lines * 2);
     if (t) {
-        SDL_UpdateTexture(t, nullptr, px.data(), 4);
+        SDL_UpdateTexture(t, nullptr, px.data(), w * 4);
         SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
     }
+    log("scanlines texture %dx%d: %s", w, lines * 2, t ? "ok" : SDL_GetError());
     return t;
 }
 std::vector<int16_t> g_audioBatch;
@@ -277,9 +281,12 @@ std::string g_watchdogPath;
 std::vector<std::string> g_crashArgs;
 std::vector<char*> g_crashArgv;
 
+int g_logFd = -1;  // launcher.log, so signal handlers can leave a note there too
+
 void onWatchdog(int) {
     const char msg[] = "[launcher] watchdog: the game stopped responding, returning to the menu\n";
     ssize_t ignored = ::write(1, msg, sizeof(msg) - 1);
+    if (g_logFd >= 0) ignored = ::write(g_logFd, msg + 11, sizeof(msg) - 12);
     (void)ignored;
     ::execv(g_watchdogPath.c_str(), g_watchdogArgv.data());
     ::_exit(1);
@@ -291,6 +298,7 @@ void onCrash(int sig) {
     char msg[96];
     int n = std::snprintf(msg, sizeof(msg), "[launcher] the game crashed (signal %d), returning to the menu\n", sig);
     ssize_t ignored = ::write(1, msg, n > 0 ? (size_t)n : 0);
+    if (g_logFd >= 0 && n > 11) ignored = ::write(g_logFd, msg + 11, (size_t)n - 11);
     (void)ignored;
     ::execv(g_watchdogPath.c_str(), g_crashArgv.data());
     ::_exit(1);
@@ -704,6 +712,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                    "The game crashed. This core may not support it."};
     for (std::string& a : g_crashArgs) g_crashArgv.push_back(&a[0]);
     g_crashArgv.push_back(nullptr);
+    g_logFd = Library::logFd();
     installHandlers();
     ::alarm(30);
     loadOptionOverrides(appDir + "/data/core-options.cfg");
@@ -1100,18 +1109,23 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             }
             SDL_RenderCopyEx(g_renderer, g_texture, &src, &dst, rotate, nullptr, SDL_FLIP_NONE);
             if (scanDark > 0) {
-                if (scanLines != src.h) {
-                    if (scanTex) SDL_DestroyTexture(scanTex);
-                    scanTex = makeScanlines(g_renderer, src.h, scanDark);
-                    scanLines = src.h;
+                if (!scanLines) {  // once: at the game's line count when first shown
+                    scanLines = std::max(1, src.h);
+                    scanTex = makeScanlines(g_renderer, scanLines, scanDark);
                 }
-                if (scanTex) SDL_RenderCopyEx(g_renderer, scanTex, nullptr, &dst, rotate, nullptr, SDL_FLIP_NONE);
+                if (scanTex) {
+                    // Only as many lines as the game shows now (it can change mode).
+                    SDL_Rect ss{0, 0, 64, std::min(scanLines, src.h) * 2};
+                    SDL_RenderCopyEx(g_renderer, scanTex, &ss, &dst, rotate, nullptr, SDL_FLIP_NONE);
+                }
             }
             if (bezel.tex) SDL_RenderCopy(g_renderer, bezel.tex, nullptr, nullptr);
             if (menu != Menu::None)
                 drawPauseMenu(g_renderer, winW, winH, menu == Menu::Continue ? "WELCOME BACK" : "PAUSED", items, enabled,
                               menuSel, toast);
             SDL_RenderPresent(g_renderer);
+            static bool firstShown = false;
+            if (!firstShown) { firstShown = true; log("first frame shown"); }
         }
         if (!presented) SDL_Delay(2);
         while (audio && SDL_GetQueuedAudioSize(audio) > maxQueue) SDL_Delay(1);

@@ -81,6 +81,7 @@ private:
 // app XML has <logging>true</logging>).
 void openLog(const std::string& appDir, const char* mode);
 void log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
+int logFd();  // the log file's descriptor (-1 if none), for signal handlers
 
 // Finds a core for the system: the app's cores/ folder first (copied to
 // /tmp/retrofe/cores because the stick is mounted no-exec), then the firmware's

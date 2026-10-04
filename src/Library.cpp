@@ -283,6 +283,8 @@ void openLog(const std::string& appDir, const char* mode) {
     log("==== retro-launcher %s mode, pid %d", mode, (int)::getpid());
 }
 
+int logFd() { return g_log ? fileno(g_log) : -1; }
+
 void log(const char* fmt, ...) {
     char buf[2048];
     va_list ap;
