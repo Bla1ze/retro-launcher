@@ -376,8 +376,41 @@ void keyOutWhite(std::vector<uint8_t>& img, int w, int h) {
     //     console's outline is a sharp edge). Shadow pixels become black with
     //     alpha from their darkness, which vanishes on a dark panel.
     std::vector<uint8_t> shadow(N, 0);
-    {
-        auto lum = [&](size_t i) { const uint8_t* p = &img[i * 4]; return (p[0] * 3 + p[1] * 6 + p[2]) / 10; };
+    auto lum = [&](size_t i) { const uint8_t* p = &img[i * 4]; return (p[0] * 3 + p[1] * 6 + p[2]) / 10; };
+    // Only for a mostly dark console (median brightness of what is left): under
+    // light grey plastic a shadow barely shows, and its soft near-white edges
+    // are indistinguishable from the plastic itself (the NES top went black).
+    int hist[256] = {0}, fg = 0;
+    for (size_t i = 0; i < N; ++i) if (bg[i] == 0 || bg[i] == 3) { ++hist[lum(i)]; ++fg; }
+    int median = 255;
+    for (int v = 0, acc = 0; v < 256; ++v) { acc += hist[v]; if (acc * 2 >= fg) { median = v; break; } }
+    if (median < 110) {
+        // Edge strength: brightness change across 4 pixels, on a 3x3-smoothed
+        // copy. A shadow changes a little over dozens of pixels; an object's
+        // outline (even a soft, anti-aliased one) changes a lot over a few.
+        // The shadow never spreads into an edge pixel, so it cannot leak across
+        // the outline into light grey plastic (the NES top did, before).
+        std::vector<int16_t> sm(N);
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                int sum = 0, n = 0;
+                for (int dy = -1; dy <= 1; ++dy)
+                    for (int dx = -1; dx <= 1; ++dx) {
+                        int xx = x + dx, yy = y + dy;
+                        if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue;
+                        sum += lum((size_t)yy * w + xx);
+                        ++n;
+                    }
+                sm[(size_t)y * w + x] = (int16_t)(sum / n);
+            }
+        auto edge = [&](int x, int y) {
+            auto at = [&](int xx, int yy) {
+                xx = std::max(0, std::min(w - 1, xx));
+                yy = std::max(0, std::min(h - 1, yy));
+                return (int)sm[(size_t)yy * w + xx];
+            };
+            return std::max(std::abs(at(x + 2, y) - at(x - 2, y)), std::abs(at(x, y + 2) - at(x, y - 2)));
+        };
         stack.clear();
         for (size_t i = 0; i < N; ++i) if (bg[i] == 1 || bg[i] == 2) stack.push_back((int)i);
         while (!stack.empty()) {
@@ -390,7 +423,7 @@ void keyOutWhite(std::vector<uint8_t>& img, int w, int h) {
                 size_t j = (size_t)ny[k] * w + nx[k];
                 if (bg[j] == 1 || bg[j] == 2 || shadow[j]) continue;
                 int lj = lum(j);
-                if (sat(j) < 20 && lj > 110 && std::abs(lj - li) <= 3) {
+                if (sat(j) < 20 && lj > 110 && std::abs(lj - li) <= 3 && edge(nx[k], ny[k]) <= 6) {
                     shadow[j] = 1;
                     stack.push_back((int)j);
                 }
