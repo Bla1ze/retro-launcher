@@ -66,7 +66,9 @@ in the menu until confirmed. ROMs can be plain files or `.zip`.
    stick. It needs `retro-launcher.elf`, `retro-launcher.png` and
    `retro-launcher.xml`.
 3. Optionally add `cores/` with the cores from a release or your own build.
-4. Put your games in `roms/<system>/`. The app creates the folders on first run.
+4. Put your games in `roms/<system>/`. The app creates the folders on first run,
+   each with a `README.txt` saying what goes in it (file types, BIOS names, core
+   names, artwork naming). It never overwrites one you have edited.
 
 Everything the app uses lives in its own folder:
 

@@ -197,13 +197,97 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
     return games;
 }
 
+// BIOS files a system's cores look for in system/ ("" = none needed).
+static const char* biosNote(const std::string& id) {
+    if (id == "colecovision")
+        return "Required by Gearcoleco: colecovision.rom (8 KB; coleco.rom and os7.u2 also accepted).";
+    if (id == "gb") return "Optional: gb_bios.bin (boot logo only).";
+    if (id == "gbc") return "Optional: gbc_bios.bin (boot logo only).";
+    if (id == "gba")
+        return "Optional: gba_bios.bin. gpSP has a built-in BIOS; the original improves compatibility with a few games.";
+    if (id == "lynx") return "Recommended: lynxboot.img (512 bytes). Handy can start most games without it.";
+    if (id == "pce") return "None for HuCard games (CD games are not supported).";
+    return "";
+}
+
+static void writeIfMissing(const std::string& path, const std::string& text) {
+    if (isFile(path)) return;  // never overwrite: the user may have edited it
+    std::ofstream out(path);
+    out << text;
+}
+
+// A README.txt in each folder the user fills, written once.
+static void writeGuides(const std::string& appDir) {
+    std::string list;
+    for (const System& s : systems()) {
+        std::string exts;
+        for (const std::string& e : s.extensions) exts += "." + e + " ";
+        list += "  " + s.id + std::string(14 - std::min<size_t>(13, s.id.size()), ' ') + s.name + "  (" + exts + ".zip)\n";
+    }
+    writeIfMissing(appDir + "/roms/README.txt",
+        "Put your games in the folder for their system:\n\n" + list +
+        "\nPlain files or .zip (one game per zip). The menu shows the file name\n"
+        "without tags like (USA) or [!], and box art is matched by the same file\n"
+        "name (see media/README.txt). Retro Launcher ships no games.\n");
+    for (const System& s : systems()) {
+        std::string exts;
+        for (const std::string& e : s.extensions) exts += "." + e + ", ";
+        std::string bios = biosNote(s.id);
+        writeIfMissing(appDir + "/roms/" + s.id + "/README.txt",
+            s.name + " games go here.\n\nFile types: " + exts + ".zip\n" +
+            (bios.empty() ? "" : "BIOS (in system/): " + bios + "\n") +
+            "Core: " + s.cores[0] + (s.cores.size() > 1 ? " (else " + s.cores[1] + ")" : "") + "\n");
+    }
+    std::string bios;
+    for (const System& s : systems()) {
+        std::string note = biosNote(s.id);
+        if (!note.empty()) bios += "  " + s.name + ": " + note + "\n";
+    }
+    writeIfMissing(appDir + "/system/README.txt",
+        "BIOS files the emulator cores look for. Copy your own dumps here with\n"
+        "exactly these names (Retro Launcher ships none):\n\n" + bios +
+        "\nEvery other system needs no BIOS.\n");
+    writeIfMissing(appDir + "/cores/README.txt",
+        "Optional emulator cores (.so files built for the cabinet). A core here is\n"
+        "used instead of the firmware's own; systems the firmware has no core for\n"
+        "(Game Boy, GBA, PC Engine, Lynx) need theirs here.\n\n"
+        "Cores the launcher looks for, by system:\n\n" +
+        [] {
+            std::string t;
+            for (const System& s : systems()) {
+                t += "  " + s.name + ": ";
+                for (size_t i = 0; i < s.cores.size(); ++i) t += (i ? ", " : "") + s.cores[i];
+                t += "\n";
+            }
+            return t;
+        }() +
+        "\nPrebuilt cores from the libretro buildbot do NOT load on the cabinet\n"
+        "(too new a glibc). Use the cores from a Retro Launcher release or build\n"
+        "them with tools/build-cores.sh: https://github.com/Bla1ze/retro-launcher\n");
+    writeIfMissing(appDir + "/media/README.txt",
+        "Artwork, per system folder (same names as in roms/):\n\n"
+        "  media/<system>/boxart/<ROM name>.png or .jpg   cover for one game\n"
+        "  media/<system>/bezel.png                       bezel for the whole system\n"
+        "  media/<system>/bezels/<ROM name>.png           bezel for one game\n"
+        "  media/<system>/console.png or .jpg             console photo for the DMD\n\n"
+        "<ROM name> is the game's file name without its extension, e.g. roms/nes/\n"
+        "Tetris (USA).zip -> media/nes/boxart/Tetris (USA).png. libretro-thumbnails\n"
+        "names (& * / : ` < > ? \\ | \" replaced by _) also work.\n\n"
+        "Bezels use The Bezel Project format: a PNG (usually 1920x1080) with a transparent\n"
+        "window where the game goes.\n\n"
+        "Retro Launcher ships no artwork. The scripts in tools/ download it for\n"
+        "you: https://github.com/Bla1ze/retro-launcher#artwork\n");
+}
+
 void ensureFolders(const std::string& appDir) {
-    for (const char* sub : {"/roms", "/saves", "/system", "/cores", "/data"})
+    for (const char* sub : {"/roms", "/saves", "/system", "/cores", "/data", "/media"})
         ::mkdir((appDir + sub).c_str(), 0755);
     for (const System& s : systems()) {
         ::mkdir((appDir + "/roms/" + s.id).c_str(), 0755);
         ::mkdir((appDir + "/saves/" + s.id).c_str(), 0755);
+        ::mkdir((appDir + "/media/" + s.id).c_str(), 0755);
     }
+    writeGuides(appDir);
 }
 
 // ------------------------------------------------------------------ settings
