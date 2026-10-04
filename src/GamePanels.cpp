@@ -20,6 +20,7 @@
 
 #include <dirent.h>
 #include <map>
+#include <set>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -534,6 +535,18 @@ std::string titleOf(const std::string& stem) {
     return t;
 }
 
+// The title before a " - " subtitle ("Desert Strike - Return to the Gulf" ->
+// "Desert Strike"), or the whole title.
+std::string mainTitle(const std::string& title) {
+    size_t dash = title.find(" - ");
+    return dash == std::string::npos ? title : title.substr(0, dash);
+}
+
+std::string subtitleOf(const std::string& title) {
+    size_t dash = title.find(" - ");
+    return dash == std::string::npos ? "" : title.substr(dash + 3);
+}
+
 std::string titleKey(std::string t) {
     // A trailing article moves to the front: at the end ("Legend of Zelda, The")
     // or before a subtitle ("Ren & Stimpy Show Presents, The - Stimpy's Invention").
@@ -564,6 +577,7 @@ std::string titleKey(std::string t) {
         if (c == '&' || c == '_') k += "and";  // libretro file names spell & as _
         else if (std::isalnum(c)) k += (char)std::tolower(c);
     }
+    if (k.compare(0, 5, "adand") == 0) k = "advanceddungeonsanddragons" + k.substr(5);  // "AD&D Hillsfar"
     return k;
 }
 
@@ -625,6 +639,9 @@ const std::vector<std::string>* coversFor(const std::string& dir, const std::str
                 if (k.empty()) continue;
                 index[k].push_back(n);
                 if (k.compare(0, 3, "the") == 0 && k.size() > 3) index[k.substr(3)].push_back(n);
+                std::string m = titleKey(mainTitle(titleOf(n.substr(0, n.find_last_of('.')))));
+                if (!m.empty()) index["\x01" + m].push_back(n);  // by main title
+                if (m.compare(0, 3, "the") == 0 && m.size() > 3) index["\x01" + m.substr(3)].push_back(n);
             }
             ::closedir(d);
         }
@@ -638,6 +655,12 @@ const std::vector<std::string>* coversFor(const std::string& dir, const std::str
 
 void warmArtIndex(const std::string& appDir, const std::string& system) {
     coversFor(appDir + "/media/" + system + "/Named_Boxarts", "");
+}
+
+// Holds findArt's filtered loose matches (best points into it until it returns).
+static std::vector<std::string>& looseKeep() {
+    static thread_local std::vector<std::string> v;
+    return v;
 }
 
 std::string findArt(const std::string& appDir, const std::string& system, const std::string& romFile) {
@@ -658,15 +681,59 @@ std::string findArt(const std::string& appDir, const std::string& system, const 
     // covers (tools/prefill_boxart.py), preferring the ROM's region.
     std::string title = titleOf(stem), key = titleKey(title);
     if (key.empty()) return "";
-    const std::vector<std::string>* c = coversFor(base + "Named_Boxarts", key);
-    if (!c && key.compare(0, 3, "the") == 0) c = coversFor(base + "Named_Boxarts", key.substr(3));
-    if (!c) return "";
+    const std::string dir = base + "Named_Boxarts";
+    const std::vector<std::string>* c = coversFor(dir, key);
+    if (!c && key.compare(0, 3, "the") == 0) c = coversFor(dir, key.substr(3));
     std::string region = regionOf(tagsOf(stem));
     const std::string* best = nullptr;
     int bestScore = 1 << 30;
-    for (const std::string& n : *c) {
-        int sc = coverScore(n, region);
-        if (sc < bestScore) { bestScore = sc; best = &n; }
+    auto consider = [&](const std::vector<std::string>* list, int penalty) {
+        if (!list) return;
+        for (const std::string& n : *list) {
+            int sc = coverScore(n, region) + penalty;
+            if (sc < bestScore) { bestScore = sc; best = &n; }
+        }
+    };
+    consider(c, 0);
+    // Nothing exact, or only betas / prototypes / bad dumps: also take covers
+    // with the same main title, so "Desert Strike - Return to the Gulf" finds
+    // "Desert Strike (Europe)" and "Arch Rivals" finds "Arch Rivals - A Basketbrawl!".
+    bool weak = !best;
+    if (best) {
+        std::string t = tagsOf(best->substr(0, best->find_last_of('.')));
+        for (const char* w : {"Beta", "Proto", "Sample", "Demo", "Pirate", "["})
+            if (t.find(w) != std::string::npos) weak = true;
+    }
+    if (weak) {
+        // Only when it is clearly the same game: the cover has no subtitle, or one
+        // subtitle starts the other, or the ROM has none and every cover agrees
+        // ("GI Joe" has two different games; "Wheel of Fortune - X" four editions).
+        std::string m = titleKey(mainTitle(title));
+        const std::vector<std::string>* loose = m.empty() ? nullptr : coversFor(dir, "\x01" + m);
+        if (!loose && m.compare(0, 3, "the") == 0) loose = coversFor(dir, "\x01" + m.substr(3));
+        if (loose) {
+            auto subKey = [](const std::string& file) {
+                return titleKey(subtitleOf(titleOf(file.substr(0, file.find_last_of('.')))));
+            };
+            std::string romSub = titleKey(subtitleOf(title));
+            std::set<std::string> subs;
+            for (const std::string& n : *loose) {
+                std::string cs = subKey(n);
+                if (!cs.empty()) subs.insert(cs);
+            }
+            std::vector<std::string> ok;
+            for (const std::string& n : *loose) {
+                std::string cs = subKey(n);
+                bool same = cs.empty() ||
+                            (!romSub.empty() && (cs.compare(0, romSub.size(), romSub) == 0 ||
+                                                 romSub.compare(0, cs.size(), cs) == 0)) ||
+                            (romSub.empty() && subs.size() == 1);
+                if (same) ok.push_back(n);
+            }
+            std::vector<std::string>& keep = looseKeep();
+            keep.swap(ok);
+            consider(&keep, 3);
+        }
     }
     return best ? base + "Named_Boxarts/" + *best : "";
 }
