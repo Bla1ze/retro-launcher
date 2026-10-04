@@ -300,9 +300,10 @@ static void writeGuides(const std::string& appDir) {
         std::string bios = biosNote(s.id);
         writeIfMissing(appDir + "/roms/" + s.id + "/README.txt",
             s.name + " games go here.\n\nFile types: " +
-            (s.id == "psx" ? exts.substr(0, exts.size() - 2) +
-                                 "\nUse .chd if you can (one small file per disc). A .cue needs its .bin tracks\n"
-                                 "beside it; an .m3u lists a multi-disc game's discs. Don't zip disc images.\n"
+            (s.id == "psx" || s.id == "dreamcast"
+                 ? exts.substr(0, exts.size() - 2) +
+                       "\nUse .chd if you can (one small file per disc). A .cue or .gdi needs its track\n"
+                       "files beside it; an .m3u lists a multi-disc game's discs. Don't zip disc images.\n"
                            : exts + ".zip\n") +
             (bios.empty() ? "" : (s.id == "arcade" ? "BIOS: " : "BIOS (in system/): ") + bios + "\n") +
             (s.id == "arcade"
