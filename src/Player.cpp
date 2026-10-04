@@ -337,6 +337,27 @@ void installHandlers() {
 // data/core-options.cfg (key = value). Some cores abort if a variable is missing.
 std::map<std::string, std::string> g_options;
 std::map<std::string, std::string> g_optionOverrides;
+// What the core declared, in its order, for the Core options menu.
+struct OptDef { std::string key, desc; std::vector<std::string> values; };
+std::vector<OptDef> g_optDefs;
+bool g_optionsDirty = false;  // answered once by GET_VARIABLE_UPDATE
+std::string g_optionsPath;
+
+// RetroArch's core options format: key = "value". Unquoted values are accepted.
+void saveOptionOverrides() {
+    FILE* f = std::fopen(g_optionsPath.c_str(), "w");
+    if (!f) { log("could not save %s: %s", g_optionsPath.c_str(), std::strerror(errno)); return; }
+    for (auto& kv : g_optionOverrides) std::fprintf(f, "%s = \"%s\"\n", kv.first.c_str(), kv.second.c_str());
+    std::fclose(f);
+}
+
+void setOption(const std::string& key, const std::string& value) {
+    g_options[key] = value;
+    g_optionOverrides[key] = value;
+    g_optionsDirty = true;
+    saveOptionOverrides();
+    log("core option %s = %s", key.c_str(), value.c_str());
+}
 
 void loadOptionOverrides(const std::string& path) {
     std::ifstream in(path);
@@ -348,7 +369,9 @@ void loadOptionOverrides(const std::string& path) {
             size_t a = v.find_first_not_of(" \t\r"), b = v.find_last_not_of(" \t\r");
             return a == std::string::npos ? std::string() : v.substr(a, b - a + 1);
         };
-        g_optionOverrides[trim(line.substr(0, eq))] = trim(line.substr(eq + 1));
+        std::string v = trim(line.substr(eq + 1));
+        if (v.size() >= 2 && v.front() == '"' && v.back() == '"') v = v.substr(1, v.size() - 2);
+        g_optionOverrides[trim(line.substr(0, eq))] = v;
     }
 }
 
@@ -359,6 +382,18 @@ void declareOption(const char* key, const char* spec) {
     std::string def = opts.substr(0, opts.find('|'));
     auto o = g_optionOverrides.find(key);
     g_options[key] = o != g_optionOverrides.end() ? o->second : def;
+    OptDef d;
+    d.key = key;
+    d.desc = semi == std::string::npos ? key : v.substr(0, semi);
+    for (size_t a = 0;;) {
+        size_t b = opts.find('|', a);
+        d.values.push_back(opts.substr(a, b == std::string::npos ? std::string::npos : b - a));
+        if (b == std::string::npos) break;
+        a = b + 1;
+    }
+    for (OptDef& e : g_optDefs)
+        if (e.key == d.key) { e = d; return; }
+    g_optDefs.push_back(d);
 }
 
 // --------------------------------------------------------------- callbacks
@@ -411,7 +446,10 @@ bool environment(unsigned cmd, void* data) {
         v->value = it->second.c_str();
         return true;
     }
-    case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE: *(bool*)data = false; return true;
+    case RETRO_ENVIRONMENT_GET_VARIABLE_UPDATE:
+        *(bool*)data = g_optionsDirty;  // tells the core to re-read its options
+        g_optionsDirty = false;
+        return true;
     case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: ((retro_log_callback*)data)->log = coreLog; return true;
     case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: g_av = *(const retro_system_av_info*)data; return true;
     case RETRO_ENVIRONMENT_SET_GEOMETRY: g_av.geometry = *(const retro_game_geometry*)data; return true;
@@ -685,6 +723,47 @@ void drawPauseMenu(SDL_Renderer* r, int winW, int winH, const std::string& title
     SDL_RenderSetScale(r, 1.0f, 1.0f);
 }
 
+void drawOptionsMenu(SDL_Renderer* r, int winW, int winH, const std::string& coreName, int sel, int top, int visible) {
+    const float scale = std::min(winW, winH) / 720.0f;
+    const float W = winW / scale, H = winH / scale;
+    SDL_RenderSetScale(r, scale, scale);
+    Gfx::rect(r, {0, 0, W, H}, {4, 6, 12, 200});
+    const float rowH = 50.0f, gap = 6.0f;
+    const float pw = std::min(W - 60.0f, 960.0f), ph = 150.0f + visible * (rowH + gap) + 70.0f;
+    const float px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+    Gfx::softRect(r, {px, py, pw, ph}, 30.0f, 36.0f, {0, 0, 0, 200}, false);
+    Gfx::panel(r, {px, py, pw, ph}, 30.0f, {30, 36, 58, 250}, {18, 22, 38, 250}, {255, 255, 255, 30}, 1.0f);
+    Gfx::hGradient(r, {px + 30.0f, py, pw - 60.0f, 4.0f}, Theme::Accent, Theme::Accent2);
+    Theme::glowTitle(r, "CORE OPTIONS", W * 0.5f, py + 26.0f, 46.0f, Theme::Accent, AppFont::Face::Display);
+    AppFont::drawCentered(r, coreName, W * 0.5f, py + 84.0f, 20.0f, Theme::Muted);
+    const float valueW = pw * 0.36f;
+    for (int i = 0; i < visible && top + i < (int)g_optDefs.size(); ++i) {
+        const OptDef& d = g_optDefs[top + i];
+        FRect row{px + 28.0f, py + 124.0f + i * (rowH + gap), pw - 56.0f, rowH};
+        bool active = top + i == sel;
+        Theme::rowCard(r, row, active);
+        std::string label = Theme::ellipsize(r, d.desc, row.w - valueW - 50.0f, 24.0f, AppFont::Face::Body);
+        AppFont::draw(r, label, row.x + 18.0f, row.y + 12.0f, 24.0f, active ? Theme::Text : Theme::TextDim);
+        auto it = g_options.find(d.key);
+        std::string value = Theme::ellipsize(r, it == g_options.end() ? "?" : it->second, valueW - 40.0f, 24.0f,
+                                             AppFont::Face::Body);
+        float vw = AppFont::measureWidth(r, value, 24.0f);
+        float vx = row.x + row.w - 22.0f - vw - (active ? 26.0f : 0.0f);
+        AppFont::draw(r, value, vx, row.y + 12.0f, 24.0f, active ? Theme::accent() : Theme::Muted);
+        if (active) {
+            Gfx::triangle(r, {vx - 26.0f, row.y + rowH * 0.5f - 8.0f, 16.0f, 16.0f}, 180.0, Theme::accent());
+            Gfx::triangle(r, {row.x + row.w - 38.0f, row.y + rowH * 0.5f - 8.0f, 16.0f, 16.0f}, 0.0, Theme::accent());
+        }
+    }
+    char counter[32];
+    std::snprintf(counter, sizeof(counter), "%d / %d", sel + 1, (int)g_optDefs.size());
+    AppFont::drawCentered(r, std::string(counter) + "     LEFT/RIGHT Change     LB/RB Page     B Back", W * 0.5f,
+                          py + ph - 56.0f, 19.0f, Theme::Muted);
+    AppFont::drawCentered(r, "Some options take effect the next time the game starts", W * 0.5f, py + ph - 32.0f, 17.0f,
+                          Theme::Faint);
+    SDL_RenderSetScale(r, 1.0f, 1.0f);
+}
+
 bool fileExists(const std::string& p) {
     struct stat st;
     return ::stat(p.c_str(), &st) == 0;
@@ -727,7 +806,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     g_logFd = Library::logFd();
     installHandlers();
     ::alarm(30);
-    loadOptionOverrides(appDir + "/data/core-options.cfg");
+    g_optionsPath = appDir + "/data/core-options.cfg";
+    loadOptionOverrides(g_optionsPath);
 
     // Screen: pick the connector for this model, before SDL_Init.
     DisplayProfile::Topology topo = DisplayProfile::detect();
@@ -919,7 +999,11 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     const std::string statePath = g_saveDir + "/" + stem(romName) + ".state";
     const std::string autoPath = g_saveDir + "/" + stem(romName) + ".auto.state";
     const bool canState = core.serialize_size && core.serialize && core.unserialize && core.serialize_size() > 0;
-    enum class Menu { None, Pause, Continue } menu = Menu::None;
+    enum class Menu { None, Pause, Continue, Options } menu = Menu::None;
+    int optSel = 0, optTop = 0;
+    const int optVisible = 8;
+    const std::string coreTitle = std::string(info.library_name ? info.library_name : "Core") + " " +
+                                  (info.library_version ? info.library_version : "");
     int menuSel = 0;
     std::string toast;
     Uint32 toastAt = 0;
@@ -1000,8 +1084,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         std::vector<std::string> items;
         std::vector<bool> enabled;
         if (menu == Menu::Pause) {
-            items = {"Resume", "Save state", "Load state", "Reset", "Quit to menu"};
-            enabled = {true, canState, canState && stateMatches(statePath), core.reset != nullptr, true};
+            items = {"Resume", "Save state", "Load state", "Reset", "Core options", "Quit to menu"};
+            enabled = {true, canState, canState && stateMatches(statePath), core.reset != nullptr, !g_optDefs.empty(), true};
         } else if (menu == Menu::Continue) {
             items = {"Continue where you left off", "Start from the beginning"};
             enabled = {true, true};
@@ -1018,6 +1102,29 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 startHeld = 0;
             }
             if (guideDown) openMenu(Menu::Pause);
+        } else if (menu == Menu::Options) {
+            g_buttons = 0;
+            int n = (int)g_optDefs.size();
+            auto change = [&](int dir) {
+                const OptDef& d = g_optDefs[optSel];
+                auto it = std::find(d.values.begin(), d.values.end(), g_options[d.key]);
+                int i = it == d.values.end() ? 0 : (int)(it - d.values.begin());
+                int m = (int)d.values.size();
+                if (m > 0) setOption(d.key, d.values[(i + dir + m) % m]);
+            };
+            if (n == 0 || pressed(RETRO_DEVICE_ID_JOYPAD_A) || guideDown || pressed(RETRO_DEVICE_ID_JOYPAD_START)) {
+                menu = Menu::Pause;  // back to the pause menu, on "Core options"
+                menuSel = 4;
+            } else {
+                if (pressed(RETRO_DEVICE_ID_JOYPAD_UP)) optSel = (optSel + n - 1) % n;
+                if (pressed(RETRO_DEVICE_ID_JOYPAD_DOWN)) optSel = (optSel + 1) % n;
+                if (pressed(RETRO_DEVICE_ID_JOYPAD_L)) optSel = std::max(0, optSel - optVisible);
+                if (pressed(RETRO_DEVICE_ID_JOYPAD_R)) optSel = std::min(n - 1, optSel + optVisible);
+                if (pressed(RETRO_DEVICE_ID_JOYPAD_LEFT)) change(-1);
+                if (pressed(RETRO_DEVICE_ID_JOYPAD_RIGHT) || pressed(RETRO_DEVICE_ID_JOYPAD_B)) change(1);
+                if (optSel < optTop) optTop = optSel;
+                if (optSel >= optTop + optVisible) optTop = optSel - optVisible + 1;
+            }
         } else {
             g_buttons = 0;
             int n = (int)items.size();
@@ -1029,7 +1136,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             if (menu == Menu::Pause && (back || (pressed(RETRO_DEVICE_ID_JOYPAD_START) && !confirm))) {
                 closeMenu();
             } else if (confirm && !enabled[menuSel]) {
-                toast = menuSel != 2              ? "This emulator can't do that"
+                toast = menuSel == 4              ? "This emulator has no options"
+                        : menuSel != 2            ? "This emulator can't do that"
                         : fileExists(statePath) ? "Saved with a different emulator"
                                                 : "No saved state yet";
                 toastAt = t;
@@ -1046,7 +1154,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     else { toast = "Could not load the state"; toastAt = t; }
                     break;
                 case 3: core.reset(); closeMenu(); break;
-                case 4:
+                case 4: menu = Menu::Options; optSel = optTop = 0; break;
+                case 5:
                     if (canState) saveState(autoPath);  // resume here next time
                     reason = "menu";
                     break;
@@ -1137,8 +1246,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             if (bezel.tex) SDL_RenderCopy(g_renderer, bezel.tex, nullptr, nullptr);
             if (menu != Menu::None) {
                 const char* title = menu == Menu::Continue ? "WELCOME BACK" : "PAUSED";
+                auto drawMenuAt = [&](int w, int h) {
+                    if (menu == Menu::Options) drawOptionsMenu(g_renderer, w, h, coreTitle, optSel, optTop, optVisible);
+                    else drawPauseMenu(g_renderer, w, h, title, items, enabled, menuSel, toast);
+                };
                 if (!sideways && rotate == 0) {
-                    drawPauseMenu(g_renderer, winW, winH, title, items, enabled, menuSel, toast);
+                    drawMenuAt(winW, winH);
                 } else {
                     // Draw upright on a layer the size of the player's view,
                     // then turn it exactly like the game picture.
@@ -1151,12 +1264,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     if (menuLayer && SDL_SetRenderTarget(g_renderer, menuLayer) == 0) {
                         SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 0);
                         SDL_RenderClear(g_renderer);
-                        drawPauseMenu(g_renderer, tw, th, title, items, enabled, menuSel, toast);
+                        drawMenuAt(tw, th);
                         SDL_SetRenderTarget(g_renderer, nullptr);
                         SDL_Rect md{(winW - tw) / 2, (winH - th) / 2, tw, th};
                         SDL_RenderCopyEx(g_renderer, menuLayer, nullptr, &md, rotate, nullptr, SDL_FLIP_NONE);
                     } else {
-                        drawPauseMenu(g_renderer, winW, winH, title, items, enabled, menuSel, toast);
+                        drawMenuAt(winW, winH);
                     }
                 }
             }

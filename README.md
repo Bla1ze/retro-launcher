@@ -32,7 +32,8 @@ already in the cabinet's firmware, or better ones built for it (see
 - **While playing**: a "Now playing" card on the playfield with the cover and the
   game's controls, and a photo of the console on the DMD.
 - **Pause menu**: hold Start or press Home for Resume, Save state, Load state,
-  Reset and Quit. Quitting saves your place, and the next launch offers
+  Reset, Core options and Quit. Core options lists every setting the running
+  emulator offers and applies changes straight away. Quitting saves your place, and the next launch offers
   "Continue where you left off".
 - **Solid playback**: vsync-locked pacing with dynamic audio rate control for
   60 Hz games, audio-clock pacing for 50 Hz (PAL) games, a watchdog for a stuck
@@ -131,7 +132,9 @@ stored in `data/settings.cfg` (key = value):
 
 Per-game screens are stored as `game.<system>/<rom file> = backglass|playfield`.
 
-`data/core-options.cfg` overrides libretro core options (`option_key = value`).
+Core options changed in the pause menu are saved to `data/core-options.cfg` in
+RetroArch's format (`option_key = "value"`), so options from a RetroArch setup can
+be copied in.
 
 ## Building
 
