@@ -1000,21 +1000,28 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     double refresh = mode.refresh_rate > 0 ? mode.refresh_rate : 60.0;
     double rate = g_av.timing.sample_rate > 0 ? g_av.timing.sample_rate : 44100.0;
     const bool vsyncLock = std::fabs(fps - refresh) / refresh < 0.02;
+    // The device runs at its own rate and every conversion happens here, in
+    // resampleStereo: the cabinet's older SDL turned odd rates (DoDonPachi's
+    // 47997 Hz, speed-matched 48300 Hz) into static when it resampled them.
+    const double streamRate = vsyncLock ? rate * refresh / fps : rate;  // what the game's audio must play at
     SDL_AudioSpec want{}, have{};
-    want.freq = (int)(vsyncLock ? rate * refresh / fps + 0.5 : rate + 0.5);
+    want.freq = 48000;
     want.format = AUDIO_S16SYS;
     want.channels = 2;
     want.samples = 1024;
-    SDL_AudioDeviceID audio = SDL_OpenAudioDevice(nullptr, 0, &want, &have, 0);
-    const Uint32 bytesPerSec = (Uint32)want.freq * 4;
+    SDL_AudioDeviceID audio = SDL_OpenAudioDevice(nullptr, 0, &want, &have, SDL_AUDIO_ALLOW_FREQUENCY_CHANGE);
+    const int devRate = audio && have.freq > 0 ? have.freq : want.freq;
+    const double baseRatio = devRate / streamRate;  // output frames per game audio frame
+    const bool passThrough = !vsyncLock && std::fabs(baseRatio - 1.0) < 1e-6;
+    const Uint32 bytesPerSec = (Uint32)devRate * 4;
     const Uint32 cushion = bytesPerSec * 60 / 1000;   // keep ~60 ms queued...
     const Uint32 maxQueue = bytesPerSec * 120 / 1000; // ...and never more than 120 ms
     if (audio) {
         std::vector<uint8_t> silence(cushion, 0);
         SDL_QueueAudio(audio, silence.data(), (Uint32)silence.size());
         SDL_PauseAudioDevice(audio, 0);
-        log("audio %d Hz stream, %s pacing (%.3f fps game, %.0f Hz screen)", want.freq,
-            vsyncLock ? "vsync" : "audio-clock", fps, refresh);
+        log("audio: game %.0f Hz, played at %.1f Hz, device %d Hz (ratio %.5f), %s pacing (%.3f fps game, %.0f Hz screen)",
+            rate, streamRate, devRate, baseRatio, vsyncLock ? "vsync" : "audio-clock", fps, refresh);
     } else {
         log("audio failed: %s (continuing silent)", SDL_GetError());
     }
@@ -1221,15 +1228,18 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             if (audio && !g_audioBatch.empty()) {
                 Uint32 queued = SDL_GetQueuedAudioSize(audio);
                 if (queued == 0) ++underruns;
-                if (vsyncLock) {
-                    double err = ((double)drcTarget - queued) / drcTarget;  // + = running low
-                    double ratio = 1.0 + 0.005 * std::max(-1.0, std::min(1.0, err));
-                    ratioSum += ratio;
-                    ++ratioCount;
-                    const std::vector<int16_t>& out = resampleStereo(g_audioBatch, ratio);
-                    SDL_QueueAudio(audio, out.data(), (Uint32)(out.size() * sizeof(int16_t)));
-                } else {
+                if (passThrough) {
                     SDL_QueueAudio(audio, g_audioBatch.data(), (Uint32)(g_audioBatch.size() * sizeof(int16_t)));
+                } else {
+                    double drc = 1.0;
+                    if (vsyncLock) {  // nudge toward ~50 ms queued (vsync and audio clocks differ slightly)
+                        double err = ((double)drcTarget - queued) / drcTarget;  // + = running low
+                        drc = 1.0 + 0.005 * std::max(-1.0, std::min(1.0, err));
+                        ratioSum += drc;
+                        ++ratioCount;
+                    }
+                    const std::vector<int16_t>& out = resampleStereo(g_audioBatch, baseRatio * drc);
+                    SDL_QueueAudio(audio, out.data(), (Uint32)(out.size() * sizeof(int16_t)));
                 }
             }
         };
