@@ -318,6 +318,7 @@ namespace {
 //   2. also clear enclosed pockets (inside a cable loop, between a controller
 //      and the console) when they are very white and not tiny, so light grey
 //      plastic survives;
+//   2b. turn soft drop shadows into transparent black (see below);
 //   3. soften a 3-pixel band around the result: alpha from how close a pixel is
 //      to white, with the white that bled into its colour removed, so there is
 //      no pale halo on a dark panel.
@@ -370,6 +371,40 @@ void keyOutWhite(std::vector<uint8_t>& img, int w, int h) {
         if (region.size() < N / 2000)
             for (int j : region) bg[j] = 3;  // too small: keep (a highlight, a label)
     }
+    // 2b. soft drop shadows: from the background, spread into low-colour grey
+    //     pixels only while brightness changes gently (a shadow fades; a
+    //     console's outline is a sharp edge). Shadow pixels become black with
+    //     alpha from their darkness, which vanishes on a dark panel.
+    std::vector<uint8_t> shadow(N, 0);
+    {
+        auto lum = [&](size_t i) { const uint8_t* p = &img[i * 4]; return (p[0] * 3 + p[1] * 6 + p[2]) / 10; };
+        stack.clear();
+        for (size_t i = 0; i < N; ++i) if (bg[i] == 1 || bg[i] == 2) stack.push_back((int)i);
+        while (!stack.empty()) {
+            int i = stack.back();
+            stack.pop_back();
+            int x = i % w, y = i / w, li = lum((size_t)i);
+            const int nx[4] = {x + 1, x - 1, x, x}, ny[4] = {y, y, y + 1, y - 1};
+            for (int k = 0; k < 4; ++k) {
+                if (nx[k] < 0 || ny[k] < 0 || nx[k] >= w || ny[k] >= h) continue;
+                size_t j = (size_t)ny[k] * w + nx[k];
+                if (bg[j] == 1 || bg[j] == 2 || shadow[j]) continue;
+                int lj = lum(j);
+                if (sat(j) < 20 && lj > 110 && std::abs(lj - li) <= 3) {
+                    shadow[j] = 1;
+                    stack.push_back((int)j);
+                }
+            }
+        }
+        for (size_t i = 0; i < N; ++i)
+            if (shadow[i]) {
+                uint8_t* p = &img[i * 4];
+                float a = std::max(0.0f, std::min(1.0f, (250.0f - lum(i)) / 250.0f));
+                p[0] = p[1] = p[2] = 0;
+                p[3] = (uint8_t)(a * 255.0f);
+                bg[i] = 4;
+            }
+    }
     // 3. distance (in pixels, up to 3) from the background, for the soft band
     std::vector<uint8_t> dist(N, 255);
     for (size_t i = 0; i < N; ++i) if (bg[i] == 1 || bg[i] == 2) dist[i] = 0;
@@ -384,6 +419,7 @@ void keyOutWhite(std::vector<uint8_t>& img, int w, int h) {
             }
     for (size_t i = 0; i < N; ++i) {
         uint8_t* p = &img[i * 4];
+        if (bg[i] == 4) continue;  // shadow pixels are already final
         if (dist[i] == 0) { p[3] = 0; continue; }
         if (dist[i] > 3) continue;
         // How much of this pixel is the white background: 0 (none) .. 1 (all).
