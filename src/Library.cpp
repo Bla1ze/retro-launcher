@@ -244,7 +244,12 @@ static void writeGuides(const std::string& appDir) {
         writeIfMissing(appDir + "/roms/" + s.id + "/README.txt",
             s.name + " games go here.\n\nFile types: " + exts + ".zip\n" +
             (bios.empty() ? "" : (s.id == "arcade" ? "BIOS: " : "BIOS (in system/): ") + bios + "\n") +
-            "Core: " + s.cores[0] + (s.cores.size() > 1 ? " (else " + s.cores[1] + ")" : "") + "\n");
+            (s.id == "arcade"
+                 ? std::string("Leave the zips as they are (don't unpack them). Each one is checked against the\n"
+                               "ROM lists in cores/ and played with the emulator it is complete for: FBNeo\n"
+                               "(current sets), else MAME 2003-Plus (MAME 0.78-era sets). Parent zips\n"
+                               "(sf2.zip for sf2ce.zip) go here too. Vertical games play on the playfield.\n")
+                 : "Core: " + s.cores[0] + (s.cores.size() > 1 ? " (else " + s.cores[1] + ")" : "") + "\n"));
     }
     std::string bios;
     for (const System& s : systems()) {
