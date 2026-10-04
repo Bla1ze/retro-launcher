@@ -22,16 +22,24 @@ import urllib.request
 import zipfile
 
 APP = ""  # set from the command line
+# libretro-thumbnails repositories per system, searched in order (a later one
+# fills gaps: Game Boy games in the Color folder, SuperGrafx games in pce).
 REPOS = {
-    "nes": "Nintendo_-_Nintendo_Entertainment_System",
-    "snes": "Nintendo_-_Super_Nintendo_Entertainment_System",
-    "genesis": "Sega_-_Mega_Drive_-_Genesis",
-    "mastersystem": "Sega_-_Master_System_-_Mark_III",
-    "gamegear": "Sega_-_Game_Gear",
-    "atari2600": "Atari_-_2600",
-    "colecovision": "Coleco_-_ColecoVision",
+    "genesis": ["Sega_-_Mega_Drive_-_Genesis"],
+    "mastersystem": ["Sega_-_Master_System_-_Mark_III"],
+    "gamegear": ["Sega_-_Game_Gear"],
+    "nes": ["Nintendo_-_Nintendo_Entertainment_System"],
+    "snes": ["Nintendo_-_Super_Nintendo_Entertainment_System"],
+    "atari2600": ["Atari_-_2600"],
+    "colecovision": ["Coleco_-_ColecoVision"],
+    "gb": ["Nintendo_-_Game_Boy", "Nintendo_-_Game_Boy_Color"],
+    "gbc": ["Nintendo_-_Game_Boy_Color", "Nintendo_-_Game_Boy"],
+    "gba": ["Nintendo_-_Game_Boy_Advance"],
+    "pce": ["NEC_-_PC_Engine_-_TurboGrafx_16", "NEC_-_PC_Engine_SuperGrafx"],
+    "lynx": ["Atari_-_Lynx"],
 }
-ROM_EXT = {".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".bin", ".sms", ".gg", ".a26", ".col", ".rom", ".zip"}
+ROM_EXT = {".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".bin", ".sms", ".gg", ".a26", ".col", ".rom",
+           ".gb", ".gbc", ".gba", ".pce", ".sgx", ".lnx", ".zip"}
 GOOD_REGION = {"U": "USA", "E": "Europe", "J": "Japan", "W": "World", "UE": "USA", "JU": "USA", "EU": "Europe"}
 
 
@@ -85,13 +93,15 @@ def rom_region(tags):
 
 def pick(candidates, region):
     order = [region, "USA", "World", "Europe", "Japan"]
-    def score(name):
+    def score(cand):
+        repo_rank, _, name = cand
         tags = split_tags(name[:-4])[1]
         for i, r in enumerate(order):
             if r in tags:
                 # prefer plain releases over (Beta), (Proto), (Rev x) etc.
-                return i * 10 + (5 if re.search(r"Beta|Proto|Sample|Demo|Pirate|Unl", tags) else 0) + tags.count("(")
-        return 100 + tags.count("(")
+                s = i * 10 + (5 if re.search(r"Beta|Proto|Sample|Demo|Pirate|Unl", tags) else 0) + tags.count("(")
+                return (s, repo_rank)
+        return (100 + tags.count("("), repo_rank)
     return min(candidates, key=score)
 
 
@@ -112,19 +122,19 @@ def main():
     APP = ARGS[0]
     plan = []  # (url, dest)
     report = {}
-    for sys_id, repo in REPOS.items():
+    for sys_id, repos in REPOS.items():
         if ONLY and sys_id not in ONLY:
             continue
         rom_dir = os.path.join(APP, "roms", sys_id)
         roms = [f for f in sorted(os.listdir(rom_dir)) if not f.startswith(".") and os.path.splitext(f)[1].lower() in ROM_EXT] if os.path.isdir(rom_dir) else []
         if not roms:
             continue
-        names = boxart_names(repo)
-        index = {}
-        for n in names:
-            title, _ = split_tags(n[:-4])
-            for k in key_variants(title):
-                index.setdefault(k, []).append(n)
+        index = {}  # key -> [(repo rank, repo, file name)]
+        for rank, repo in enumerate(repos):
+            for n in boxart_names(repo):
+                title, _ = split_tags(n[:-4])
+                for k in key_variants(title):
+                    index.setdefault(k, []).append((rank, repo, n))
         keys = list(index)
         out_dir = os.path.join(APP, "media", sys_id, "boxart")
         os.makedirs(out_dir, exist_ok=True)
@@ -162,7 +172,7 @@ def main():
             if not cands:
                 missed.append(rom)
                 continue
-            name = pick(cands, rom_region(tags))
+            _, repo, name = pick(cands, rom_region(tags))
             url = f"https://raw.githubusercontent.com/libretro-thumbnails/{repo}/master/Named_Boxarts/{urllib.parse.quote(name)}"
             plan.append((url, os.path.join(out_dir, stem + ".jpg"), name))
             matched += 1
@@ -173,9 +183,18 @@ def main():
         url, dest, name = item
         tmp = dest + ".png"
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": "retro-launcher-art"})
-            with urllib.request.urlopen(req, timeout=60) as r, open(tmp, "wb") as f:
-                f.write(r.read())
+            data = b""
+            for _ in range(4):
+                req = urllib.request.Request(url, headers={"User-Agent": "retro-launcher-art"})
+                with urllib.request.urlopen(req, timeout=60) as r:
+                    data = r.read()
+                # Duplicate covers are git symlinks: the raw file is just the
+                # target's name ("Title (World).png"). Follow it.
+                if data[:4] == b"\x89PNG" or len(data) > 1024:
+                    break
+                url = url.rsplit("/", 1)[0] + "/" + urllib.parse.quote(data.decode("utf-8").strip())
+            with open(tmp, "wb") as f:
+                f.write(data)
             # 512px-wide covers as JPEG (opaque art; ~1/6 the size of the PNG).
             subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "85", "-Z", "720", tmp, "--out", dest],
                            check=True, capture_output=True)
