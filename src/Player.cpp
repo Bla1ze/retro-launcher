@@ -304,7 +304,17 @@ void onCrash(int sig) {
     ::_exit(1);
 }
 
+// SDL's default assertion handler prompts on stdin and then exits the process
+// outright (no signal, so the crash guard can't step in) - v0.6.1 dropped back to
+// the firmware menu that way. Log it once and carry on instead.
+SDL_AssertState onSdlAssert(const SDL_AssertData* d, void*) {
+    if (d && d->trigger_count == 0)
+        Library::log("SDL assertion '%s' at %s:%d (%s) - ignored", d->condition, d->filename, d->linenum, d->function);
+    return SDL_ASSERTION_IGNORE;
+}
+
 void installHandlers() {
+    SDL_SetAssertionHandler(onSdlAssert, nullptr);
     // SA_NODEFER: these handlers exec, and a signal blocked while its handler
     // runs would stay blocked in the menu and every later game.
     struct sigaction sa;
@@ -825,6 +835,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                                                         : "bezel";
     if (sides == "bezel" && rotate == 0) bezel = loadBezel(appDir, sys->id, baseName(romPath));
     std::string bars = sides == "black" ? "black" : "ambient";
+    g_ambient.init(g_renderer, bars == "black" ? Ambient::Style::Black : Ambient::Style::Ambient);
     const std::string scaling = settings.value("scaling", "smooth");  // smooth | sharp | integer
     g_sharp = scaling == "sharp" || scaling == "integer";
     const std::string scan = settings.value("scanlines", "off");      // off | light | strong

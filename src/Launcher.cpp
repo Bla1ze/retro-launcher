@@ -197,6 +197,11 @@ bool Menu::initVideo() {
     ::unsetenv("ForceConnectID");
     DisplayProfile::prepareSdlMain(m_topo);
 
+    // Never let an SDL assertion exit the app (its default handler does).
+    SDL_SetAssertionHandler([](const SDL_AssertData* d, void*) -> SDL_AssertState {
+        if (d && d->trigger_count == 0) log("SDL assertion '%s' at %s:%d - ignored", d->condition, d->filename, d->linenum);
+        return SDL_ASSERTION_IGNORE;
+    }, nullptr);
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMECONTROLLER | SDL_INIT_JOYSTICK | SDL_INIT_EVENTS) != 0) {
         log("SDL_Init: %s", SDL_GetError());
         return false;
