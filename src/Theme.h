@@ -482,7 +482,7 @@ inline void confirmDialog(SDL_Renderer* r, int w, int h, const std::string& ques
 
 // --- icons -------------------------------------------------------------------
 
-enum class Icon { Radio, Search, Heart, Folder, Note, Power };
+enum class Icon { Radio, Search, Heart, Folder, Note, Power, Clock, Gear, Gamepad };
 
 // Arc from a0 to a1 (radians) as short round-capped segments.
 inline void arc(SDL_Renderer* r, float cx, float cy, float radius, float a0, float a1,
@@ -534,6 +534,34 @@ inline void icon(SDL_Renderer* r, Icon kind, float x, float y, float s, SDL_Colo
             arc(r, cx, cy + s * 0.04f, s * 0.32f, -pi * 0.30f, pi * 1.30f, t, c);
             Gfx::line(r, cx, y + s * 0.10f, cx, y + s * 0.44f, t, c);
             break;
+        case Icon::Clock:
+            Gfx::ring(r, cx, cy, s * 0.38f, t, c);
+            Gfx::line(r, cx, cy, cx, cy - s * 0.24f, t, c);
+            Gfx::line(r, cx, cy, cx + s * 0.17f, cy + s * 0.08f, t, c);
+            break;
+        case Icon::Gear: {
+            const SDL_Color hole{22, 26, 40, 255};
+            for (int k = 0; k < 8; ++k) {
+                const float a = k * pi * 0.25f;
+                Gfx::line(r, cx + std::cos(a) * s * 0.26f, cy + std::sin(a) * s * 0.26f,
+                          cx + std::cos(a) * s * 0.42f, cy + std::sin(a) * s * 0.42f, s * 0.15f, c);
+            }
+            Gfx::disc(r, cx, cy, s * 0.30f, c);
+            Gfx::disc(r, cx, cy, s * 0.12f, hole);
+            break;
+        }
+        case Icon::Gamepad: {
+            const SDL_Color ink{22, 26, 40, 255};
+            Gfx::roundRect(r, {x + s * 0.04f, y + s * 0.26f, s * 0.92f, s * 0.42f}, s * 0.20f, c);
+            Gfx::disc(r, x + s * 0.24f, y + s * 0.64f, s * 0.17f, c);
+            Gfx::disc(r, x + s * 0.76f, y + s * 0.64f, s * 0.17f, c);
+            const float d = s * 0.075f;
+            Gfx::line(r, x + s * 0.17f, y + s * 0.47f, x + s * 0.37f, y + s * 0.47f, d, ink);
+            Gfx::line(r, x + s * 0.27f, y + s * 0.37f, x + s * 0.27f, y + s * 0.57f, d, ink);
+            Gfx::disc(r, x + s * 0.67f, y + s * 0.43f, s * 0.055f, ink);
+            Gfx::disc(r, x + s * 0.79f, y + s * 0.53f, s * 0.055f, ink);
+            break;
+        }
     }
 }
 

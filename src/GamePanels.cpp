@@ -476,6 +476,51 @@ bool loadImage(const std::string& path, std::vector<uint8_t>& out, int& w, int& 
 
 } // namespace
 
+bool consoleCutout(const std::string& appDir, const std::string& system, int maxW, int maxH,
+                   std::vector<uint8_t>& out, int& outW, int& outH) {
+    std::string path = findConsoleArt(appDir, system);
+    std::vector<uint8_t> img;
+    int w = 0, h = 0;
+    if (path.empty() || !loadImage(path, img, w, h)) return false;
+    keyOutWhite(img, w, h);
+    // Crop to what is left, so the console fills its slot.
+    int x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            if (img[((size_t)y * w + x) * 4 + 3] > 16) {
+                x0 = std::min(x0, x); x1 = std::max(x1, x);
+                y0 = std::min(y0, y); y1 = std::max(y1, y);
+            }
+    if (x1 < x0) return false;
+    int cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+    float scale = std::min(1.0f, std::min(maxW / (float)cw, maxH / (float)ch));
+    outW = std::max(1, (int)std::lround(cw * scale));
+    outH = std::max(1, (int)std::lround(ch * scale));
+    out.assign((size_t)outW * outH * 4, 0);
+    // Area average with premultiplied alpha (no dark fringe from clear pixels).
+    for (int oy = 0; oy < outH; ++oy) {
+        int sy0 = y0 + oy * ch / outH, sy1 = std::max(sy0 + 1, y0 + (oy + 1) * ch / outH);
+        for (int ox = 0; ox < outW; ++ox) {
+            int sx0 = x0 + ox * cw / outW, sx1 = std::max(sx0 + 1, x0 + (ox + 1) * cw / outW);
+            double acc[4] = {0, 0, 0, 0};
+            for (int y = sy0; y < sy1; ++y)
+                for (int x = sx0; x < sx1; ++x) {
+                    const uint8_t* p = &img[((size_t)y * w + x) * 4];
+                    double a = p[3] / 255.0;
+                    acc[0] += p[0] * a; acc[1] += p[1] * a; acc[2] += p[2] * a; acc[3] += p[3];
+                }
+            double n = (double)(sy1 - sy0) * (sx1 - sx0);
+            uint8_t* o = &out[((size_t)oy * outW + ox) * 4];
+            double a = acc[3] / n;
+            o[3] = (uint8_t)std::lround(a);
+            if (a > 0.5)
+                for (int k = 0; k < 3; ++k)
+                    o[k] = (uint8_t)std::min(255.0, acc[k] / n / (a / 255.0));
+        }
+    }
+    return true;
+}
+
 std::string findArt(const std::string& appDir, const std::string& system, const std::string& romFile) {
     std::string stem = romFile.substr(0, romFile.find_last_of('.'));
     // libretro-thumbnails replaces these characters with '_' in file names.

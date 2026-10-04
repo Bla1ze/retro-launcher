@@ -19,6 +19,8 @@ already in the cabinet's firmware, or better ones built for it (see
 - **Menu on the playfield**: Neon-styled systems and game lists, search across
   every system with an on-screen keyboard, Recently played, Favourites, A–Z
   letter jumps on the flippers, and an in-app Settings screen.
+- **Console photos in the systems list** (from `media/<system>/console.*`, cut out
+  of their white background), with a drawn gamepad for any system without one.
 - **Choose the screen per game**: backglass or playfield (Home on a game),
   with a default in Settings. The screens a game isn't using show artwork.
 - **Backglass and DMD while browsing**: the highlighted game's box art over a

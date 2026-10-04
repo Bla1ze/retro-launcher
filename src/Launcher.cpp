@@ -15,6 +15,8 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <thread>
 #include <cctype>
 #include <cmath>
 #include <memory>
@@ -204,6 +206,16 @@ private:
     bool highlightedGame(int& sys, int& game) const;
     void handlePopup(AtGames::ControlEvent ev, bool& running);
     void renderPopup();
+
+    // Console photos for the system rows, cut out on a worker thread (decoding
+    // twelve full-size photos would hold up the first frame by seconds).
+    struct ConsoleIcon { std::vector<uint8_t> px; int w = 0, h = 0; bool ok = false; SDL_Texture* tex = nullptr; };
+    std::vector<ConsoleIcon> m_icons;
+    std::thread m_iconThread;
+    std::atomic<int> m_iconsDone{0};
+    std::atomic<bool> m_iconStop{false};
+    void startConsoleIcons();
+    void drawRowIcon(int row, const FRect& slot, bool dim);
     enum { PopPlay, PopFav, PopScreen, PopSearch, PopCount };
 };
 
@@ -270,6 +282,14 @@ bool Menu::initVideo() {
 }
 
 void Menu::shutdown() {
+    if (m_iconThread.joinable()) {
+        m_iconStop = true;
+        // Finished: join. Mid-photo: let it go; exec is next and ends it.
+        if (m_iconsDone.load() >= (int)m_icons.size()) m_iconThread.join();
+        else m_iconThread.detach();
+    }
+    for (ConsoleIcon& ic : m_icons)
+        if (ic.tex) { SDL_DestroyTexture(ic.tex); ic.tex = nullptr; }
     m_panels.reset();  // releases its buffers on SDL's fd before SDL closes it
     m_controls.close();
     Gfx::shutdown();
@@ -773,6 +793,64 @@ float drawGameExtras(SDL_Renderer* r, const FRect& row, bool active, bool fav, b
     return used;
 }
 
+// Photo slot on a system row, in canvas pixels (3x the 104x72 logical slot).
+constexpr float kIconSlotW = 104.0f, kIconSlotH = 72.0f;
+
+void Menu::startConsoleIcons() {
+    m_icons.assign(m_systems.size(), ConsoleIcon());
+    m_iconsDone = 0;
+    m_iconStop = false;
+    int maxW = (int)(kIconSlotW * m_canvasScale), maxH = (int)(kIconSlotH * m_canvasScale);
+    std::vector<std::string> ids;
+    for (const SystemEntry& e : m_systems) ids.push_back(e.sys->id);
+    m_iconThread = std::thread([this, ids, maxW, maxH]() {
+        Uint32 t0 = SDL_GetTicks();
+        int found = 0;
+        for (size_t i = 0; i < ids.size() && !m_iconStop; ++i) {
+            ConsoleIcon& ic = m_icons[i];
+            ic.ok = consoleCutout(m_appDir, ids[i], maxW, maxH, ic.px, ic.w, ic.h);
+            found += ic.ok;
+            m_iconsDone.store((int)i + 1, std::memory_order_release);
+        }
+        log("console icons: %d of %zu in %u ms", found, ids.size(), SDL_GetTicks() - t0);
+    });
+}
+
+// The picture at the left of a consoles-list row: an icon for the fixed rows,
+// the console's photo for a system (a gamepad until it is ready, or without one).
+void Menu::drawRowIcon(int row, const FRect& slot, bool dim) {
+    SDL_Renderer* r = m_renderer;
+    const float is = 56.0f, ix = slot.x + (slot.w - is) * 0.5f, iy = slot.y + (slot.h - is) * 0.5f;
+    if (row == 0) { Theme::icon(r, Theme::Icon::Search, ix, iy, is, Theme::Accent); return; }
+    if (row == 1) { Theme::icon(r, Theme::Icon::Clock, ix, iy, is, Theme::Accent2); return; }
+    if (row == 2) { Theme::icon(r, Theme::Icon::Heart, ix, iy, is, Theme::Rose); return; }
+    if (row == settingsRow()) { Theme::icon(r, Theme::Icon::Gear, ix, iy, is, {150, 160, 185, 255}); return; }
+    int i = row - kFixedRows;
+    if (i < m_iconsDone.load(std::memory_order_acquire)) {
+        ConsoleIcon& ic = m_icons[i];
+        if (ic.ok && !ic.tex) {
+            SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+            ic.tex = SDL_CreateTexture(r, SDL_PIXELFORMAT_ABGR8888, SDL_TEXTUREACCESS_STATIC, ic.w, ic.h);
+            if (ic.tex) {
+                SDL_UpdateTexture(ic.tex, nullptr, ic.px.data(), ic.w * 4);
+                SDL_SetTextureBlendMode(ic.tex, SDL_BLENDMODE_BLEND);
+            } else {
+                ic.ok = false;
+            }
+            std::vector<uint8_t>().swap(ic.px);
+        }
+        if (ic.tex) {
+            float w = ic.w / m_canvasScale, h = ic.h / m_canvasScale;
+            SDL_FRect dst{slot.x + (slot.w - w) * 0.5f, slot.y + (slot.h - h) * 0.5f, w, h};
+            SDL_SetTextureAlphaMod(ic.tex, dim ? 90 : 255);
+            SDL_RenderCopyF(r, ic.tex, nullptr, &dst);
+            return;
+        }
+    }
+    SDL_Color c = dim ? SDL_Color{90, 98, 120, 255} : Theme::badgeColor(m_systems[i].sys->id);
+    Theme::icon(r, Theme::Icon::Gamepad, ix, iy, is, c);
+}
+
 void Menu::renderSystems() {
     SDL_Renderer* r = m_renderer;
     const int w = AppConfig::kLogicalWidth;
@@ -783,36 +861,32 @@ void Menu::renderSystems() {
         bool active = i == m_sysRow;
         FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
         Theme::rowCard(r, row, active);
-        float tx = row.x + 100.0f;
+        float tx = row.x + 140.0f;
+        FRect slot{row.x + 18.0f, y + (kRowH - kIconSlotH) * 0.5f, kIconSlotW, kIconSlotH};
+        drawRowIcon(i, slot, i >= kFixedRows && i != settingsRow() && m_systems[i - kFixedRows].games.empty());
         if (i == 0) {
-            Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, "?", Theme::Accent);
             AppFont::draw(r, "Search", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
             AppFont::draw(r, "Find any game on any system", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
         }
         if (i == 2) {
-            Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, "F", Theme::Rose);
             AppFont::draw(r, "Favourites", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
             AppFont::draw(r, m_favs.empty() ? "Press REWIND on a game to add it" : std::to_string(m_favs.size()) + " games",
                           tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
         }
         if (i == settingsRow()) {
-            Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, "S", {120, 132, 160, 255});
             AppFont::draw(r, "Settings", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
             AppFont::draw(r, "Picture, scaling, scanlines, screens", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
         }
         if (i == 1) {
-            Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, "R", Theme::Accent2);
             AppFont::draw(r, "Recently played", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
             AppFont::draw(r, "Your last 20 games", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
         }
         const SystemEntry& e = m_systems[i - kFixedRows];
         bool empty = e.games.empty();
-        Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, e.sys->shortName,
-                        empty ? SDL_Color{90, 98, 120, 255} : Theme::badgeColor(e.sys->id));
         SDL_Color tc = empty ? Theme::Faint : (active ? Theme::Text : Theme::TextDim);
         AppFont::draw(r, e.sys->name, tx, y + 14.0f, Theme::Type::Body, tc);
         std::string sub = empty ? "No games - add ROMs to roms/" + e.sys->id + "/"
@@ -1179,6 +1253,7 @@ int Menu::run() {
     if (!m_startSys.empty() || !m_toast.empty())
         log("menu resumes at %s #%d, message '%s'", m_startSys.c_str(), m_startIndex, m_toast.c_str());
     if (!initVideo()) return 1;
+    startConsoleIcons();
     for (auto& f : Library::loadFavorites(m_appDir)) m_favs.insert(f);
     if (m_startSys == "@recent" || m_startSys == "@favorites") {
         openList(m_startSys == "@favorites");

@@ -85,5 +85,10 @@ private:
 // as .png or .jpg, by the ROM's file name or its libretro-sanitized form.
 std::string findArt(const std::string& appDir, const std::string& system, const std::string& romFile);
 
+// The console photo cut out of its white background, cropped and scaled to fit
+// maxW x maxH: RGBA, straight alpha. Slow (full-size decode): call off the UI thread.
+bool consoleCutout(const std::string& appDir, const std::string& system, int maxW, int maxH,
+                   std::vector<uint8_t>& out, int& outW, int& outH);
+
 // media/<system>/console.png or .jpg, or empty.
 std::string findConsoleArt(const std::string& appDir, const std::string& system);
