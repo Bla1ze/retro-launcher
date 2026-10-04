@@ -38,10 +38,11 @@ REPOS = {
     "pce": ["NEC_-_PC_Engine_-_TurboGrafx_16", "NEC_-_PC_Engine_SuperGrafx"],
     "lynx": ["Atari_-_Lynx"],
     "psx": ["Sony_-_PlayStation"],
+    "dreamcast": ["Sega_-_Dreamcast"],
 }
 ROM_EXT = {".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".bin", ".sms", ".gg", ".a26", ".col", ".rom",
            ".gb", ".gbc", ".gba", ".pce", ".sgx", ".lnx",
-           ".chd", ".cue", ".pbp", ".m3u", ".iso", ".zip"}
+           ".chd", ".cue", ".pbp", ".m3u", ".iso", ".cdi", ".gdi", ".zip"}
 GOOD_REGION = {"U": "USA", "E": "Europe", "J": "Japan", "W": "World", "UE": "USA", "JU": "USA", "EU": "Europe"}
 
 

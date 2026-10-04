@@ -64,6 +64,7 @@ bezel gba bezelproject-GBA;                     photo gba Nintendo-Game-Boy-Adva
 bezel pce bezelproject-PCEngine;                photo pce TurboGrafx16-Console-Set.jpg
 bezel lynx bezelproject-AtariLynx;              photo lynx Atari-Lynx-I-Handheld.jpg
 bezel psx bezelproject-PSX;                     photo psx PSX-Console-wController.png
+bezel dreamcast bezelproject-Dreamcast;         photo dreamcast Dreamcast-Console-Set.png
 
 # Credits, rebuilt from every photo's own record.
 {

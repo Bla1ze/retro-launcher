@@ -117,3 +117,46 @@ typedef void (*retro_audio_sample_t)(int16_t left, int16_t right);
 typedef size_t (*retro_audio_sample_batch_t)(const int16_t* data, size_t frames);
 typedef void (*retro_input_poll_t)(void);
 typedef int16_t (*retro_input_state_t)(unsigned port, unsigned device, unsigned index, unsigned id);
+
+// Hardware (GPU) rendering, from libretro.h. The core draws with OpenGL ES into
+// a framebuffer the front-end provides, then calls video_refresh with
+// RETRO_HW_FRAME_BUFFER_VALID instead of pixels.
+#define RETRO_ENVIRONMENT_EXPERIMENTAL 0x10000
+#define RETRO_ENVIRONMENT_SET_HW_RENDER 14
+#define RETRO_ENVIRONMENT_GET_HW_RENDER_INTERFACE (41 | RETRO_ENVIRONMENT_EXPERIMENTAL)
+#define RETRO_ENVIRONMENT_SET_HW_RENDER_CONTEXT_NEGOTIATION_INTERFACE (43 | RETRO_ENVIRONMENT_EXPERIMENTAL)
+#define RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT (44 | RETRO_ENVIRONMENT_EXPERIMENTAL)
+#define RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER 56
+#define RETRO_HW_FRAME_BUFFER_VALID ((void*)-1)
+
+enum retro_hw_context_type {
+    RETRO_HW_CONTEXT_NONE = 0,
+    RETRO_HW_CONTEXT_OPENGL = 1,
+    RETRO_HW_CONTEXT_OPENGLES2 = 2,
+    RETRO_HW_CONTEXT_OPENGL_CORE = 3,
+    RETRO_HW_CONTEXT_OPENGLES3 = 4,
+    RETRO_HW_CONTEXT_OPENGLES_VERSION = 5,
+    RETRO_HW_CONTEXT_VULKAN = 6,
+    RETRO_HW_CONTEXT_DIRECT3D = 7,
+    RETRO_HW_CONTEXT_DUMMY = 0x7fffffff
+};
+
+typedef void (*retro_proc_address_t)(void);
+typedef void (*retro_hw_context_reset_t)(void);
+typedef uintptr_t (*retro_hw_get_current_framebuffer_t)(void);
+typedef retro_proc_address_t (*retro_hw_get_proc_address_t)(const char* sym);
+
+struct retro_hw_render_callback {
+    enum retro_hw_context_type context_type;
+    retro_hw_context_reset_t context_reset;
+    retro_hw_get_current_framebuffer_t get_current_framebuffer;
+    retro_hw_get_proc_address_t get_proc_address;
+    bool depth;
+    bool stencil;
+    bool bottom_left_origin;
+    unsigned version_major;
+    unsigned version_minor;
+    bool cache_context;
+    retro_hw_context_reset_t context_destroy;
+    bool debug_context;
+};

@@ -61,6 +61,7 @@ already in the cabinet's firmware, or better ones built for it (see
 | PC Engine / TurboGrafx-16 | `roms/pce` | Beetle PCE Fast | `cores/` |
 | Atari Lynx | `roms/lynx` | Handy | `cores/` |
 | PlayStation | `roms/psx` | PCSX ReARMed | `cores/` |
+| Dreamcast | `roms/dreamcast` | Flycast (GPU) | `cores/` |
 | Arcade | `roms/arcade` | FBNeo or MAME 2003-Plus, picked per game | `cores/` |
 
 Genesis is verified on a Legends Pinball 4KP; the others are marked "untested"
@@ -72,6 +73,14 @@ Put games in `roms/psx/` as `.chd` (smallest, recommended), `.pbp`, or `.cue` wi
 its `.bin` tracks beside it. Only the `.cue` is listed, and an `.m3u` playlist
 hides the discs it names. Don't zip disc images. PCSX ReARMed has a built-in
 BIOS; a real one (`scph5501.bin` for USA games) in `system/` runs more games.
+
+### Dreamcast
+
+Put games in `roms/dreamcast/` as `.chd` (recommended), `.gdi` with its track
+files beside it, or `.cdi`. Flycast draws with the GPU (OpenGL ES 3): it gets its
+own GL context and each frame is read back into the normal picture path. Its
+built-in BIOS replacement runs most games; a real `dc_boot.bin` / `dc_flash.bin`
+goes in `system/dc/`.
 
 ### Arcade
 
@@ -227,9 +236,8 @@ docker run --rm --platform linux/amd64 -v "$SDK:/workspace" \
   atgames-external-sdk:glibc-2.26-sdl2-v1 bash /workspace/cores-src/build-cores.sh
 ```
 
-Flycast (Dreamcast, NAOMI, Atomiswave) needs a newer compiler than the SDK's;
-`tools/build-flycast.sh` describes the toolchain and builds it. (The launcher
-does not play it yet: it needs the GPU drawing path, in progress.)
+Flycast (Dreamcast) needs a newer compiler than the SDK's; `tools/build-flycast.sh`
+describes the toolchain and builds it.
 
 The cores land in `cores-src/out/`. Copy them to the app's `cores/` folder, and
 make the arcade ROM lists there from the same checkouts:
@@ -277,6 +285,7 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 | Beetle PCE Fast | [libretro/beetle-pce-fast-libretro](https://github.com/libretro/beetle-pce-fast-libretro) | GPL-2.0 |
 | Handy | [libretro/libretro-handy](https://github.com/libretro/libretro-handy) | zlib |
 | PCSX ReARMed | [libretro/pcsx_rearmed](https://github.com/libretro/pcsx_rearmed) (with `tools/patches/pcsx_rearmed-arm64-old-gas.patch`) | GPL-2.0 |
+| Flycast | [flyinghead/flycast](https://github.com/flyinghead/flycast) (with `tools/patches/flycast-gcc7.patch`, built by `tools/build-flycast.sh`) | GPL-3.0 |
 | FBNeo | [libretro/FBNeo](https://github.com/libretro/FBNeo) | FBNeo license (non-commercial) |
 | MAME 2003-Plus | [libretro/mame2003-plus-libretro](https://github.com/libretro/mame2003-plus-libretro) | MAME license (non-commercial) |
 
@@ -288,7 +297,7 @@ others) are loaded from the cabinet at run time and are not distributed here.
 - Box art: [libretro-thumbnails](https://github.com/libretro-thumbnails) (`Named_Boxarts`).
 - Bezels: [The Bezel Project](https://github.com/thebezelproject), fan-made, for personal use.
 - Console photos: Evan Amos, [Wikimedia Commons](https://commons.wikimedia.org/wiki/User:Evan-Amos).
-  Public domain, except the SNES and Atari Lynx photos (CC BY-SA 3.0).
+  Public domain, except the SNES, Atari Lynx and Dreamcast photos (CC BY-SA 3.0).
 
 Thanks to the libretro and RetroArch developers, the authors of every core
 listed above, The Bezel Project, and AtGames for opening the cabinets to

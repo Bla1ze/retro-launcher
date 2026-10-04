@@ -15,6 +15,7 @@
 #include <cstring>
 #include <fstream>
 #include <set>
+#include <sstream>
 
 namespace Library {
 namespace {
@@ -142,6 +143,8 @@ const std::vector<System>& systems() {
         {"pce", "PC Engine / TurboGrafx-16", "PCE", {"mednafen_pce_fast_libretro.so"}, {"pce", "sgx"}, 4.0f / 3.0f, false},
         {"lynx", "Atari Lynx", "LNX", {"handy_libretro.so"}, {"lnx"}, 160.0f / 102.0f, false},
         // Disc images are passed to the core where they are (cue tracks beside them).
+        // GPU core (OpenGL ES): Flycast.
+        {"dreamcast", "Dreamcast", "DC", {"flycast_libretro.so"}, {"chd", "cdi", "gdi", "cue", "m3u"}, 4.0f / 3.0f, false},
         {"psx", "PlayStation", "PS1", {"pcsx_rearmed_libretro.so"}, {"chd", "cue", "pbp", "m3u", "iso", "img", "bin"},
          4.0f / 3.0f, false},
     };
@@ -167,6 +170,8 @@ std::vector<std::pair<std::string, std::string>> controlHints(const std::string&
         return {{"A", "B"}, {"B", "A"}, {"LB / RB", "L / R"}, {"START", "Start"}, {"REWIND", "Select"}};
     if (id == "pce")
         return {{"A", "II"}, {"B", "I"}, {"START", "Run"}, {"REWIND", "Select"}};
+    if (id == "dreamcast")
+        return {{"A", "A"}, {"B", "B"}, {"X", "X"}, {"Y", "Y"}, {"LB2 / RB2", "L / R triggers"}, {"START", "Start"}};
     if (id == "psx")
         return {{"A", "Cross"}, {"B", "Circle"}, {"X", "Square"}, {"Y", "Triangle"}, {"LB / RB", "L1 / R1"},
                 {"LB2 / RB2", "L2 / R2"}, {"START", "Start"}, {"REWIND", "Select"}};
@@ -205,12 +210,12 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
         games.push_back(g);
     }
     ::closedir(d);
-    // A .cue's track files and an .m3u's discs are parts of one game: list only
-    // the .cue / .m3u.
+    // A .cue's / .gdi's track files and an .m3u's discs are parts of one game:
+    // list only the .cue / .gdi / .m3u.
     std::set<std::string> parts;
     for (const Game& g : games) {
         std::string ext = extOf(g.file);
-        if (ext != "cue" && ext != "m3u") continue;
+        if (ext != "cue" && ext != "m3u" && ext != "gdi") continue;
         std::ifstream in(g.path);
         std::string line;
         while (std::getline(in, line)) {
@@ -220,6 +225,19 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
                 size_t a = line.find('"'), b = line.rfind('"');
                 if (lower(line).find("file") == std::string::npos || a == std::string::npos || b <= a) continue;
                 ref = line.substr(a + 1, b - a - 1);
+            } else if (ext == "gdi") {
+                // "<track> <lba> <type> <sector size> <file> <offset>"; the file may be quoted.
+                size_t q = line.find('"');
+                if (q != std::string::npos) {
+                    size_t e = line.find('"', q + 1);
+                    if (e == std::string::npos) continue;
+                    ref = line.substr(q + 1, e - q - 1);
+                } else {
+                    std::istringstream fields(line);
+                    std::string f[5];
+                    if (!(fields >> f[0] >> f[1] >> f[2] >> f[3] >> f[4])) continue;
+                    ref = f[4];
+                }
             } else {
                 ref = trim(line);
                 if (ref.empty() || ref[0] == '#') continue;
@@ -247,6 +265,9 @@ static const char* biosNote(const std::string& id) {
         return "Optional: gba_bios.bin. gpSP has a built-in BIOS; the original improves compatibility with a few games.";
     if (id == "lynx") return "Recommended: lynxboot.img (512 bytes). Handy can start most games without it.";
     if (id == "pce") return "None for HuCard games (CD games are not supported).";
+    if (id == "dreamcast")
+        return "Optional: dc/dc_boot.bin and dc/dc_flash.bin (in a dc folder inside system/). Flycast has a "
+               "built-in BIOS replacement that runs most games.";
     if (id == "psx")
         return "Optional: scph5501.bin (USA), scph5500.bin (Japan), scph5502.bin (Europe). PCSX ReARMed has a "
                "built-in BIOS; a real one runs more games.";

@@ -424,9 +424,188 @@ void coreLog(enum retro_log_level level, const char* fmt, ...) {
     log("core %s: %s", names[(unsigned)level <= 3 ? level : 1], buf);
 }
 
+// ------------------------------------------------------------- GPU cores
+// Cores that draw with OpenGL ES (Flycast) get a context of their own, so they
+// can't disturb the state SDL 2.0.7's GLES2 renderer caches, and a framebuffer
+// to draw into. Each finished frame is read back into the normal picture path
+// (rotation, bezels, scanlines, pause menu, glow all unchanged).
+//
+// SDL's renderer remembers its context in a static of its own and only
+// re-makes it current when that changes, so after every call into the core the
+// renderer's context is made current again here (CoreGL).
+
+typedef unsigned int GLuintT;
+struct GlFns {
+    void (*GenFramebuffers)(int, GLuintT*);
+    void (*BindFramebuffer)(unsigned, GLuintT);
+    void (*DeleteFramebuffers)(int, const GLuintT*);
+    void (*GenTextures)(int, GLuintT*);
+    void (*BindTexture)(unsigned, GLuintT);
+    void (*DeleteTextures)(int, const GLuintT*);
+    void (*TexImage2D)(unsigned, int, int, int, int, int, unsigned, unsigned, const void*);
+    void (*TexParameteri)(unsigned, unsigned, int);
+    void (*FramebufferTexture2D)(unsigned, unsigned, unsigned, GLuintT, int);
+    void (*GenRenderbuffers)(int, GLuintT*);
+    void (*BindRenderbuffer)(unsigned, GLuintT);
+    void (*DeleteRenderbuffers)(int, const GLuintT*);
+    void (*RenderbufferStorage)(unsigned, unsigned, int, int);
+    void (*FramebufferRenderbuffer)(unsigned, unsigned, unsigned, GLuintT);
+    unsigned (*CheckFramebufferStatus)(unsigned);
+    void (*ReadPixels)(int, int, int, int, unsigned, unsigned, void*);
+    void (*PixelStorei)(unsigned, int);
+    const unsigned char* (*GetString)(unsigned);
+} gl{};
+enum : unsigned {
+    kGL_FRAMEBUFFER = 0x8D40, kGL_RENDERBUFFER = 0x8D41, kGL_COLOR_ATTACHMENT0 = 0x8CE0,
+    kGL_DEPTH_STENCIL_ATTACHMENT = 0x821A, kGL_DEPTH24_STENCIL8 = 0x88F0, kGL_FRAMEBUFFER_COMPLETE = 0x8CD5,
+    kGL_TEXTURE_2D = 0x0DE1, kGL_RGBA = 0x1908, kGL_UNSIGNED_BYTE = 0x1401, kGL_TEXTURE_MIN_FILTER = 0x2801,
+    kGL_TEXTURE_MAG_FILTER = 0x2800, kGL_NEAREST = 0x2600, kGL_PACK_ALIGNMENT = 0x0D05, kGL_VERSION = 0x1F02,
+    kGL_RENDERER = 0x1F01
+};
+
+SDL_Window* g_window = nullptr;
+SDL_GLContext g_rendererCtx = nullptr;  // SDL's renderer
+SDL_GLContext g_coreCtx = nullptr;      // the core's, when it renders with the GPU
+retro_hw_render_callback g_hw{};
+GLuintT g_fbo = 0, g_fboTex = 0, g_fboDepth = 0;
+int g_fboW = 0, g_fboH = 0;
+std::vector<uint8_t> g_hwRaw, g_hwFrame;  // read back (RGBA, GL rows) / converted (XRGB8888, top first)
+unsigned g_hwW = 0, g_hwH = 0;
+bool g_hwPending = false;
+double g_readbackMs = 0.0;
+unsigned long g_readbacks = 0;
+
+// While alive, the core's GL context is current (no-op for software cores).
+struct CoreGL {
+    CoreGL() { if (g_coreCtx) SDL_GL_MakeCurrent(g_window, g_coreCtx); }
+    ~CoreGL() { if (g_coreCtx) SDL_GL_MakeCurrent(g_window, g_rendererCtx); }
+};
+
+uintptr_t hwCurrentFramebuffer() { return g_fbo; }
+retro_proc_address_t hwProcAddress(const char* sym) { return (retro_proc_address_t)SDL_GL_GetProcAddress(sym); }
+
+template <typename F> bool loadGl(F& fn, const char* name) {
+    fn = (F)SDL_GL_GetProcAddress(name);
+    if (!fn) log("gl: %s missing", name);
+    return fn != nullptr;
+}
+
+// Framebuffer the core draws into (core context current).
+bool makeFramebuffer(int w, int h) {
+    if (g_fbo) { gl.DeleteFramebuffers(1, &g_fbo); gl.DeleteTextures(1, &g_fboTex); gl.DeleteRenderbuffers(1, &g_fboDepth); }
+    gl.GenTextures(1, &g_fboTex);
+    gl.BindTexture(kGL_TEXTURE_2D, g_fboTex);
+    gl.TexParameteri(kGL_TEXTURE_2D, kGL_TEXTURE_MIN_FILTER, kGL_NEAREST);
+    gl.TexParameteri(kGL_TEXTURE_2D, kGL_TEXTURE_MAG_FILTER, kGL_NEAREST);
+    gl.TexImage2D(kGL_TEXTURE_2D, 0, kGL_RGBA, w, h, 0, kGL_RGBA, kGL_UNSIGNED_BYTE, nullptr);
+    gl.BindTexture(kGL_TEXTURE_2D, 0);
+    gl.GenRenderbuffers(1, &g_fboDepth);
+    gl.BindRenderbuffer(kGL_RENDERBUFFER, g_fboDepth);
+    gl.RenderbufferStorage(kGL_RENDERBUFFER, kGL_DEPTH24_STENCIL8, w, h);
+    gl.BindRenderbuffer(kGL_RENDERBUFFER, 0);
+    gl.GenFramebuffers(1, &g_fbo);
+    gl.BindFramebuffer(kGL_FRAMEBUFFER, g_fbo);
+    gl.FramebufferTexture2D(kGL_FRAMEBUFFER, kGL_COLOR_ATTACHMENT0, kGL_TEXTURE_2D, g_fboTex, 0);
+    gl.FramebufferRenderbuffer(kGL_FRAMEBUFFER, kGL_DEPTH_STENCIL_ATTACHMENT, kGL_RENDERBUFFER, g_fboDepth);
+    unsigned status = gl.CheckFramebufferStatus(kGL_FRAMEBUFFER);
+    gl.BindFramebuffer(kGL_FRAMEBUFFER, 0);
+    g_fboW = w; g_fboH = h;
+    log("gpu: framebuffer %dx%d: %s (0x%x)", w, h, status == kGL_FRAMEBUFFER_COMPLETE ? "complete" : "INCOMPLETE", status);
+    return status == kGL_FRAMEBUFFER_COMPLETE;
+}
+
+// SET_HW_RENDER (inside load_game): a GLES context for the core, left current
+// for the rest of load_game.
+bool startHwRender(retro_hw_render_callback* cb) {
+    if (cb->context_type != RETRO_HW_CONTEXT_OPENGLES2 && cb->context_type != RETRO_HW_CONTEXT_OPENGLES3 &&
+        cb->context_type != RETRO_HW_CONTEXT_OPENGLES_VERSION) {
+        log("gpu: core asked for context type %d (only OpenGL ES here)", (int)cb->context_type);
+        return false;
+    }
+    if (!g_window || !g_rendererCtx) { log("gpu: no GL renderer to share the window with"); return false; }
+    if (!g_coreCtx) {
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+        SDL_GL_SetAttribute(SDL_GL_SHARE_WITH_CURRENT_CONTEXT, 0);
+        for (int major : {3, 2}) {
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, major);
+            SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+            g_coreCtx = SDL_GL_CreateContext(g_window);  // and makes it current
+            if (g_coreCtx) break;
+            log("gpu: GLES %d.0 context failed: %s", major, SDL_GetError());
+        }
+        if (!g_coreCtx) { SDL_GL_MakeCurrent(g_window, g_rendererCtx); return false; }
+        bool ok = loadGl(gl.GenFramebuffers, "glGenFramebuffers") & loadGl(gl.BindFramebuffer, "glBindFramebuffer") &
+                  loadGl(gl.DeleteFramebuffers, "glDeleteFramebuffers") & loadGl(gl.GenTextures, "glGenTextures") &
+                  loadGl(gl.BindTexture, "glBindTexture") & loadGl(gl.DeleteTextures, "glDeleteTextures") &
+                  loadGl(gl.TexImage2D, "glTexImage2D") & loadGl(gl.TexParameteri, "glTexParameteri") &
+                  loadGl(gl.FramebufferTexture2D, "glFramebufferTexture2D") &
+                  loadGl(gl.GenRenderbuffers, "glGenRenderbuffers") & loadGl(gl.BindRenderbuffer, "glBindRenderbuffer") &
+                  loadGl(gl.DeleteRenderbuffers, "glDeleteRenderbuffers") &
+                  loadGl(gl.RenderbufferStorage, "glRenderbufferStorage") &
+                  loadGl(gl.FramebufferRenderbuffer, "glFramebufferRenderbuffer") &
+                  loadGl(gl.CheckFramebufferStatus, "glCheckFramebufferStatus") &
+                  loadGl(gl.ReadPixels, "glReadPixels") & loadGl(gl.PixelStorei, "glPixelStorei") &
+                  loadGl(gl.GetString, "glGetString");
+        if (!ok) {
+            SDL_GL_MakeCurrent(g_window, g_rendererCtx);
+            SDL_GL_DeleteContext(g_coreCtx);
+            g_coreCtx = nullptr;
+            return false;
+        }
+        const unsigned char* ver = gl.GetString(kGL_VERSION);
+        const unsigned char* rend = gl.GetString(kGL_RENDERER);
+        log("gpu: core context %s | %s", ver ? (const char*)ver : "?", rend ? (const char*)rend : "?");
+    }
+    cb->get_current_framebuffer = hwCurrentFramebuffer;
+    cb->get_proc_address = hwProcAddress;
+    g_hw = *cb;
+    log("gpu: core wants type %d, version %u.%u, depth %d, stencil %d, bottom-left origin %d", (int)cb->context_type,
+        cb->version_major, cb->version_minor, cb->depth, cb->stencil, cb->bottom_left_origin);
+    return true;
+}
+
+// RETRO_HW_FRAME_BUFFER_VALID (core context current): read the frame back.
+// The upload to SDL waits until the renderer's context is current again.
+void readHwFrame(unsigned w, unsigned h) {
+    if (!g_fbo || w == 0 || h == 0) return;
+    w = std::min<unsigned>(w, (unsigned)g_fboW);
+    h = std::min<unsigned>(h, (unsigned)g_fboH);
+    Uint64 t0 = SDL_GetPerformanceCounter();
+    g_hwRaw.resize((size_t)w * h * 4);
+    gl.BindFramebuffer(kGL_FRAMEBUFFER, g_fbo);
+    gl.PixelStorei(kGL_PACK_ALIGNMENT, 4);
+    gl.ReadPixels(0, 0, (int)w, (int)h, kGL_RGBA, kGL_UNSIGNED_BYTE, g_hwRaw.data());
+    // RGBA bytes -> XRGB8888 (B,G,R,A in memory); GL's first row is the bottom.
+    g_hwFrame.resize(g_hwRaw.size());
+    for (unsigned y = 0; y < h; ++y) {
+        const uint8_t* src = &g_hwRaw[(size_t)(g_hw.bottom_left_origin ? h - 1 - y : y) * w * 4];
+        uint8_t* dst = &g_hwFrame[(size_t)y * w * 4];
+        for (unsigned x = 0; x < w; ++x, src += 4, dst += 4) {
+            dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0]; dst[3] = 0xff;
+        }
+    }
+    g_hwW = w; g_hwH = h;
+    g_hwPending = true;
+    g_readbackMs += (SDL_GetPerformanceCounter() - t0) * 1000.0 / SDL_GetPerformanceFrequency();
+    ++g_readbacks;
+}
+
+void videoRefresh(const void* data, unsigned w, unsigned h, size_t pitch);
+
+// After a core call, with the renderer's context current again.
+void flushHwFrame() {
+    if (!g_hwPending) return;
+    g_hwPending = false;
+    g_pixelFormat = RETRO_PIXEL_FORMAT_XRGB8888;
+    videoRefresh(g_hwFrame.data(), g_hwW, g_hwH, (size_t)g_hwW * 4);
+}
+
 bool environment(unsigned cmd, void* data) {
     switch (cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL) {
     case RETRO_ENVIRONMENT_GET_CAN_DUPE: *(bool*)data = true; return true;
+    case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: *(unsigned*)data = RETRO_HW_CONTEXT_OPENGLES3; return true;
+    case RETRO_ENVIRONMENT_SET_HW_RENDER: return startHwRender((retro_hw_render_callback*)data);
+    case RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT: return true;
     case RETRO_ENVIRONMENT_SET_ROTATION:
         g_coreRotation = *(const unsigned*)data & 3;
         log("core asks for rotation %u (x90 counter-clockwise)", g_coreRotation);
@@ -469,7 +648,14 @@ bool environment(unsigned cmd, void* data) {
         g_optionsDirty = false;
         return true;
     case RETRO_ENVIRONMENT_GET_LOG_INTERFACE: ((retro_log_callback*)data)->log = coreLog; return true;
-    case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO: g_av = *(const retro_system_av_info*)data; return true;
+    case RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO:
+        g_av = *(const retro_system_av_info*)data;
+        // A GPU core's picture grew past its framebuffer (e.g. a higher internal
+        // resolution): make a bigger one. Called from inside the core, so its
+        // context is current.
+        if (g_coreCtx && g_fbo && ((int)g_av.geometry.max_width > g_fboW || (int)g_av.geometry.max_height > g_fboH))
+            makeFramebuffer(std::max<int>(g_fboW, g_av.geometry.max_width), std::max<int>(g_fboH, g_av.geometry.max_height));
+        return true;
     case RETRO_ENVIRONMENT_SET_GEOMETRY: g_av.geometry = *(const retro_game_geometry*)data; return true;
     case RETRO_ENVIRONMENT_GET_LANGUAGE: *(unsigned*)data = 0; return true;
     case RETRO_ENVIRONMENT_GET_CORE_OPTIONS_VERSION: *(unsigned*)data = 0; return true;
@@ -579,6 +765,7 @@ Bezel loadBezel(const std::string& appDir, const std::string& sys, const std::st
 }
 
 void videoRefresh(const void* data, unsigned w, unsigned h, size_t pitch) {
+    if (data == RETRO_HW_FRAME_BUFFER_VALID) { readHwFrame(w, h); return; }
     if (!data) { ++g_dupes; return; }
     Uint32 fmt = sdlFormat(g_pixelFormat);
     int tw = (int)std::max(w, g_av.geometry.max_width), th = (int)std::max(h, g_av.geometry.max_height);
@@ -912,6 +1099,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     g_renderer = SDL_CreateRenderer(window, -1,
                                     SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE);
     if (!g_renderer) g_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    g_window = window;
+    g_rendererCtx = SDL_GL_GetCurrentContext();  // the GLES2 renderer's (null for the software one)
     if (!g_renderer) return fail(std::string("Could not draw on the screen: ") + SDL_GetError());
     int winW = 0, winH = 0;
     SDL_GetRendererOutputSize(g_renderer, &winW, &winH);
@@ -982,9 +1171,18 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     core.set_input_state(inputState);
     retro_game_info game{romFile.c_str(), info.need_fullpath ? nullptr : romData.data(),
                          info.need_fullpath ? 0 : romData.size(), nullptr};
-    if (!core.load_game(&game)) return fail("The emulator could not start this ROM.");
+    bool loaded;
+    { CoreGL glScope; loaded = core.load_game(&game); }  // SET_HW_RENDER may create the core's context in here
+    if (!loaded) return fail("The emulator could not start this ROM.");
     core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     core.get_system_av_info(&g_av);
+    if (g_coreCtx) {
+        CoreGL glScope;
+        int fw = std::max(640, (int)g_av.geometry.max_width), fh = std::max(480, (int)g_av.geometry.max_height);
+        if (!makeFramebuffer(fw, fh)) return fail("The GPU could not set up this game's picture.");
+        if (g_hw.context_reset) g_hw.context_reset();
+        g_pixelFormat = RETRO_PIXEL_FORMAT_XRGB8888;
+    }
     log("loaded: %ux%u (max %ux%u), %.3f fps, %.0f Hz audio", g_av.geometry.base_width, g_av.geometry.base_height,
         g_av.geometry.max_width, g_av.geometry.max_height, g_av.timing.fps, g_av.timing.sample_rate);
 
@@ -1056,7 +1254,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     // when you quit, offered back the next time the game starts.
     const std::string statePath = g_saveDir + "/" + stem(romName) + ".state";
     const std::string autoPath = g_saveDir + "/" + stem(romName) + ".auto.state";
-    const bool canState = core.serialize_size && core.serialize && core.unserialize && core.serialize_size() > 0;
+    bool canState = false;
+    { CoreGL glScope; canState = core.serialize_size && core.serialize && core.unserialize && core.serialize_size() > 0; }
     enum class Menu { None, Pause, Continue, Options } menu = Menu::None;
     int optSel = 0, optTop = 0;
     const int optVisible = 8;
@@ -1078,6 +1277,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     };
     auto saveState = [&](const std::string& path) {
         if (!canState) return false;
+        CoreGL glScope;
         std::vector<uint8_t> buf(core.serialize_size());
         bool ok = core.serialize(buf.data(), buf.size()) && writeFile(path, buf.data(), buf.size()) &&
                   writeFile(path + ".core", coreTag.data(), coreTag.size());
@@ -1086,6 +1286,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     };
     auto loadState = [&](const std::string& path) {
         std::vector<uint8_t> buf;
+        CoreGL glScope;
         bool ok = canState && readFile(path, buf) && core.unserialize(buf.data(), buf.size());
         log("load state %s: %s", path.c_str(), ok ? "ok" : "failed");
         return ok;
@@ -1123,7 +1324,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         // a second; whatever happens next is replaced by the state or a reset).
         for (int i = 0; i < 60 && !g_texture; ++i) {
             g_audioBatch.clear();
-            core.run();
+            { CoreGL glScope; core.run(); }
+            flushHwFrame();
         }
         g_audioBatch.clear();
         openMenu(Menu::Continue);
@@ -1131,7 +1333,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     }
 
     while (reason.empty()) {
-        ::alarm(10);  // a single frame taking 10 s means the core is stuck
+        // A single frame taking 10 s means the core is stuck. GPU cores get longer
+        // at first: the Mali compiles shaders as new scenes appear.
+        ::alarm(g_coreCtx && coreFrames < 900 ? 30 : 10);
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) reason = "quit";
@@ -1207,7 +1411,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 toastAt = t;
             } else if (confirm && menu == Menu::Continue) {
                 if (menuSel == 0) loadState(autoPath);
-                else { ::unlink(autoPath.c_str()); if (core.reset) core.reset(); }
+                else { ::unlink(autoPath.c_str()); if (core.reset) { CoreGL glScope; core.reset(); } }
                 closeMenu();
             } else if (confirm) {
                 switch (menuSel) {
@@ -1217,7 +1421,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     if (loadState(statePath)) closeMenu();
                     else { toast = "Could not load the state"; toastAt = t; }
                     break;
-                case 3: core.reset(); closeMenu(); break;
+                case 3: { CoreGL glScope; core.reset(); } closeMenu(); break;
                 case 4: menu = Menu::Options; optSel = optTop = 0; break;
                 case 5:
                     if (canState) saveState(autoPath);  // resume here next time
@@ -1230,7 +1434,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
 
         auto runFrame = [&]() {
             g_audioBatch.clear();
-            core.run();
+            { CoreGL glScope; core.run(); }
+            flushHwFrame();
             ++coreFrames;
             if (audio && !g_audioBatch.empty()) {
                 Uint32 queued = SDL_GetQueuedAudioSize(audio);
@@ -1374,8 +1579,13 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (writeFile(srm, core.get_memory_data(RETRO_MEMORY_SAVE_RAM), n)) log("saved %s", srm.c_str());
         else log("could not save %s: %s", srm.c_str(), std::strerror(errno));
     }
-    core.unload_game();
-    core.deinit();
+    {
+        CoreGL glScope;
+        core.unload_game();
+        if (g_coreCtx && g_hw.context_destroy) g_hw.context_destroy();
+        core.deinit();
+    }
+    if (g_readbacks) log("gpu: %lu frames read back, %.2f ms each", g_readbacks, g_readbackMs / g_readbacks);
     if (audio) SDL_CloseAudioDevice(audio);
     g_ambient.shutdown();
     Gfx::shutdown();

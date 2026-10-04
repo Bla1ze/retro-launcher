@@ -37,6 +37,7 @@ REPOS = {
     "pce": ["NEC_-_PC_Engine_-_TurboGrafx_16", "NEC_-_PC_Engine_SuperGrafx"],
     "lynx": ["Atari_-_Lynx"],
     "psx": ["Sony_-_PlayStation"],
+    "dreamcast": ["Sega_-_Dreamcast"],
 }
 UA = {"User-Agent": "retro-launcher-prefill"}
 
