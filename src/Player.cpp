@@ -1103,9 +1103,15 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     if (canState && fileExists(autoPath) && !stateMatches(autoPath))
         log("not offering %s: saved with a different core", autoPath.c_str());
     if (canState && stateMatches(autoPath)) {
-        // Show the game's first frame behind the question.
+        // Show the game's first frame behind the question. Some cores (FBNeo)
+        // send no picture on their first frame or two, and with nothing to draw
+        // the question would be invisible, so run until there is one (at most
+        // a second; whatever happens next is replaced by the state or a reset).
+        for (int i = 0; i < 60 && !g_texture; ++i) {
+            g_audioBatch.clear();
+            core.run();
+        }
         g_audioBatch.clear();
-        core.run();
         openMenu(Menu::Continue);
         log("offering to continue from %s", autoPath.c_str());
     }
