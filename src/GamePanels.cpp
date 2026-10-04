@@ -312,46 +312,88 @@ std::string findConsoleArt(const std::string& appDir, const std::string& system)
 
 namespace {
 
-// Product photos usually sit on white. For an image with no transparency,
-// flood-fill near-white pixels connected to the border to transparent, and
-// soften the pixels bordering them, so the console floats on the panel.
+// Product photos usually sit on white. For an image with no transparency, make
+// the background transparent:
+//   1. flood-fill near-white pixels connected to the border;
+//   2. also clear enclosed pockets (inside a cable loop, between a controller
+//      and the console) when they are very white and not tiny, so light grey
+//      plastic survives;
+//   3. soften a 3-pixel band around the result: alpha from how close a pixel is
+//      to white, with the white that bled into its colour removed, so there is
+//      no pale halo on a dark panel.
 void keyOutWhite(std::vector<uint8_t>& img, int w, int h) {
     for (size_t i = 3; i < img.size(); i += 4)
         if (img[i] < 250) return;  // already has transparency
-    auto whiteish = [&](int x, int y) {
-        const uint8_t* p = &img[((size_t)y * w + x) * 4];
-        int mn = std::min(p[0], std::min(p[1], p[2])), mx = std::max(p[0], std::max(p[1], p[2]));
-        return mn > 222 && mx - mn < 28;
+    const size_t N = (size_t)w * h;
+    auto minc = [&](size_t i) { const uint8_t* p = &img[i * 4]; return (int)std::min(p[0], std::min(p[1], p[2])); };
+    auto sat = [&](size_t i) {
+        const uint8_t* p = &img[i * 4];
+        return (int)std::max(p[0], std::max(p[1], p[2])) - (int)std::min(p[0], std::min(p[1], p[2]));
     };
-    std::vector<uint8_t> bg((size_t)w * h, 0);
+    auto whiteish = [&](size_t i) { return minc(i) > 222 && sat(i) < 28; };
+    auto veryWhite = [&](size_t i) { return minc(i) > 238 && sat(i) < 14; };
+
+    std::vector<uint8_t> bg(N, 0);
     std::vector<int> stack;
-    auto push = [&](int x, int y) {
-        if (x < 0 || y < 0 || x >= w || y >= h) return;
-        size_t i = (size_t)y * w + x;
-        if (bg[i] || !whiteish(x, y)) return;
-        bg[i] = 1;
-        stack.push_back((int)i);
-    };
-    for (int x = 0; x < w; ++x) { push(x, 0); push(x, h - 1); }
-    for (int y = 0; y < h; ++y) { push(0, y); push(w - 1, y); }
-    while (!stack.empty()) {
-        int i = stack.back();
-        stack.pop_back();
-        int x = i % w, y = i / w;
-        push(x + 1, y); push(x - 1, y); push(x, y + 1); push(x, y - 1);
-    }
-    for (int y = 0; y < h; ++y)
-        for (int x = 0; x < w; ++x) {
-            size_t i = (size_t)y * w + x;
-            if (bg[i]) { img[i * 4 + 3] = 0; continue; }
-            // Edge pixel next to the background: fade by how white it is.
-            bool edge = (x > 0 && bg[i - 1]) || (x + 1 < w && bg[i + 1]) || (y > 0 && bg[i - w]) || (y + 1 < h && bg[i + w]);
-            if (edge) {
-                const uint8_t* p = &img[i * 4];
-                int mn = std::min(p[0], std::min(p[1], p[2]));
-                img[i * 4 + 3] = (uint8_t)std::max(60, 255 - std::max(0, mn - 160) * 2);
+    // 1. border-connected background
+    auto flood = [&](int sx, int sy, uint8_t mark, bool (*accept)(void*, size_t), void* ctx, std::vector<int>* region) {
+        stack.clear();
+        size_t si = (size_t)sy * w + sx;
+        if (bg[si] || !accept(ctx, si)) return;
+        bg[si] = mark;
+        stack.push_back((int)si);
+        while (!stack.empty()) {
+            int i = stack.back();
+            stack.pop_back();
+            if (region) region->push_back(i);
+            int x = i % w, y = i / w;
+            const int nx[4] = {x + 1, x - 1, x, x}, ny[4] = {y, y, y + 1, y - 1};
+            for (int k = 0; k < 4; ++k) {
+                if (nx[k] < 0 || ny[k] < 0 || nx[k] >= w || ny[k] >= h) continue;
+                size_t j = (size_t)ny[k] * w + nx[k];
+                if (!bg[j] && accept(ctx, j)) { bg[j] = mark; stack.push_back((int)j); }
             }
         }
+    };
+    struct Ctx { decltype(whiteish)* white; decltype(veryWhite)* very; };
+    Ctx ctx{&whiteish, &veryWhite};
+    auto acceptWhite = [](void* c, size_t i) { return (*static_cast<Ctx*>(c)->white)(i); };
+    auto acceptVery = [](void* c, size_t i) { return (*static_cast<Ctx*>(c)->very)(i); };
+    for (int x = 0; x < w; ++x) { flood(x, 0, 1, acceptWhite, &ctx, nullptr); flood(x, h - 1, 1, acceptWhite, &ctx, nullptr); }
+    for (int y = 0; y < h; ++y) { flood(0, y, 1, acceptWhite, &ctx, nullptr); flood(w - 1, y, 1, acceptWhite, &ctx, nullptr); }
+    // 2. enclosed very-white pockets of at least 0.05% of the image
+    std::vector<int> region;
+    for (size_t i = 0; i < N; ++i) {
+        if (bg[i] || !veryWhite(i)) continue;
+        region.clear();
+        flood((int)(i % w), (int)(i / w), 2, acceptVery, &ctx, &region);
+        if (region.size() < N / 2000)
+            for (int j : region) bg[j] = 3;  // too small: keep (a highlight, a label)
+    }
+    // 3. distance (in pixels, up to 3) from the background, for the soft band
+    std::vector<uint8_t> dist(N, 255);
+    for (size_t i = 0; i < N; ++i) if (bg[i] == 1 || bg[i] == 2) dist[i] = 0;
+    for (int pass = 1; pass <= 3; ++pass)
+        for (int y = 0; y < h; ++y)
+            for (int x = 0; x < w; ++x) {
+                size_t i = (size_t)y * w + x;
+                if (dist[i] != 255) continue;
+                bool near = (x > 0 && dist[i - 1] == pass - 1) || (x + 1 < w && dist[i + 1] == pass - 1) ||
+                            (y > 0 && dist[i - w] == pass - 1) || (y + 1 < h && dist[i + w] == pass - 1);
+                if (near) dist[i] = (uint8_t)pass;
+            }
+    for (size_t i = 0; i < N; ++i) {
+        uint8_t* p = &img[i * 4];
+        if (dist[i] == 0) { p[3] = 0; continue; }
+        if (dist[i] > 3) continue;
+        // How much of this pixel is the white background: 0 (none) .. 1 (all).
+        float whiteness = std::max(0.0f, std::min(1.0f, (minc(i) - 170.0f) / 80.0f)) * (sat(i) < 40 ? 1.0f : 0.3f);
+        float a = std::max(0.0f, 1.0f - whiteness * (1.0f - (dist[i] - 1) / 3.0f));
+        if (a < 0.02f) { p[3] = 0; continue; }
+        for (int k = 0; k < 3; ++k)  // un-mix the white: c = a*fg + (1-a)*255
+            p[k] = (uint8_t)std::max(0.0f, std::min(255.0f, (p[k] - (1.0f - a) * 255.0f) / a));
+        p[3] = (uint8_t)(a * 255.0f);
+    }
 }
 
 bool loadImage(const std::string& path, std::vector<uint8_t>& out, int& w, int& h) {
