@@ -84,6 +84,9 @@ private:
 // title screens, in our folder names or libretro-thumbnails' (Named_Boxarts...),
 // as .png or .jpg, by the ROM's file name or its libretro-sanitized form.
 std::string findArt(const std::string& appDir, const std::string& system, const std::string& romFile);
+// Reads media/<system>/Named_Boxarts once so findArt's title matching is quick
+// later (thousands of files on a USB stick). Call off the UI thread.
+void warmArtIndex(const std::string& appDir, const std::string& system);
 
 // The console photo cut out of its white background, cropped and scaled to fit
 // maxW x maxH: RGBA, straight alpha. Slow (full-size decode): call off the UI thread.

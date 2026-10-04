@@ -214,6 +214,7 @@ private:
     std::thread m_iconThread;
     std::atomic<int> m_iconsDone{0};
     std::atomic<bool> m_iconStop{false};
+    std::atomic<bool> m_iconsWarm{false};  // the worker has finished everything
     void startConsoleIcons();
     void drawRowIcon(int row, const FRect& slot, bool dim);
     enum { PopPlay, PopFav, PopScreen, PopSearch, PopCount };
@@ -285,7 +286,7 @@ void Menu::shutdown() {
     if (m_iconThread.joinable()) {
         m_iconStop = true;
         // Finished: join. Mid-photo: let it go; exec is next and ends it.
-        if (m_iconsDone.load() >= (int)m_icons.size()) m_iconThread.join();
+        if (m_iconsDone.load() >= (int)m_icons.size() && m_iconsWarm) m_iconThread.join();
         else m_iconThread.detach();
     }
     for (ConsoleIcon& ic : m_icons)
@@ -813,6 +814,10 @@ void Menu::startConsoleIcons() {
             m_iconsDone.store((int)i + 1, std::memory_order_release);
         }
         log("console icons: %d of %zu in %u ms", found, ids.size(), SDL_GetTicks() - t0);
+        t0 = SDL_GetTicks();
+        for (size_t i = 0; i < ids.size() && !m_iconStop; ++i) warmArtIndex(m_appDir, ids[i]);
+        if (!m_iconStop) log("cover index ready in %u ms", SDL_GetTicks() - t0);
+        m_iconsWarm = true;
     });
 }
 

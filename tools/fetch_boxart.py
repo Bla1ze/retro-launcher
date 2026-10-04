@@ -63,13 +63,14 @@ def split_tags(stem):
 
 def key(title):
     t = title.strip()
-    m = re.match(r"^(.*), (The|A|An)$", t)  # "Legend of Zelda, The" -> "The Legend of Zelda"
+    # "Legend of Zelda, The" / "Ren & Stimpy Show Presents, The - Stimpy's Invention"
+    m = re.match(r"^(.*?), (The|An|A)( - .*)?$", t)
     if m:
-        t = f"{m.group(2)} {m.group(1)}"
+        t = f"{m.group(2)} {m.group(1)}{m.group(3) or ''}"
     # Roman numerals as digits, so "Street Fighter II" meets "streetfighter2".
     romans = {"ii": "2", "iii": "3", "iv": "4", "v": "5", "vi": "6", "vii": "7", "viii": "8", "ix": "9", "x": "10"}
     t = " ".join(romans.get(w, w) for w in re.split(r"(\s+)", t.lower()) if w.strip() or w == "")
-    t = t.replace("&", "and")
+    t = t.replace("&", "and").replace("_", "and")  # libretro file names spell & as _
     return re.sub(r"[^a-z0-9]", "", t)
 
 

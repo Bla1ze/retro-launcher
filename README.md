@@ -95,6 +95,18 @@ tools/fetch_media.sh  /Volumes/USB/external/retro-launcher           # bezels + 
 tools/fetch_boxart.py /Volumes/USB/external/retro-launcher [systems]  # box art for your ROMs
 ```
 
+Or download every cover for every system up front (about 34,000 covers, ~5 GB),
+so games you add later already have art:
+
+```sh
+tools/prefill_boxart.py /Volumes/USB/external/retro-launcher [systems]
+```
+
+Prefilled covers go to `media/<system>/Named_Boxarts/` under their No-Intro
+names. The launcher matches a ROM to them by title, ignoring tags, case and
+punctuation and preferring the ROM's region, so GoodTools-style names like
+`Streets of Rage 2 (U) [!].bin` find their cover too.
+
 `fetch_boxart.py` matches your ROM file names (GoodNES style, plain titles or
 squashed names) to [libretro-thumbnails](https://github.com/libretro-thumbnails)
 and saves each cover under the ROM's own name. Games it cannot match are listed

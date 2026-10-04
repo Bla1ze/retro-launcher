@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include <dirent.h>
+#include <map>
 #include <sys/mman.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -521,6 +522,124 @@ bool consoleCutout(const std::string& appDir, const std::string& system, int max
     return true;
 }
 
+namespace {
+
+// Title matching, the same rules as tools/fetch_boxart.py: the title before any
+// (tag) or [tag], "Legend of Zelda, The" -> "the legend of zelda", & -> and,
+// then letters and digits only.
+std::string titleOf(const std::string& stem) {
+    size_t cut = stem.find_first_of("([");
+    std::string t = stem.substr(0, cut);
+    while (!t.empty() && t.back() == ' ') t.pop_back();
+    return t;
+}
+
+std::string titleKey(std::string t) {
+    // A trailing article moves to the front: at the end ("Legend of Zelda, The")
+    // or before a subtitle ("Ren & Stimpy Show Presents, The - Stimpy's Invention").
+    for (const char* art : {", The", ", An", ", A"}) {
+        size_t n = std::strlen(art), at = std::string::npos;
+        if (t.size() > n && t.compare(t.size() - n, n, art) == 0) at = t.size() - n;
+        else at = t.find(std::string(art) + " - ");
+        if (at != std::string::npos) { t = std::string(art + 2) + " " + t.substr(0, at) + t.substr(at + n); break; }
+    }
+    // Roman numerals as digits, so "Street Fighter II" meets "streetfighter2".
+    static const std::map<std::string, std::string> romans = {
+        {"ii", "2"}, {"iii", "3"}, {"iv", "4"}, {"v", "5"}, {"vi", "6"}, {"vii", "7"},
+        {"viii", "8"}, {"ix", "9"}, {"x", "10"}};
+    std::string words;
+    for (size_t i = 0; i <= t.size();) {
+        size_t j = t.find(' ', i);
+        if (j == std::string::npos) j = t.size();
+        std::string w = t.substr(i, j - i);
+        for (char& ch : w) ch = (char)std::tolower((unsigned char)ch);
+        auto r = romans.find(w);
+        words += (r != romans.end() ? r->second : w) + " ";
+        i = j + 1;
+    }
+    t = words;
+    std::string k;
+    for (size_t i = 0; i < t.size(); ++i) {
+        unsigned char c = (unsigned char)t[i];
+        if (c == '&' || c == '_') k += "and";  // libretro file names spell & as _
+        else if (std::isalnum(c)) k += (char)std::tolower(c);
+    }
+    return k;
+}
+
+std::string tagsOf(const std::string& stem) {
+    size_t cut = stem.find_first_of("([");
+    return cut == std::string::npos ? "" : stem.substr(cut);
+}
+
+// The ROM's region from GoodTools codes ("(U)", "(JU)") or No-Intro words.
+std::string regionOf(const std::string& tags) {
+    static const std::pair<const char*, const char*> codes[] = {
+        {"(U)", "USA"}, {"(UE)", "USA"}, {"(JU)", "USA"}, {"(E)", "Europe"}, {"(EU)", "Europe"},
+        {"(J)", "Japan"}, {"(W)", "World"}};
+    for (const auto& c : codes)
+        if (tags.find(c.first) != std::string::npos) return c.second;
+    for (const char* w : {"USA", "Europe", "Japan", "World"})
+        if (tags.find(w) != std::string::npos) return w;
+    return "USA";
+}
+
+// Lower is better: the ROM's region first, then USA / World / Europe / Japan;
+// betas and pirates, and special releases ("(Sonic Mega Collection)", "(Virtual
+// Console)") count against a cover more than a different region does.
+int coverScore(const std::string& file, const std::string& region) {
+    std::string tags = tagsOf(file.substr(0, file.find_last_of('.')));
+    int parens = 0;
+    for (size_t open = tags.find('('); open != std::string::npos; open = tags.find('(', open + 1)) {
+        size_t close = tags.find(')', open);
+        std::string t = tags.substr(open + 1, close == std::string::npos ? std::string::npos : close - open - 1);
+        bool plain = t.compare(0, 4, "Rev ") == 0 || t.compare(0, 1, "v") == 0;
+        for (const char* w : {"USA", "Europe", "Japan", "World", "Korea", "Brazil", "Asia", "Australia", "En", "Fr", "De", "Es", "It", "Ja"})
+            if (t.find(w) != std::string::npos) plain = true;
+        parens += plain ? 1 : 15;
+    }
+    const std::string order[] = {region, "USA", "World", "Europe", "Japan"};
+    for (int i = 0; i < 5; ++i)
+        if (tags.find(order[i]) != std::string::npos) {
+            bool odd = false;
+            for (const char* w : {"Beta", "Proto", "Sample", "Demo", "Pirate", "Unl"})
+                if (tags.find(w) != std::string::npos) odd = true;
+            return i * 10 + (odd ? 5 : 0) + parens;
+        }
+    return 100 + parens;
+}
+
+// media/<system>/Named_Boxarts indexed by title key, built once per system.
+const std::vector<std::string>* coversFor(const std::string& dir, const std::string& key) {
+    static std::mutex mu;
+    static std::map<std::string, std::map<std::string, std::vector<std::string>>> cache;
+    std::lock_guard<std::mutex> lock(mu);
+    auto it = cache.find(dir);
+    if (it == cache.end()) {
+        std::map<std::string, std::vector<std::string>>& index = cache[dir];
+        if (DIR* d = ::opendir(dir.c_str())) {
+            while (struct dirent* e = ::readdir(d)) {
+                std::string n = e->d_name;
+                if (n.empty() || n[0] == '.') continue;
+                std::string k = titleKey(titleOf(n.substr(0, n.find_last_of('.'))));
+                if (k.empty()) continue;
+                index[k].push_back(n);
+                if (k.compare(0, 3, "the") == 0 && k.size() > 3) index[k.substr(3)].push_back(n);
+            }
+            ::closedir(d);
+        }
+        it = cache.find(dir);
+    }
+    auto hit = it->second.find(key);
+    return hit == it->second.end() ? nullptr : &hit->second;
+}
+
+} // namespace
+
+void warmArtIndex(const std::string& appDir, const std::string& system) {
+    coversFor(appDir + "/media/" + system + "/Named_Boxarts", "");
+}
+
 std::string findArt(const std::string& appDir, const std::string& system, const std::string& romFile) {
     std::string stem = romFile.substr(0, romFile.find_last_of('.'));
     // libretro-thumbnails replaces these characters with '_' in file names.
@@ -535,7 +654,21 @@ std::string findArt(const std::string& appDir, const std::string& system, const 
                 std::string p = base + f + "/" + *name + ext;
                 if (isFile(p)) return p;
             }
-    return "";
+    // No cover under the ROM's own name: match the title against the prefilled
+    // covers (tools/prefill_boxart.py), preferring the ROM's region.
+    std::string title = titleOf(stem), key = titleKey(title);
+    if (key.empty()) return "";
+    const std::vector<std::string>* c = coversFor(base + "Named_Boxarts", key);
+    if (!c && key.compare(0, 3, "the") == 0) c = coversFor(base + "Named_Boxarts", key.substr(3));
+    if (!c) return "";
+    std::string region = regionOf(tagsOf(stem));
+    const std::string* best = nullptr;
+    int bestScore = 1 << 30;
+    for (const std::string& n : *c) {
+        int sc = coverScore(n, region);
+        if (sc < bestScore) { bestScore = sc; best = &n; }
+    }
+    return best ? base + "Named_Boxarts/" + *best : "";
 }
 
 GamePanels::~GamePanels() {
