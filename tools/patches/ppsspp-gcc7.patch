@@ -1,0 +1,159 @@
+diff --git a/Common/File/PathBrowser.cpp b/Common/File/PathBrowser.cpp
+index 2928705..f8ee212 100644
+--- a/Common/File/PathBrowser.cpp
++++ b/Common/File/PathBrowser.cpp
+@@ -51,7 +51,7 @@ static bool LoadRemoteFileList(const Path &url, std::string_view userAgent, bool
+ 	std::vector<std::string> items;
+ 	result.TakeAll(&listing);
+ 
+-	constexpr std::string_view ContentTypeHeader = "Content-Type:";
++	const std::string_view ContentTypeHeader = "Content-Type:";
+ 	std::string contentType;
+ 	for (const std::string &header : responseHeaders) {
+ 		if (startsWithNoCase(header, ContentTypeHeader)) {
+diff --git a/Common/GPU/Vulkan/VulkanLoader.cpp b/Common/GPU/Vulkan/VulkanLoader.cpp
+index c2e337e..3fbf500 100644
+--- a/Common/GPU/Vulkan/VulkanLoader.cpp
++++ b/Common/GPU/Vulkan/VulkanLoader.cpp
+@@ -326,7 +326,7 @@ struct DriverBlackListEntry {
+ 	uint32_t minOkDriverVersion;
+ };
+ 
+-static constexpr DriverBlackListEntry g_gpuNameBlacklist[] = {
++static const DriverBlackListEntry g_gpuNameBlacklist[] = {
+ 	{"motorola:moto g", "PowerVR BXM-8-256", 0x005d9576},  // avoid an empty array
+ #if PPSSPP_PLATFORM(MAC)
+ 	{"", "Intel(R) Iris(TM) Graphics 6000"},
+diff --git a/Common/Thread/Promise.h b/Common/Thread/Promise.h
+index 9a98ac1..9877c4b 100644
+--- a/Common/Thread/Promise.h
++++ b/Common/Thread/Promise.h
+@@ -23,6 +23,12 @@ class IndependentTask : public Task {
+ 	TaskPriority prio_;
+ };
+ 
++// GCC 7 can't deduce IndependentTask's argument in a new-expression.
++template<class T>
++IndependentTask<T> *MakeIndependentTask(TaskType type, TaskPriority prio, T func) {
++	return new IndependentTask<T>(type, prio, std::move(func));
++}
++
+ template<class T>
+ class PromiseTask : public Task {
+ public:
+diff --git a/Core/CmdLine.cpp b/Core/CmdLine.cpp
+index b506319..188d05e 100644
+--- a/Core/CmdLine.cpp
++++ b/Core/CmdLine.cpp
+@@ -338,11 +338,11 @@ int CommandLineOptions::PrintUsage(const char *progname, const char *situationTe
+ // Actually might want to reconsider given Android...
+ CommandLineParseResult CommandLineOptions::Parse(int argc, const char *argv[], CmdLineMode mode) {
+ 	this->mode = mode;
+-	constexpr std::string_view cpuBackendStr = "--cpu=";
+-	constexpr std::string_view gpuBackendStr = "--graphics=";
+-	constexpr std::string_view configOption = "--config=";
+-	constexpr std::string_view controlsOption = "--controlconfig=";
+-	constexpr std::string_view logLevelOption = "--loglevel=";
++	const std::string_view cpuBackendStr = "--cpu=";
++	const std::string_view gpuBackendStr = "--graphics=";
++	const std::string_view configOption = "--config=";
++	const std::string_view controlsOption = "--controlconfig=";
++	const std::string_view logLevelOption = "--loglevel=";
+ 
+ 	// The rest is handled in NativeInit().
+ 	// NOTE: We don't increment i here, as we'll sometimes handle options that read the next argument.
+diff --git a/Core/HLE/sceNet.cpp b/Core/HLE/sceNet.cpp
+index 2e6a22f..d20b00e 100644
+--- a/Core/HLE/sceNet.cpp
++++ b/Core/HLE/sceNet.cpp
+@@ -391,8 +391,8 @@ bool LoadAutoDNS(std::string_view json) {
+ 
+ std::shared_ptr<http::Request> g_infraDL;
+ 
+-static constexpr std::string_view jsonUrlHttp = "http://metadata.ppsspp.org/infra-dns.json";
+-static constexpr std::string_view jsonUrlHttps = "https://metadata.ppsspp.org/infra-dns.json";
++static const std::string_view jsonUrlHttp = "http://metadata.ppsspp.org/infra-dns.json";
++static const std::string_view jsonUrlHttps = "https://metadata.ppsspp.org/infra-dns.json";
+ 
+ static std::string_view GetInfraDNSUrl() {
+ 	return System_GetPropertyBool(SYSPROP_SUPPORTS_HTTPS) ? jsonUrlHttps : jsonUrlHttp;
+diff --git a/Core/Screenshot.cpp b/Core/Screenshot.cpp
+index 38662b2..7a00874 100644
+--- a/Core/Screenshot.cpp
++++ b/Core/Screenshot.cpp
+@@ -393,7 +393,7 @@ bool ScreenshotNotifyPostGameRender(Draw::DrawContext *draw) {
+ }
+ 
+ static void SaveScreenshotAsync(GPUDebugBuffer &&buf, int w, int h, int maxRes) {
+-	g_threadManager.EnqueueTask(new IndependentTask(TaskType::IO_BLOCKING, TaskPriority::LOW,
++	g_threadManager.EnqueueTask(MakeIndependentTask(TaskType::IO_BLOCKING, TaskPriority::LOW,
+ 		[filename = std::move(g_pendingScreenshot.path), buf = std::move(buf), callback = std::move(g_pendingScreenshot.callback), fmt = g_pendingScreenshot.format, w, h, maxRes]() {
+ 		u8 *flipbuffer = nullptr;
+ 		u32 width = w, height = h;
+diff --git a/GPU/Common/ShaderId.cpp b/GPU/Common/ShaderId.cpp
+index 6231168..7e7999a 100644
+--- a/GPU/Common/ShaderId.cpp
++++ b/GPU/Common/ShaderId.cpp
+@@ -37,11 +37,11 @@ std::string VShaderID::Description(bool includeID) const {
+ 	if (Bits(VS_BIT_MATERIAL_UPDATE, 3)) desc.C("MatUp:").F("%d", Bits(VS_BIT_MATERIAL_UPDATE, 3)).C(" ");
+ 
+ 	int uvgMode = Bits(VS_BIT_UVGEN_MODE, 2);
+-	static constexpr std::string_view uvgModes[4] = {"UV ", "UVMtx ", "UVEnv ", "UVUnk "};
++	static const std::string_view uvgModes[4] = {"UV ", "UVMtx ", "UVEnv ", "UVUnk "};
+ 	if (uvgMode) desc.W(uvgModes[uvgMode]);
+ 	if (uvgMode == GE_TEXMAP_TEXTURE_MATRIX) {
+ 		int uvprojMode = Bits(VS_BIT_UVPROJ_MODE, 2);
+-		static constexpr std::string_view uvprojModes[4] = { "TexProjPos ", "TexProjUV ", "TexProjNNrm ", "TexProjNrm " };
++		static const std::string_view uvprojModes[4] = { "TexProjPos ", "TexProjUV ", "TexProjNNrm ", "TexProjNrm " };
+ 		desc.W(uvprojModes[uvprojMode]);
+ 	}
+ 
+diff --git a/UI/InstallUpdateScreen.cpp b/UI/InstallUpdateScreen.cpp
+index 581a9f3..34aa3db 100644
+--- a/UI/InstallUpdateScreen.cpp
++++ b/UI/InstallUpdateScreen.cpp
+@@ -143,7 +143,7 @@ void InstallUpdateScreen::StartInstall() {
+ 	PSARUnpackOptions options;
+ 	options.model = EmulatedModelGeneration();
+ 
+-	g_threadManager.EnqueueTask(new IndependentTask(TaskType::IO_BLOCKING, TaskPriority::NORMAL,
++	g_threadManager.EnqueueTask(MakeIndependentTask(TaskType::IO_BLOCKING, TaskPriority::NORMAL,
+ 		[state = state_, path = path_, destination = destination_, options]() mutable {
+ 		options.progress = [state](float progress) {
+ 			state->progress = progress;
+diff --git a/UI/MainScreen.cpp b/UI/MainScreen.cpp
+index 6d32ca3..ff63c4d 100644
+--- a/UI/MainScreen.cpp
++++ b/UI/MainScreen.cpp
+@@ -155,13 +155,13 @@ bool MainScreen::WantsTextInput() const {
+ 
+ 
+ #if PPSSPP_PLATFORM(IOS)
+-constexpr std::string_view getGamesUri = "https://www.ppsspp.org/getgames_ios";
+-constexpr std::string_view getHomebrewUri = "https://www.ppsspp.org/gethomebrew_ios";
++const std::string_view getGamesUri = "https://www.ppsspp.org/getgames_ios";
++const std::string_view getHomebrewUri = "https://www.ppsspp.org/gethomebrew_ios";
+ #else
+-constexpr std::string_view getGamesUri = "https://www.ppsspp.org/getgames";
+-constexpr std::string_view getHomebrewUri = "https://www.ppsspp.org/gethomebrew";
++const std::string_view getGamesUri = "https://www.ppsspp.org/getgames";
++const std::string_view getHomebrewUri = "https://www.ppsspp.org/gethomebrew";
+ #endif
+-constexpr std::string_view remoteGamesUri = "https://www.ppsspp.org/docs/reference/disc-streaming";
++const std::string_view remoteGamesUri = "https://www.ppsspp.org/docs/reference/disc-streaming";
+ 
+ void MainScreen::CreateRecentTab() {
+ 	using namespace UI;
+diff --git a/ext/sol/sol.hpp b/ext/sol/sol.hpp
+index ced9985..cbda094 100644
+--- a/ext/sol/sol.hpp
++++ b/ext/sol/sol.hpp
+@@ -9108,7 +9108,7 @@ extern "C" {
+ #include <locale>
+ 
+ namespace sol { namespace detail {
+-	inline constexpr std::array<string_view, 9> removals { { "{anonymous}",
++	inline const std::array<string_view, 9> removals { { "{anonymous}",
+ 		"(anonymous namespace)",
+ 		"public:",
+ 		"private:",

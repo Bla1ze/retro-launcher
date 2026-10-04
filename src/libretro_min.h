@@ -160,3 +160,10 @@ struct retro_hw_render_callback {
     retro_hw_context_reset_t context_destroy;
     bool debug_context;
 };
+
+// Analog sticks (libretro.h).
+#define RETRO_DEVICE_ANALOG 5
+#define RETRO_DEVICE_INDEX_ANALOG_LEFT 0
+#define RETRO_DEVICE_INDEX_ANALOG_RIGHT 1
+#define RETRO_DEVICE_ID_ANALOG_X 0
+#define RETRO_DEVICE_ID_ANALOG_Y 1

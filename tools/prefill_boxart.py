@@ -38,6 +38,7 @@ REPOS = {
     "lynx": ["Atari_-_Lynx"],
     "psx": ["Sony_-_PlayStation"],
     "dreamcast": ["Sega_-_Dreamcast"],
+    "psp": ["Sony_-_PlayStation_Portable"],
 }
 UA = {"User-Agent": "retro-launcher-prefill"}
 

@@ -273,6 +273,7 @@ SDL_Texture* makeScanlines(SDL_Renderer* r, int lines, int darkness) {
 std::vector<int16_t> g_audioBatch;
 std::vector<SDL_GameController*> g_pads;
 uint16_t g_buttons = 0;
+int16_t g_analog[2][2] = {};  // [left/right stick][x/y], for cores that read analog (PSP, Dreamcast)
 
 // Watchdog: if a frame takes longer than this, a core has hung; go back to
 // the menu instead of leaving the cabinet frozen. execv is async-signal-safe.
@@ -798,7 +799,8 @@ size_t audioBatch(const int16_t* data, size_t frames) {
 void audioSample(int16_t l, int16_t r) { g_audioBatch.push_back(l); g_audioBatch.push_back(r); }
 void inputPoll() {}
 
-int16_t inputState(unsigned port, unsigned device, unsigned, unsigned id) {
+int16_t inputState(unsigned port, unsigned device, unsigned index, unsigned id) {
+    if (port == 0 && (device & 0xff) == RETRO_DEVICE_ANALOG && index <= 1 && id <= 1) return g_analog[index][id];
     if (port != 0 || (device & 0xff) != RETRO_DEVICE_JOYPAD) return 0;
     if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)g_buttons;
     return id < 16 ? (int16_t)((g_buttons >> id) & 1) : 0;
@@ -1363,6 +1365,19 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             // While the game runs: Home, or Start held a second, opens the menu.
             if (suppressInput && raw == 0) suppressInput = false;
             g_buttons = suppressInput ? 0 : raw;
+            // Analog: the stick if it's pushed, else the D-pad at full tilt (the
+            // cabinet's joystick may report as a D-pad; PSP games often read only
+            // the analog nub).
+            {
+                int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY);
+                auto bit = [&](int id) { return (g_buttons >> id) & 1; };
+                if (std::abs(lx) < 8000) lx = bit(RETRO_DEVICE_ID_JOYPAD_RIGHT) ? 32767 : bit(RETRO_DEVICE_ID_JOYPAD_LEFT) ? -32767 : 0;
+                if (std::abs(ly) < 8000) ly = bit(RETRO_DEVICE_ID_JOYPAD_DOWN) ? 32767 : bit(RETRO_DEVICE_ID_JOYPAD_UP) ? -32767 : 0;
+                g_analog[0][0] = suppressInput ? 0 : (int16_t)lx;
+                g_analog[0][1] = suppressInput ? 0 : (int16_t)ly;
+                g_analog[1][0] = suppressInput ? 0 : (int16_t)padAxis(SDL_CONTROLLER_AXIS_RIGHTX);
+                g_analog[1][1] = suppressInput ? 0 : (int16_t)padAxis(SDL_CONTROLLER_AXIS_RIGHTY);
+            }
             if (raw & (1u << RETRO_DEVICE_ID_JOYPAD_START)) {
                 if (!startHeld) startHeld = t;
                 else if (t - startHeld >= 1000) openMenu(Menu::Pause);
@@ -1372,6 +1387,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             if (guideDown) openMenu(Menu::Pause);
         } else if (menu == Menu::Options) {
             g_buttons = 0;
+            std::memset(g_analog, 0, sizeof(g_analog));
             int n = (int)g_optDefs.size();
             auto change = [&](int dir) {
                 const OptDef& d = g_optDefs[optSel];
@@ -1395,6 +1411,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             }
         } else {
             g_buttons = 0;
+            std::memset(g_analog, 0, sizeof(g_analog));
             int n = (int)items.size();
             if (pressed(RETRO_DEVICE_ID_JOYPAD_UP)) menuSel = (menuSel + n - 1) % n;
             if (pressed(RETRO_DEVICE_ID_JOYPAD_DOWN)) menuSel = (menuSel + 1) % n;

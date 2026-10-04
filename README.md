@@ -62,6 +62,7 @@ already in the cabinet's firmware, or better ones built for it (see
 | Atari Lynx | `roms/lynx` | Handy | `cores/` |
 | PlayStation | `roms/psx` | PCSX ReARMed | `cores/` |
 | Dreamcast | `roms/dreamcast` | Flycast (GPU) | `cores/` |
+| PSP | `roms/psp` | PPSSPP (GPU) | `cores/` |
 | Arcade | `roms/arcade` | FBNeo or MAME 2003-Plus, picked per game | `cores/` |
 
 Genesis is verified on a Legends Pinball 4KP; the others are marked "untested"
@@ -81,6 +82,13 @@ files beside it, or `.cdi`. Flycast draws with the GPU (OpenGL ES 3): it gets it
 own GL context and each frame is read back into the normal picture path. Its
 built-in BIOS replacement runs most games; a real `dc_boot.bin` / `dc_flash.bin`
 goes in `system/dc/`.
+
+### PSP
+
+Put games in `roms/psp/` as `.iso`, `.cso` or `.chd`. No BIOS is needed, but
+PPSSPP's own files (its `assets` folder: fonts, shaders) must be in
+`system/PPSSPP/`. The joystick drives the analog nub (the D-pad at full tilt
+when the stick reports as one).
 
 ### Arcade
 
@@ -236,8 +244,10 @@ docker run --rm --platform linux/amd64 -v "$SDK:/workspace" \
   atgames-external-sdk:glibc-2.26-sdl2-v1 bash /workspace/cores-src/build-cores.sh
 ```
 
-Flycast (Dreamcast) needs a newer compiler than the SDK's; `tools/build-flycast.sh`
-describes the toolchain and builds it.
+Flycast (Dreamcast) and PPSSPP (PSP) need a newer compiler than the SDK's;
+`tools/build-flycast.sh` describes the toolchain, and `tools/build-ppsspp.sh`
+adds what PPSSPP needs (Python for its build, and the cabinet's own
+`libGLESv2`/`libEGL`/`libmali` to link against, from the firmware).
 
 The cores land in `cores-src/out/`. Copy them to the app's `cores/` folder, and
 make the arcade ROM lists there from the same checkouts:
@@ -285,6 +295,7 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 | Beetle PCE Fast | [libretro/beetle-pce-fast-libretro](https://github.com/libretro/beetle-pce-fast-libretro) | GPL-2.0 |
 | Handy | [libretro/libretro-handy](https://github.com/libretro/libretro-handy) | zlib |
 | PCSX ReARMed | [libretro/pcsx_rearmed](https://github.com/libretro/pcsx_rearmed) (with `tools/patches/pcsx_rearmed-arm64-old-gas.patch`) | GPL-2.0 |
+| PPSSPP | [hrydgard/ppsspp](https://github.com/hrydgard/ppsspp) (with `tools/patches/ppsspp-gcc7.patch`, built by `tools/build-ppsspp.sh`; its `assets/` go to `system/PPSSPP/`) | GPL-2.0 |
 | Flycast | [flyinghead/flycast](https://github.com/flyinghead/flycast) (with `tools/patches/flycast-gcc7.patch`, built by `tools/build-flycast.sh`) | GPL-3.0 |
 | FBNeo | [libretro/FBNeo](https://github.com/libretro/FBNeo) | FBNeo license (non-commercial) |
 | MAME 2003-Plus | [libretro/mame2003-plus-libretro](https://github.com/libretro/mame2003-plus-libretro) | MAME license (non-commercial) |

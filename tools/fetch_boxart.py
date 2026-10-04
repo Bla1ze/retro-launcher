@@ -39,10 +39,11 @@ REPOS = {
     "lynx": ["Atari_-_Lynx"],
     "psx": ["Sony_-_PlayStation"],
     "dreamcast": ["Sega_-_Dreamcast"],
+    "psp": ["Sony_-_PlayStation_Portable"],
 }
 ROM_EXT = {".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".bin", ".sms", ".gg", ".a26", ".col", ".rom",
            ".gb", ".gbc", ".gba", ".pce", ".sgx", ".lnx",
-           ".chd", ".cue", ".pbp", ".m3u", ".iso", ".cdi", ".gdi", ".zip"}
+           ".chd", ".cue", ".pbp", ".m3u", ".iso", ".cdi", ".gdi", ".cso", ".zip"}
 GOOD_REGION = {"U": "USA", "E": "Europe", "J": "Japan", "W": "World", "UE": "USA", "JU": "USA", "EU": "Europe"}
 
 
