@@ -19,6 +19,9 @@ already in the cabinet's firmware, or better ones built for it (see
 - **Menu on the playfield**: Neon-styled systems and game lists, search across
   every system with an on-screen keyboard, Recently played, Favourites, A–Z
   letter jumps on the flippers, and an in-app Settings screen.
+- **Arcade**: FBNeo and MAME 2003-Plus, chosen per game by checking each zip
+  against both emulators' ROM lists; real game names; vertical games full-size
+  on the portrait playfield.
 - **Console photos in the systems list** (from `media/<system>/console.*`, cut out
   of their white background), with a drawn gamepad for any system without one.
 - **Choose the screen per game**: backglass or playfield (Home on a game),
@@ -57,9 +60,32 @@ already in the cabinet's firmware, or better ones built for it (see
 | Game Boy Advance | `roms/gba` | gpSP | `cores/` |
 | PC Engine / TurboGrafx-16 | `roms/pce` | Beetle PCE Fast | `cores/` |
 | Atari Lynx | `roms/lynx` | Handy | `cores/` |
+| Arcade | `roms/arcade` | FBNeo or MAME 2003-Plus, picked per game | `cores/` |
 
 Genesis is verified on a Legends Pinball 4KP; the others are marked "untested"
 in the menu until confirmed. ROMs can be plain files or `.zip`.
+
+### Arcade
+
+Put arcade zips in `roms/arcade/`, as they are (don't unpack them), with any
+parent and BIOS zips they need (`sf2.zip` for `sf2ce.zip`, `neogeo.zip` for Neo
+Geo games) in the same folder.
+
+Arcade sets only work with the emulator version they were made for. Retro
+Launcher checks each zip against the ROM list of both emulators (from the CRCs
+in the zip's index, without unpacking it) and plays it with the one it is
+complete for: **FBNeo** when both can (current FBNeo sets), else **MAME
+2003-Plus** (MAME 0.78-era sets). A set that is complete for neither is still
+listed, dimmed, with the reason: a missing parent or BIOS zip, or ROMs from a
+different version. Home on a game lets you pick the emulator yourself.
+
+Games are listed by their real names ("Street Fighter II': Champion Edition"),
+with year and maker. **Vertical games** (1942, Galaga, DoDonPachi...) play on
+the playfield by default, filling it in portrait; horizontal ones on the
+backglass. Home on a game changes either. Rewind is the coin button.
+
+The ROM lists are `cores/fbneo_libretro.db` and `cores/mame2003_plus_libretro.db`,
+made by `tools/make_arcade_db.py` from the same source the cores are built from.
 
 ## Installing
 
@@ -122,12 +148,13 @@ ROM.
 | Lists | Flippers | Previous / next letter in a games list, a page elsewhere |
 | Games list | Second flippers | Previous / next system |
 | Game lists | Rewind (or Y) | Add to / remove from Favourites |
-| Game lists | Home | Game options: Play, Favourite, Screen (default / backglass / playfield), Search |
+| Game lists | Home | Game options: Play, Favourite, Screen (default / backglass / playfield), Emulator (arcade), Search |
 | Consoles | Home or X | Search |
 | Lists | B | Back; on the consoles list, asks before exiting |
 | Settings | Left / Right | Change the highlighted setting |
 | Search | Left / Right / Up / Down | Move on the keyboard |
 | Search | A / left flipper / right flipper | Type / delete / jump to results |
+| In a game | Rewind | Select (Coin in arcade games) |
 | In a game | Hold Start (1 s) or Home | Pause menu |
 | Pause menu | A / B or Start | Select / resume |
 
@@ -181,7 +208,8 @@ load on the cabinet, so the cores are built with the SDK toolchain:
 mkdir -p "$SDK/cores-src" && cd "$SDK/cores-src"
 for r in libretro/snes9x libretro/libretro-fceumm drhelius/Gearcoleco \
          libretro/gambatte-libretro libretro/gpsp \
-         libretro/beetle-pce-fast-libretro libretro/libretro-handy; do
+         libretro/beetle-pce-fast-libretro libretro/libretro-handy \
+         libretro/FBNeo libretro/mame2003-plus-libretro; do
   git clone --depth 1 "https://github.com/$r.git"
 done
 git -C gpsp apply /path/to/retro-launcher/tools/patches/gpsp-arm64-old-gas.patch
@@ -190,7 +218,12 @@ docker run --rm --platform linux/amd64 -v "$SDK:/workspace" \
   atgames-external-sdk:glibc-2.26-sdl2-v1 bash /workspace/cores-src/build-cores.sh
 ```
 
-The cores land in `cores-src/out/`. Copy them to the app's `cores/` folder.
+The cores land in `cores-src/out/`. Copy them to the app's `cores/` folder, and
+make the arcade ROM lists there from the same checkouts:
+
+```sh
+tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/cores
+```
 
 ## How it works
 
@@ -230,6 +263,8 @@ The cores land in `cores-src/out/`. Copy them to the app's `cores/` folder.
 | gpSP | [libretro/gpsp](https://github.com/libretro/gpsp) (with `tools/patches/gpsp-arm64-old-gas.patch`) | GPL-2.0 |
 | Beetle PCE Fast | [libretro/beetle-pce-fast-libretro](https://github.com/libretro/beetle-pce-fast-libretro) | GPL-2.0 |
 | Handy | [libretro/libretro-handy](https://github.com/libretro/libretro-handy) | zlib |
+| FBNeo | [libretro/FBNeo](https://github.com/libretro/FBNeo) | FBNeo licence (non-commercial) |
+| MAME 2003-Plus | [libretro/mame2003-plus-libretro](https://github.com/libretro/mame2003-plus-libretro) | MAME licence (non-commercial) |
 
 The firmware's own cores (Genesis Plus GX, QuickNES, SNES Faust, Stella and
 others) are loaded from the cabinet at run time and are not distributed here.

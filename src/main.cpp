@@ -11,12 +11,13 @@
 // launcher waits on stays alive the whole time:
 //   (no args)                                          menu, app dir = working directory
 //   --menu <appDir> <system> <index> <message>          menu, resuming after a game
-//   --play <appDir> <system> <rom> <screen> <index> [<returnTo>]
+//   --play <appDir> <system> <rom> <screen> <index> [<returnTo> [<core>]]
 //                                                       one game, then back to the menu
 int main(int argc, char** argv)
 {
     if (argc >= 7 && std::strcmp(argv[1], "--play") == 0) {
-        return runPlayer(argv[2], argv[3], argv[4], argv[5], std::atoi(argv[6]), argc >= 8 ? argv[7] : argv[3]);
+        return runPlayer(argv[2], argv[3], argv[4], argv[5], std::atoi(argv[6]), argc >= 8 ? argv[7] : argv[3],
+                         argc >= 9 ? argv[8] : "");
     }
     if (argc >= 6 && std::strcmp(argv[1], "--menu") == 0) {
         return runMenu(argv[2], argv[3], std::atoi(argv[4]), argv[5]);

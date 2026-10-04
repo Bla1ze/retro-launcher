@@ -8,7 +8,7 @@ you add later get art without running anything.
 
 Usage:  prefill_boxart.py <app folder> [system ...]
 Needs macOS `sips` and network access. Safe to stop and rerun: covers already
-downloaded are skipped. About 34,000 covers, ~14 GB to download, ~5 GB stored.
+downloaded are skipped. About 46,000 covers, ~20 GB to download, ~7 GB stored.
 """
 import concurrent.futures as cf
 import json
@@ -21,6 +21,9 @@ import urllib.parse
 import urllib.request
 
 REPOS = {
+    # Arcade covers are named by the game's full title, which the launcher
+    # matches against each set's name from its arcade database.
+    "arcade": ["FBNeo_-_Arcade_Games", "MAME"],
     "genesis": ["Sega_-_Mega_Drive_-_Genesis"],
     "mastersystem": ["Sega_-_Master_System_-_Mark_III"],
     "gamegear": ["Sega_-_Game_Gear"],

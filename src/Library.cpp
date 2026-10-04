@@ -1,4 +1,5 @@
 #include "Library.h"
+#include "Arcade.h"
 
 #include <dirent.h>
 #include <fcntl.h>
@@ -117,6 +118,8 @@ bool parseScreen(const std::string& s, ScreenId& out) {
 
 const std::vector<System>& systems() {
     static const std::vector<System> list = {
+        // Arcade: zips are matched to a core per game (Arcade.cpp); FBNeo first.
+        {"arcade", "Arcade", "ARC", {"fbneo_libretro.so", "mame2003_plus_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
         {"genesis", "Genesis / Mega Drive", "MD", {"genesis_plus_gx_libretro.so"},
          {"md", "gen", "smd", "bin"}, 4.0f / 3.0f, true},
         {"mastersystem", "Master System", "SMS", {"genesis_plus_gx_libretro.so"},
@@ -147,19 +150,22 @@ std::vector<std::pair<std::string, std::string>> controlHints(const std::string&
     if (id == "mastersystem" || id == "gamegear")
         return {{"A", "Button 1"}, {"B", "Button 2"}, {"START", id == "gamegear" ? "Start" : "Pause"}};
     if (id == "nes")
-        return {{"A", "B"}, {"B", "A"}, {"START", "Start"}, {"SELECT", "Select"}};
+        return {{"A", "B"}, {"B", "A"}, {"START", "Start"}, {"REWIND", "Select"}};
     if (id == "snes")
         return {{"A", "B"}, {"B", "A"}, {"X", "Y"}, {"Y", "X"}, {"LB / RB", "L / R"}, {"START", "Start"}};
     if (id == "atari2600")
-        return {{"A", "Fire"}, {"START", "Reset"}, {"SELECT", "Select"}};
+        return {{"A", "Fire"}, {"START", "Reset"}, {"REWIND", "Select"}};
     if (id == "colecovision")
         return {{"A", "Left fire"}, {"B", "Right fire"}, {"START", "Keypad *"}};
     if (id == "gb" || id == "gbc")
-        return {{"A", "B"}, {"B", "A"}, {"START", "Start"}, {"SELECT", "Select"}};
+        return {{"A", "B"}, {"B", "A"}, {"START", "Start"}, {"REWIND", "Select"}};
     if (id == "gba")
-        return {{"A", "B"}, {"B", "A"}, {"LB / RB", "L / R"}, {"START", "Start"}, {"SELECT", "Select"}};
+        return {{"A", "B"}, {"B", "A"}, {"LB / RB", "L / R"}, {"START", "Start"}, {"REWIND", "Select"}};
     if (id == "pce")
-        return {{"A", "II"}, {"B", "I"}, {"START", "Run"}, {"SELECT", "Select"}};
+        return {{"A", "II"}, {"B", "I"}, {"START", "Run"}, {"REWIND", "Select"}};
+    if (id == "arcade")
+        return {{"A", "Button 1"}, {"B", "Button 2"}, {"X", "Button 3"}, {"Y", "Button 4"},
+                {"LB / RB", "Button 5 / 6"}, {"REWIND", "Coin"}, {"START", "Start"}};
     if (id == "lynx")
         return {{"A", "B"}, {"B", "A"}, {"LB / RB", "Option 1 / 2"}, {"START", "Pause"}};
     return {};
@@ -172,6 +178,7 @@ const System* findSystem(const std::string& id) {
 }
 
 std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
+    if (sys.id == "arcade") return Arcade::scan(appDir, sys);
     std::vector<Game> games;
     std::string dir = appDir + "/roms/" + sys.id;
     DIR* d = ::opendir(dir.c_str());
@@ -207,6 +214,7 @@ static const char* biosNote(const std::string& id) {
         return "Optional: gba_bios.bin. gpSP has a built-in BIOS; the original improves compatibility with a few games.";
     if (id == "lynx") return "Recommended: lynxboot.img (512 bytes). Handy can start most games without it.";
     if (id == "pce") return "None for HuCard games (CD games are not supported).";
+    if (id == "arcade") return "BIOS zips (neogeo.zip, pgm.zip...) go in roms/arcade/ with the games, not in system/.";
     return "";
 }
 
@@ -221,7 +229,7 @@ static void writeGuides(const std::string& appDir) {
     std::string list;
     for (const System& s : systems()) {
         std::string exts;
-        for (const std::string& e : s.extensions) exts += "." + e + " ";
+        for (const std::string& e : s.extensions) if (e != "zip") exts += "." + e + " ";
         list += "  " + s.id + std::string(14 - std::min<size_t>(13, s.id.size()), ' ') + s.name + "  (" + exts + ".zip)\n";
     }
     writeIfMissing(appDir + "/roms/README.txt",
@@ -231,11 +239,11 @@ static void writeGuides(const std::string& appDir) {
         "name (see media/README.txt). Retro Launcher ships no games.\n");
     for (const System& s : systems()) {
         std::string exts;
-        for (const std::string& e : s.extensions) exts += "." + e + ", ";
+        for (const std::string& e : s.extensions) if (e != "zip") exts += "." + e + ", ";
         std::string bios = biosNote(s.id);
         writeIfMissing(appDir + "/roms/" + s.id + "/README.txt",
             s.name + " games go here.\n\nFile types: " + exts + ".zip\n" +
-            (bios.empty() ? "" : "BIOS (in system/): " + bios + "\n") +
+            (bios.empty() ? "" : (s.id == "arcade" ? "BIOS: " : "BIOS (in system/): ") + bios + "\n") +
             "Core: " + s.cores[0] + (s.cores.size() > 1 ? " (else " + s.cores[1] + ")" : "") + "\n");
     }
     std::string bios;
@@ -382,6 +390,12 @@ void log(const char* fmt, ...) {
 
 // ------------------------------------------------------------------- cores
 
+std::string findCoreFile(const std::string& appDir, const std::string& coreFile, std::string& where) {
+    System one;
+    one.cores = {coreFile};
+    return findCore(appDir, one, where);
+}
+
 std::string findCore(const std::string& appDir, const System& sys, std::string& where) {
     // 1. Our own cores (copied off the no-exec stick before loading).
     for (const std::string& c : sys.cores) {
@@ -389,6 +403,11 @@ std::string findCore(const std::string& appDir, const System& sys, std::string& 
         if (!isFile(src)) continue;
         ::mkdir("/tmp/retrofe/cores", 0755);
         std::string dst = "/tmp/retrofe/cores/" + c;
+        // Already copied this session (it lives until the app exits): FBNeo is
+        // 80 MB, seconds to copy off the stick on every start.
+        struct stat ss, ds;
+        if (::stat(src.c_str(), &ss) == 0 && ::stat(dst.c_str(), &ds) == 0 && ss.st_size == ds.st_size &&
+            ds.st_mtime >= ss.st_mtime) { where = "app cores/ (already copied)"; return dst; }
         if (copyFile(src, dst)) { where = "app cores/"; return dst; }
         log("could not copy %s to %s: %s", src.c_str(), dst.c_str(), std::strerror(errno));
     }
@@ -414,10 +433,10 @@ void execMenu(const std::string& appDir, const std::string& sys, int index, cons
 }
 
 void execPlay(const std::string& appDir, const std::string& sys, const std::string& romPath, ScreenId screen,
-              int index, const std::string& returnTo) {
-    log("-> play %s on %s", romPath.c_str(), screenName(screen));
+              int index, const std::string& returnTo, const std::string& core) {
+    log("-> play %s on %s%s%s", romPath.c_str(), screenName(screen), core.empty() ? "" : " with ", core.c_str());
     exec({"retro-launcher", "--play", appDir, sys, romPath, screenName(screen), std::to_string(index),
-          returnTo.empty() ? sys : returnTo});
+          returnTo.empty() ? sys : returnTo, core});
 }
 
 namespace {

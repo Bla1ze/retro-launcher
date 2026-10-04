@@ -1,4 +1,5 @@
 #include "Player.h"
+#include "Arcade.h"
 
 #include "Ambient.h"
 #include "AppFont.h"
@@ -238,6 +239,7 @@ std::string loadCore(const std::string& path, Core& c) {
 std::string g_systemDir, g_saveDir;
 retro_pixel_format g_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
 retro_system_av_info g_av{};
+unsigned g_coreRotation = 0;  // RETRO_ENVIRONMENT_SET_ROTATION: picture turned 90 * n degrees counter-clockwise
 
 SDL_Renderer* g_renderer = nullptr;
 SDL_Texture* g_texture = nullptr;
@@ -413,6 +415,10 @@ void coreLog(enum retro_log_level level, const char* fmt, ...) {
 bool environment(unsigned cmd, void* data) {
     switch (cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL) {
     case RETRO_ENVIRONMENT_GET_CAN_DUPE: *(bool*)data = true; return true;
+    case RETRO_ENVIRONMENT_SET_ROTATION:
+        g_coreRotation = *(const unsigned*)data & 3;
+        log("core asks for rotation %u (x90 counter-clockwise)", g_coreRotation);
+        return true;
     case RETRO_ENVIRONMENT_SET_MESSAGE:
         if (data) log("core message: %s", ((const retro_message*)data)->msg);
         return true;
@@ -479,6 +485,7 @@ Uint32 sdlFormat(retro_pixel_format f) {
 // off-centre. Every half second, count fully black columns at each edge (up to
 // 16); a result seen three times in a row becomes the crop.
 int g_cropL = 0, g_cropR = 0;
+bool g_noCrop = false;   // arcade: black edges are part of the game
 int g_candL = -1, g_candR = -1, g_candSeen = 0;
 unsigned g_cropW = 0;
 
@@ -579,7 +586,7 @@ void videoRefresh(const void* data, unsigned w, unsigned h, size_t pitch) {
     SDL_UpdateTexture(g_texture, &r, data, (int)pitch);
     g_frameW = (int)w; g_frameH = (int)h;
     g_ambient.sample(data, w, h, pitch, (int)g_pixelFormat);
-    detectBlankEdges(data, w, h, pitch);
+    if (!g_noCrop) detectBlankEdges(data, w, h, pitch);
     g_newFrame = true;
     ++g_frames;
 }
@@ -674,7 +681,9 @@ uint16_t readButtons() {
     set(RETRO_DEVICE_ID_JOYPAD_Y, padButton(SDL_CONTROLLER_BUTTON_X));
     set(RETRO_DEVICE_ID_JOYPAD_X, padButton(SDL_CONTROLLER_BUTTON_Y));
     set(RETRO_DEVICE_ID_JOYPAD_START, padButton(SDL_CONTROLLER_BUTTON_START));
-    set(RETRO_DEVICE_ID_JOYPAD_SELECT, padButton(SDL_CONTROLLER_BUTTON_BACK));
+    // The cabinet has no Select button (SDL's Back never fires there): Rewind is
+    // Select, which arcade cores use as Coin.
+    set(RETRO_DEVICE_ID_JOYPAD_SELECT, padButton(SDL_CONTROLLER_BUTTON_BACK) || padButton(SDL_CONTROLLER_BUTTON_LEFTSTICK));
     set(RETRO_DEVICE_ID_JOYPAD_L, padButton(SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
     set(RETRO_DEVICE_ID_JOYPAD_R, padButton(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
     set(RETRO_DEVICE_ID_JOYPAD_L2, padAxis(SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dz);
@@ -772,7 +781,7 @@ bool fileExists(const std::string& p) {
 } // namespace
 
 int runPlayer(const std::string& appDir, const std::string& sysId, const std::string& romPath,
-              const std::string& screenArg, int menuIndex, const std::string& returnTo) {
+              const std::string& screenArg, int menuIndex, const std::string& returnTo, const std::string& coreArg) {
     const std::string menuSys = returnTo.empty() ? sysId : returnTo;  // where the menu comes back to
     Library::openLog(appDir, "play");
     auto fail = [&](const std::string& message) -> int {
@@ -830,7 +839,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
 
     // ROM: read, unzip if needed, and leave a real file for cores that want one.
     std::string where;
-    std::string corePath = Library::findCore(appDir, *sys, where);
+    std::string corePath = coreArg.empty() ? Library::findCore(appDir, *sys, where)
+                                           : Library::findCoreFile(appDir, coreArg, where);
+    if (corePath.empty() && !coreArg.empty()) corePath = Library::findCore(appDir, *sys, where);
     if (corePath.empty()) return fail("No emulator core found for " + sys->name + ".");
     log("core %s (%s)", corePath.c_str(), where.c_str());
     Core core;
@@ -842,10 +853,16 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         info.library_version ? info.library_version : "?", info.valid_extensions ? info.valid_extensions : "",
         info.need_fullpath);
 
+    // Arcade cores take the zip itself (and find parent / BIOS zips beside it).
+    std::vector<std::string> coreExts = splitExts(info.valid_extensions);
+    const bool zipToCore = hasExt(romPath, "zip") && std::find(coreExts.begin(), coreExts.end(), "zip") != coreExts.end();
+    g_noCrop = sys->id == "arcade";
     std::vector<uint8_t> romData;
-    if (!readFile(romPath, romData)) return fail("Could not read the ROM file.");
+    if (!zipToCore && !readFile(romPath, romData)) return fail("Could not read the ROM file.");
     std::string romName = baseName(romPath);
-    if (hasExt(romPath, "zip")) {
+    if (zipToCore) {
+        if (!info.need_fullpath) return fail("This core wants the game in memory, not a zip.");
+    } else if (hasExt(romPath, "zip")) {
         std::vector<std::string> exts = splitExts(info.valid_extensions);
         if (exts.empty()) exts = sys->extensions;
         std::vector<uint8_t> inner;
@@ -856,7 +873,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     }
     ::mkdir("/tmp/retrofe", 0755);
     std::string romFile = "/tmp/retrofe/" + romName;
-    if (!writeFile(romFile, romData.data(), romData.size())) {
+    if (zipToCore) {
+        romFile = romPath;
+    } else if (!writeFile(romFile, romData.data(), romData.size())) {
         log("could not write %s (%s); passing the original path", romFile.c_str(), std::strerror(errno));
         romFile = romPath;
     }
@@ -902,9 +921,15 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         size_t cut = title.find_first_of("([");
         if (cut != std::string::npos && cut > 0) { tags = title.substr(cut); title = title.substr(0, cut); }
         while (!title.empty() && title.back() == ' ') title.pop_back();
+        item.artPath = findArt(appDir, sys->id, file);
+        Arcade::Entry ae;
+        if (sys->id == "arcade" && Arcade::lookup(appDir, baseName(corePath), lower(stem(file)), ae)) {
+            title = ae.title;
+            tags = ae.year + (ae.maker.empty() ? "" : "  " + ae.maker);
+            if (item.artPath.empty()) item.artPath = findArt(appDir, sys->id, ae.title + ".zip");
+        }
         item.title = title;
         item.detail = tags;
-        item.artPath = findArt(appDir, sys->id, file);
         item.controls = Library::controlHints(sys->id);
         item.consolePath = findConsoleArt(appDir, sys->id);
         panels->show(item, 0.0f);
@@ -984,7 +1009,13 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
 
     // Main loop.
     float aspect = sys->aspect;
-    bool sideways = rotate == 90 || rotate == 270;
+    bool sideways = rotate == 90 || rotate == 270;  // the screen (pause menu follows this)
+    // The picture also turns as the core asks (vertical arcade games), on top of
+    // the screen's own rotation. libretro counts counter-clockwise, SDL clockwise.
+    const int picAngle = ((rotate - 90 * (int)g_coreRotation) % 360 + 360) % 360;
+    const bool picSideways = picAngle == 90 || picAngle == 270;
+    if (picAngle != 0 && bezel.tex) { SDL_DestroyTexture(bezel.tex); bezel.tex = nullptr; }
+    if (g_coreRotation) log("picture turned %d degrees", picAngle);
     Uint32 started = SDL_GetTicks(), statsAt = started, startHeld = 0;
     unsigned long statFrames = 0, coreFrames = 0, underruns = 0, catchUps = 0;
     Uint32 lastPresent = SDL_GetTicks();
@@ -1205,7 +1236,11 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             SDL_Rect src{cropL, 0, g_frameW - cropL - cropR, g_frameH};
             float shownAspect = aspect * (float)src.w / (float)g_frameW;
             // The area the picture fits in: the bezel's window, or the screen.
-            float bx = 0, by = 0, bw = sideways ? winH : winW, bh = sideways ? winW : winH;
+            // Arcade games give their own shape (and may change it).
+            if (sys->id == "arcade" && g_av.geometry.base_height > 0)
+                aspect = g_av.geometry.aspect_ratio > 0 ? g_av.geometry.aspect_ratio
+                                                        : (float)g_av.geometry.base_width / g_av.geometry.base_height;
+            float bx = 0, by = 0, bw = picSideways ? winH : winW, bh = picSideways ? winW : winH;
             if (bezel.tex) {
                 float sx = (float)winW / bezel.w, sy = (float)winH / bezel.h;
                 bx = bezel.window.x * sx; by = bezel.window.y * sy;
@@ -1222,7 +1257,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             SDL_Rect dst{(int)(bx + (bw - cw) / 2), (int)(by + (bh - ch) / 2), (int)cw, (int)ch};
             if (!bezel.tex) dst = SDL_Rect{(int)((winW - cw) / 2), (int)((winH - ch) / 2), (int)cw, (int)ch};
             // The picture's on-screen footprint after rotation, for the bars.
-            SDL_Rect shown = sideways ? SDL_Rect{(int)((winW - ch) / 2), (int)((winH - cw) / 2), (int)ch, (int)cw} : dst;
+            SDL_Rect shown = picSideways ? SDL_Rect{(int)((winW - ch) / 2), (int)((winH - cw) / 2), (int)ch, (int)cw} : dst;
             float frameDt = std::min(0.1f, (t - lastPresent) / 1000.0f);
             lastPresent = t;
             if (bezel.tex) {
@@ -1231,7 +1266,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             } else {
                 g_ambient.draw(shown, winW, winH, frameDt);
             }
-            SDL_RenderCopyEx(g_renderer, g_texture, &src, &dst, rotate, nullptr, SDL_FLIP_NONE);
+            SDL_RenderCopyEx(g_renderer, g_texture, &src, &dst, picAngle, nullptr, SDL_FLIP_NONE);
             if (scanDark > 0) {
                 if (!scanLines) {  // once: at the game's line count when first shown
                     scanLines = std::max(1, src.h);
@@ -1240,7 +1275,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 if (scanTex) {
                     // Only as many lines as the game shows now (it can change mode).
                     SDL_Rect ss{0, 0, 64, std::min(scanLines, src.h) * 2};
-                    SDL_RenderCopyEx(g_renderer, scanTex, &ss, &dst, rotate, nullptr, SDL_FLIP_NONE);
+                    SDL_RenderCopyEx(g_renderer, scanTex, &ss, &dst, picAngle, nullptr, SDL_FLIP_NONE);
                 }
             }
             if (bezel.tex) SDL_RenderCopy(g_renderer, bezel.tex, nullptr, nullptr);

@@ -482,7 +482,7 @@ inline void confirmDialog(SDL_Renderer* r, int w, int h, const std::string& ques
 
 // --- icons -------------------------------------------------------------------
 
-enum class Icon { Radio, Search, Heart, Folder, Note, Power, Clock, Gear, Gamepad };
+enum class Icon { Radio, Search, Heart, Folder, Note, Power, Clock, Gear, Gamepad, Joystick };
 
 // Arc from a0 to a1 (radians) as short round-capped segments.
 inline void arc(SDL_Renderer* r, float cx, float cy, float radius, float a0, float a1,
@@ -548,6 +548,15 @@ inline void icon(SDL_Renderer* r, Icon kind, float x, float y, float s, SDL_Colo
             }
             Gfx::disc(r, cx, cy, s * 0.30f, c);
             Gfx::disc(r, cx, cy, s * 0.12f, hole);
+            break;
+        }
+        case Icon::Joystick: {
+            const SDL_Color ink{22, 26, 40, 255};
+            Gfx::line(r, cx, y + s * 0.30f, cx, y + s * 0.70f, s * 0.09f, c);       // stick
+            Gfx::disc(r, cx, y + s * 0.24f, s * 0.15f, c);                         // ball top
+            Gfx::roundRect(r, {x + s * 0.10f, y + s * 0.66f, s * 0.80f, s * 0.22f}, s * 0.08f, c);  // base
+            Gfx::disc(r, x + s * 0.24f, y + s * 0.77f, s * 0.045f, ink);
+            Gfx::disc(r, x + s * 0.76f, y + s * 0.77f, s * 0.045f, ink);
             break;
         }
         case Icon::Gamepad: {

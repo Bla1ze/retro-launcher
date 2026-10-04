@@ -45,6 +45,11 @@ struct Game {
     std::string path;   // full path
     std::string title;  // file name without extension or (tags)
     std::string tags;   // "(USA) [!]" etc., shown smaller
+    // Arcade (see Arcade.h): the emulator detected for this set, every one that
+    // can run it, its orientation, and what is wrong with it ("" if nothing).
+    bool arcade = false, vertical = false;
+    std::string core, problem;
+    std::vector<std::string> cores;
 };
 
 std::vector<Game> scanGames(const std::string& appDir, const System& sys);
@@ -87,6 +92,8 @@ int logFd();  // the log file's descriptor (-1 if none), for signal handlers
 // /tmp/retrofe/cores because the stick is mounted no-exec), then the firmware's
 // own core folders. Returns "" when none is found; `where` describes the pick.
 std::string findCore(const std::string& appDir, const System& sys, std::string& where);
+// The same for one named core file (an arcade game's pick).
+std::string findCoreFile(const std::string& appDir, const std::string& coreFile, std::string& where);
 
 // The real path of this binary (/tmp/retrofe/application on the cabinet), so
 // exec keeps the process name the firmware started instead of "exe".
@@ -97,8 +104,9 @@ const std::string& selfPath();
 void execMenu(const std::string& appDir, const std::string& sys, int index, const std::string& message);
 // `returnTo` is the menu place to come back to ("" = the game's system list,
 // "@recent" = Recently played); `index` is the row there.
+// `core` names the core file to use ("" = the system's first available).
 void execPlay(const std::string& appDir, const std::string& sys, const std::string& romPath, ScreenId screen,
-              int index, const std::string& returnTo = "");
+              int index, const std::string& returnTo = "", const std::string& core = "");
 
 // Favourites: data/favorites.txt, same format, any order.
 std::vector<std::pair<std::string, std::string>> loadFavorites(const std::string& appDir);

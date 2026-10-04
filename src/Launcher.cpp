@@ -2,6 +2,7 @@
 
 #include "AppConfig.h"
 #include "AppFont.h"
+#include "Arcade.h"
 #include "DisplayProfile.h"
 #include "GamePanels.h"
 #include "Gfx.h"
@@ -217,7 +218,13 @@ private:
     std::atomic<bool> m_iconsWarm{false};  // the worker has finished everything
     void startConsoleIcons();
     void drawRowIcon(int row, const FRect& slot, bool dim);
-    enum { PopPlay, PopFav, PopScreen, PopSearch, PopCount };
+    enum { PopPlay, PopFav, PopScreen, PopCore, PopSearch };
+    std::vector<int> popupItems() const;  // PopCore only for arcade games
+    // Arcade: the core a game plays with (its override, else the detected one),
+    // and Auto -> each emulator that can run it, in the Home popup.
+    std::string gameCore(int sys, int game) const;
+    std::string artFor(int sys, const Library::Game& g) const;  // cover; arcade also by title
+    void cycleGameCore(int sys, int game, int dir);
 };
 
 // ----------------------------------------------------------------- setup
@@ -374,7 +381,8 @@ void Menu::launch(int sys, int game, const std::string& returnTo, int returnInde
     render(0.0f);
     present();
     shutdown();
-    Library::execPlay(m_appDir, e.sys->id, g.path, screen, returnIndex >= 0 ? returnIndex : game, returnTo);
+    Library::execPlay(m_appDir, e.sys->id, g.path, screen, returnIndex >= 0 ? returnIndex : game, returnTo,
+                      g.arcade ? gameCore(sys, game) : "");
     // Only reached if exec failed: come back up.
     initVideo();
     m_toast = "Could not start the game (see data/launcher.log).";
@@ -410,10 +418,47 @@ void Menu::openList(bool favourites) {
     m_recentScroll = 0.0f;
 }
 
-// Games play on the backglass or the playfield (never the DMD).
+// Games play on the backglass or the playfield (never the DMD). Unless set per
+// game, vertical arcade games take the playfield, which is portrait.
 ScreenId Menu::gameScreen(int sys, int game) const {
-    ScreenId s = m_settings.screenFor(m_systems[sys].sys->id, m_systems[sys].games[game].file);
+    const Library::Game& g = m_systems[sys].games[game];
+    ScreenId s;
+    if (!m_settings.gameScreen(m_systems[sys].sys->id, g.file, s))
+        s = g.vertical ? ScreenId::Playfield : m_settings.screenFor(m_systems[sys].sys->id, g.file);
     return s == ScreenId::Playfield ? ScreenId::Playfield : ScreenId::Backglass;
+}
+
+std::string Menu::artFor(int sys, const Library::Game& g) const {
+    std::string p = findArt(m_appDir, m_systems[sys].sys->id, g.file);
+    if (p.empty() && g.arcade) p = findArt(m_appDir, m_systems[sys].sys->id, g.title + ".zip");
+    return p;
+}
+
+std::string Menu::gameCore(int sys, int game) const {
+    const Library::Game& g = m_systems[sys].games[game];
+    std::string over = m_settings.value("core." + m_systems[sys].sys->id + "/" + g.file, "");
+    return !over.empty() ? over : g.core;
+}
+
+void Menu::cycleGameCore(int sys, int game, int dir) {
+    const Library::Game& g = m_systems[sys].games[game];
+    const std::string key = "core." + m_systems[sys].sys->id + "/" + g.file;
+    std::vector<std::string> choices{""};
+    choices.insert(choices.end(), g.cores.begin(), g.cores.end());
+    std::string cur = m_settings.value(key, "");
+    int i = 0;
+    for (int k = 0; k < (int)choices.size(); ++k)
+        if (choices[k] == cur) i = k;
+    i = (i + dir + (int)choices.size()) % (int)choices.size();
+    m_settings.set(key, choices[i]);
+    m_settings.save();
+}
+
+std::vector<int> Menu::popupItems() const {
+    std::vector<int> items{PopPlay, PopFav, PopScreen};
+    if (m_systems[m_popupSys].games[m_popupGame].arcade) items.push_back(PopCore);
+    items.push_back(PopSearch);
+    return items;
 }
 
 // Screen option in the Home popup: Default -> Backglass -> Playfield -> Default.
@@ -581,13 +626,17 @@ void Menu::moveSystem(int dir) {
 
 void Menu::handlePopup(AtGames::ControlEvent ev, bool& running) {
     using CE = AtGames::ControlEvent;
-    (void)running;
+    const std::vector<int> items = popupItems();
+    const int count = (int)items.size();
+    m_popupSel = std::min(m_popupSel, count - 1);
+    const int item = items[m_popupSel];
     switch (ev) {
-    case CE::Up: if (m_popupSel > 0) --m_popupSel; else if (!m_repeating) m_popupSel = PopCount - 1; break;
-    case CE::Down: if (m_popupSel < PopCount - 1) ++m_popupSel; else if (!m_repeating) m_popupSel = 0; break;
+    case CE::Up: if (m_popupSel > 0) --m_popupSel; else if (!m_repeating) m_popupSel = count - 1; break;
+    case CE::Down: if (m_popupSel < count - 1) ++m_popupSel; else if (!m_repeating) m_popupSel = 0; break;
     case CE::Left:
     case CE::Right:
-        if (m_popupSel == PopScreen) cycleGameScreen(m_popupSys, m_popupGame, ev == CE::Left ? -1 : 1);
+        if (item == PopScreen) cycleGameScreen(m_popupSys, m_popupGame, ev == CE::Left ? -1 : 1);
+        if (item == PopCore) cycleGameCore(m_popupSys, m_popupGame, ev == CE::Left ? -1 : 1);
         break;
     case CE::B: case CE::Back: case CE::Guide: m_popup = false; break;
     case CE::Rewind: case CE::Rewind2: case CE::Y:
@@ -596,10 +645,11 @@ void Menu::handlePopup(AtGames::ControlEvent ev, bool& running) {
         break;
     case CE::A:
     case CE::Start:
-        switch (m_popupSel) {
+        switch (item) {
         case PopPlay: m_popup = false; handle(CE::A, running); break;
         case PopFav: m_popup = false; handle(CE::Rewind, running); break;
         case PopScreen: cycleGameScreen(m_popupSys, m_popupGame, 1); break;
+        case PopCore: cycleGameCore(m_popupSys, m_popupGame, 1); break;
         case PopSearch: m_popup = false; openSearch(); break;
         }
         break;
@@ -717,7 +767,7 @@ void Menu::updatePanels(float dt) {
         key = "game:" + m_systems[sys].sys->id + "/" + g.file;
         if (key != m_panelKey) {
             m_panelItem = {key, m_systems[sys].sys->name, g.title, g.tags,
-                           findArt(m_appDir, m_systems[sys].sys->id, g.file)};
+                           artFor(sys, g)};
         }
     } else if (m_view == View::Search) {
         key = "search:" + std::to_string(m_hits.size());
@@ -856,7 +906,7 @@ void Menu::drawRowIcon(int row, const FRect& slot, bool dim) {
         }
     }
     SDL_Color c = dim ? SDL_Color{90, 98, 120, 255} : Theme::badgeColor(m_systems[i].sys->id);
-    Theme::icon(r, Theme::Icon::Gamepad, ix, iy, is, c);
+    Theme::icon(r, m_systems[i].sys->id == "arcade" ? Theme::Icon::Joystick : Theme::Icon::Gamepad, ix, iy, is, c);
 }
 
 void Menu::renderSystems() {
@@ -923,7 +973,9 @@ void Menu::renderGames() {
         bool overridden = m_settings.gameScreen(e.sys->id, g.file, over);
         float extras = drawGameExtras(r, row, active, isFav(sysIndex(), i), overridden, gameScreen(sysIndex(), i));
         float tx = row.x + 24.0f, availW = row.w - 28.0f - extras;
-        Theme::rowTitle(r, g.title, tx, y + 12.0f, availW, Theme::Type::Body, active ? Theme::Text : Theme::TextDim, active);
+        // Arcade sets that are incomplete stay listed, dimmer, with the reason.
+        SDL_Color tc = active ? Theme::Text : g.problem.empty() ? Theme::TextDim : Theme::Faint;
+        Theme::rowTitle(r, g.title, tx, y + 12.0f, availW, Theme::Type::Body, tc, active);
         if (!g.tags.empty())
             AppFont::draw(r, Theme::ellipsize(r, g.tags, availW, Theme::Type::Caption, AppFont::Face::Body), tx, y + 54.0f,
                           Theme::Type::Caption, Theme::Muted);
@@ -1099,7 +1151,9 @@ void Menu::renderPopup() {
     const Library::Game& g = se.games[m_popupGame];
     Gfx::rect(r, {0.0f, 0.0f, (float)w, (float)h}, {4, 6, 12, 200});
     const float itemH = 96.0f, gap = 16.0f;
-    const float pw = w - 2.0f * Theme::kMargin - 32.0f, ph = 190.0f + PopCount * (itemH + gap);
+    const std::vector<int> items = popupItems();
+    const int count = (int)items.size();
+    const float pw = w - 2.0f * Theme::kMargin - 32.0f, ph = 190.0f + count * (itemH + gap);
     const float px = (w - pw) * 0.5f, py = (h - ph) * 0.5f - 40.0f;
     Gfx::softRect(r, {px, py, pw, ph}, 32.0f, 40.0f, {0, 0, 0, 200}, false);
     Gfx::panel(r, {px, py, pw, ph}, 32.0f, {30, 36, 58, 255}, {18, 22, 38, 255}, {255, 255, 255, 26}, 1.0f);
@@ -1108,20 +1162,24 @@ void Menu::renderPopup() {
     AppFont::drawCentered(r, se.sys->name, w * 0.5f, py + 104.0f, Theme::Type::Caption, Theme::Muted);
     ScreenId over;
     bool overridden = m_settings.gameScreen(se.sys->id, g.file, over);
-    std::string screen = !overridden ? std::string("Default (") + (m_settings.systemScreen(se.sys->id) == ScreenId::Playfield ? "Playfield" : "Backglass") + ")"
-                                     : over == ScreenId::Playfield ? "Playfield" : "Backglass";
-    const std::string labels[PopCount] = {
-        "Play", isFav(m_popupSys, m_popupGame) ? "Remove from Favourites" : "Add to Favourites", "Screen", "Search"};
-    for (int i = 0; i < PopCount; ++i) {
+    const char* shown = gameScreen(m_popupSys, m_popupGame) == ScreenId::Playfield ? "Playfield" : "Backglass";
+    std::string screen = !overridden ? std::string("Default (") + shown + ")" : shown;
+    std::string coreOver = m_settings.value("core." + se.sys->id + "/" + g.file, "");
+    std::string core = coreOver.empty() ? "Auto (" + Arcade::coreLabel(g.core) + ")" : Arcade::coreLabel(coreOver);
+    for (int i = 0; i < count; ++i) {
+        const int it = items[i];
+        std::string label = it == PopPlay ? "Play" : it == PopFav ? (isFav(m_popupSys, m_popupGame) ? "Remove from Favourites" : "Add to Favourites")
+                          : it == PopScreen ? "Screen" : it == PopCore ? "Emulator" : "Search";
         FRect row{px + 40.0f, py + 160.0f + i * (itemH + gap), pw - 80.0f, itemH};
         bool active = i == m_popupSel;
         Theme::rowCard(r, row, active);
         float ty = row.y + (itemH - Theme::Type::Body) * 0.5f - 4.0f;
-        AppFont::draw(r, labels[i], row.x + 28.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
-        if (i == PopScreen) {
-            float vw = AppFont::measureWidth(r, screen, Theme::Type::Body);
+        AppFont::draw(r, label, row.x + 28.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+        if (it == PopScreen || it == PopCore) {
+            const std::string& value = it == PopScreen ? screen : core;
+            float vw = AppFont::measureWidth(r, value, Theme::Type::Body);
             float vx = row.x + row.w - 28.0f - vw - (active ? 30.0f : 0.0f);
-            AppFont::draw(r, screen, vx, ty, Theme::Type::Body, active ? Theme::accent() : Theme::Muted);
+            AppFont::draw(r, value, vx, ty, Theme::Type::Body, active ? Theme::accent() : Theme::Muted);
             if (active) {
                 Gfx::triangle(r, {vx - 30.0f, row.y + itemH * 0.5f - 9.0f, 18.0f, 18.0f}, 180.0, Theme::accent());
                 Gfx::triangle(r, {row.x + row.w - 46.0f, row.y + itemH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
