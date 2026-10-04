@@ -17,6 +17,7 @@ import os
 import re
 import subprocess
 import sys
+import urllib.error
 import urllib.parse
 import urllib.request
 import zipfile
@@ -53,8 +54,17 @@ def get_json(url):
         return json.load(r)
 
 
+BRANCH = {}  # repo -> default branch (most master, a few such as the NAOMI sets main)
+
+
 def boxart_names(repo):
-    root = get_json(f"https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/master")
+    for branch in ("master", "main"):
+        try:
+            root = get_json(f"https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/{branch}")
+            BRANCH[repo] = branch
+            break
+        except urllib.error.HTTPError:
+            continue
     sha = next(t["sha"] for t in root["tree"] if t["path"] == "Named_Boxarts")
     tree = get_json(f"https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/{sha}")
     return [t["path"] for t in tree["tree"] if t["path"].lower().endswith(".png")]
@@ -178,7 +188,7 @@ def main():
                 missed.append(rom)
                 continue
             _, repo, name = pick(cands, rom_region(tags))
-            url = f"https://raw.githubusercontent.com/libretro-thumbnails/{repo}/master/Named_Boxarts/{urllib.parse.quote(name)}"
+            url = f"https://raw.githubusercontent.com/libretro-thumbnails/{repo}/{BRANCH.get(repo, 'master')}/Named_Boxarts/{urllib.parse.quote(name)}"
             plan.append((url, os.path.join(out_dir, stem + ".jpg"), name))
             matched += 1
         report[sys_id] = (len(roms), matched, fuzzy, skipped, missed)

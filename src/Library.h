@@ -34,6 +34,8 @@ struct System {
 };
 
 const std::vector<System>& systems();
+// Arcade-style systems: zips matched to a ROM database (Arcade.cpp), real names.
+bool isArcadeSystem(const std::string& id);
 
 // What each cabinet button does in a system's games, for the playfield card.
 // Mirrors the player's mapping (cabinet A/B/X/Y -> libretro B/A/Y/X).

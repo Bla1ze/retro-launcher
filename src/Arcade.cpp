@@ -146,13 +146,32 @@ struct Verdict {
     std::string problem;  // "" when complete
 };
 
-Verdict judge(const Db& db, const std::string& name, const std::map<std::string, ZipInfo>& zips) {
+// A folder holding a .chd (Flycast's NAOMI GD-ROM games: <set>/<disc>.chd beside the zip).
+bool hasChd(const std::string& folder) {
+    DIR* d = ::opendir(folder.c_str());
+    if (!d) return false;
+    bool found = false;
+    while (struct dirent* de = ::readdir(d)) {
+        std::string n = de->d_name;
+        if (n.size() > 4 && lowerStr(n.substr(n.size() - 4)) == ".chd") { found = true; break; }
+    }
+    ::closedir(d);
+    return found;
+}
+
+Verdict judge(const Db& db, const std::string& name, const std::map<std::string, ZipInfo>& zips,
+              const std::string& dir, bool chdSupported) {
     Verdict v;
     auto it = db.find(name);
     if (it == db.end()) return v;
     v.known = true;
     const Entry& e = it->second;
-    if (e.flags.find('C') != std::string::npos) { v.problem = "Needs a CHD disk image (not supported)"; v.missing = 1u << 20; return v; }
+    std::string chdProblem;
+    if (e.flags.find('C') != std::string::npos) {
+        if (!chdSupported) { v.problem = "Needs a CHD disk image (not supported)"; v.missing = 1u << 20; return v; }
+        if (!hasChd(dir + "/" + name) && (e.parent.empty() || !hasChd(dir + "/" + e.parent)))
+            chdProblem = "Needs its GD-ROM .chd in a folder named " + name + " beside the zip";
+    }
     // What the folder offers: this zip, its parent's, and the parent's parent.
     std::set<uint32_t> have;
     auto add = [&](const std::string& n) {
@@ -190,6 +209,7 @@ Verdict judge(const Db& db, const std::string& name, const std::map<std::string,
     if (!biosThere) { v.problem = "Needs " + biosName + ".zip"; v.missing += 1000; return v; }
     if (v.missing && !parentThere) { v.problem = "Needs " + e.parent + ".zip"; return v; }
     if (v.missing) { v.problem = std::to_string(v.missing) + " ROM" + (v.missing == 1 ? "" : "s") + " missing or wrong version"; return v; }
+    if (!chdProblem.empty()) { v.problem = chdProblem; v.missing = 1; return v; }
     v.complete = true;
     return v;
 }
@@ -200,6 +220,7 @@ std::string coreLabel(const std::string& coreFile) {
     if (coreFile.compare(0, 5, "fbneo") == 0) return "FBNeo";
     if (coreFile.compare(0, 13, "mame2003_plus") == 0) return "MAME 2003-Plus";
     if (coreFile.compare(0, 8, "mame2010") == 0) return "MAME 2010";
+    if (coreFile.compare(0, 7, "flycast") == 0) return "Flycast";
     return coreFile;
 }
 
@@ -207,7 +228,8 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
     std::vector<Library::Game> games;
     const std::string dir = appDir + "/roms/" + sys.id;
     // The zips, with their indexes (cached).
-    const std::string cachePath = appDir + "/data/arcade-zips.txt";
+    // One cache per system: a shared one would forget the other folders' zips.
+    const std::string cachePath = appDir + "/data/" + (sys.id == "arcade" ? std::string("arcade") : sys.id) + "-zips.txt";
     std::map<std::string, ZipInfo> cache = loadZipCache(cachePath), zips;  // zips: by set name
     std::map<std::string, std::string> fileOf;
     bool changed = false;
@@ -233,6 +255,22 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         ::closedir(d);
     }
     if (zips.empty()) return games;
+    // Flycast also finds BIOS zips (naomi.zip, awbios.zip) in system/dc/.
+    const bool flycast = !sys.cores.empty() && sys.cores[0].compare(0, 7, "flycast") == 0;
+    if (flycast) {
+        const std::string bdir = appDir + "/system/dc";
+        if (DIR* d = ::opendir(bdir.c_str())) {
+            while (struct dirent* de = ::readdir(d)) {
+                std::string file = de->d_name;
+                if (file.size() < 5 || lowerStr(file.substr(file.size() - 4)) != ".zip") continue;
+                std::string set = lowerStr(file.substr(0, file.size() - 4));
+                if (zips.count(set)) continue;
+                ZipInfo z;
+                if (zipCrcs(bdir + "/" + file, z.crcs)) zips[set] = z;  // not listed: BIOS sets are skipped below
+            }
+            ::closedir(d);
+        }
+    }
     if (changed) {
         for (auto it = cache.begin(); it != cache.end();)  // forget deleted zips
             it = zips.count(lowerStr(it->first.substr(0, it->first.size() - 4))) ? std::next(it) : cache.erase(it);
@@ -244,11 +282,12 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         Db db;
         if (loadDb(dbPath(appDir, core), db)) dbs.emplace_back(core, std::move(db));
     }
-    log("arcade: %zu zip(s), %d read, %zu database(s)", zips.size(), opened, dbs.size());
+    log("%s: %zu zip(s), %d read, %zu database(s)", sys.id.c_str(), zips.size(), opened, dbs.size());
 
     int complete = 0;
     for (const auto& kv : zips) {
         const std::string& set = kv.first;
+        if (!fileOf.count(set)) continue;  // a BIOS zip from system/dc/
         bool isBios = false;
         for (const auto& db : dbs) {
             auto e = db.second.find(set);
@@ -264,7 +303,7 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         std::string bestCore, bestProblem = "Not a set these emulators know";
         size_t bestMissing = (size_t)-1;
         for (const auto& db : dbs) {
-            Verdict v = judge(db.second, set, zips);
+            Verdict v = judge(db.second, set, zips, dir, db.first.compare(0, 7, "flycast") == 0);
             if (!v.known) continue;
             const Entry& e = db.second.at(set);
             if (!named) named = &e;
@@ -294,7 +333,7 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
     }
     std::sort(games.begin(), games.end(),
               [](const Library::Game& a, const Library::Game& b) { return lowerStr(a.title) < lowerStr(b.title); });
-    log("arcade: %zu game(s), %d ready", games.size(), complete);
+    log("%s: %zu game(s), %d ready", sys.id.c_str(), games.size(), complete);
     return games;
 }
 

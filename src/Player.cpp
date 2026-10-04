@@ -383,7 +383,7 @@ void loadOptionOverrides(const std::string& path) {
 // games turned to fit the screen they play on), and the cores' "vertical" /
 // TATE modes, meant for monitors turned on their side, would undo it.
 bool pinnedOption(const std::string& key) {
-    return key == "fbneo-vertical-mode" || key == "mame2003-plus_tate_mode";
+    return key == "fbneo-vertical-mode" || key == "mame2003-plus_tate_mode" || key == "reicast_screen_rotation";
 }
 
 void declareOption(const char* key, const char* spec) {
@@ -1060,7 +1060,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     // Cores that open the file themselves get it where it is: a disc image can be
     // 700 MB, and a .cue needs its track files beside it.
     const bool direct = zipToCore || (info.need_fullpath && !hasExt(romPath, "zip"));
-    g_noCrop = sys->id == "arcade";
+    g_noCrop = Library::isArcadeSystem(sys->id);
     std::vector<uint8_t> romData;
     if (!direct && !readFile(romPath, romData)) return fail("Could not read the ROM file.");
     std::string romName = baseName(romPath);
@@ -1129,12 +1129,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         while (!title.empty() && title.back() == ' ') title.pop_back();
         item.artPath = findArt(appDir, sys->id, file);
         Arcade::Entry ae;
-        if (sys->id == "arcade" && Arcade::lookup(appDir, baseName(corePath), lower(stem(file)), ae)) {
+        if (Library::isArcadeSystem(sys->id) && Arcade::lookup(appDir, baseName(corePath), lower(stem(file)), ae)) {
             title = ae.title;
             tags = ae.year + (ae.maker.empty() ? "" : "  " + ae.maker);
             if (item.artPath.empty()) item.artPath = findArt(appDir, sys->id, ae.title + ".zip");
         }
-        if (sys->id == "arcade" && item.artPath.empty())  // the other emulator's name for it
+        if (Library::isArcadeSystem(sys->id) && item.artPath.empty())  // the other emulator's name for it
             for (const std::string& c : sys->cores)
                 if (Arcade::lookup(appDir, c, lower(stem(file)), ae) && item.artPath.empty())
                     item.artPath = findArt(appDir, sys->id, ae.title + ".zip");
@@ -1184,6 +1184,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (!makeFramebuffer(fw, fh)) return fail("The GPU could not set up this game's picture.");
         if (g_hw.context_reset) g_hw.context_reset();
         g_pixelFormat = RETRO_PIXEL_FORMAT_XRGB8888;
+        g_noCrop = true;  // a GPU frame's black edges are the game's
     }
     log("loaded: %ux%u (max %ux%u), %.3f fps, %.0f Hz audio", g_av.geometry.base_width, g_av.geometry.base_height,
         g_av.geometry.max_width, g_av.geometry.max_height, g_av.timing.fps, g_av.timing.sample_rate);
@@ -1498,7 +1499,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             // The core's aspect ratio is the picture as shown, after its rotation
             // (as RetroArch reads it), so a frame that still has to turn a
             // quarter has the inverse shape.
-            if (sys->id == "arcade" && g_av.geometry.base_height > 0) {
+            if ((Library::isArcadeSystem(sys->id) || g_coreCtx) && g_av.geometry.base_height > 0) {
                 aspect = g_av.geometry.aspect_ratio > 0 ? g_av.geometry.aspect_ratio
                                                         : (float)g_av.geometry.base_width / g_av.geometry.base_height;
                 if ((g_coreRotation & 1) && g_av.geometry.aspect_ratio > 0) aspect = 1.0f / aspect;

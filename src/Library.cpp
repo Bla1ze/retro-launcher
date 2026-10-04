@@ -122,6 +122,9 @@ const std::vector<System>& systems() {
     static const std::vector<System> list = {
         // Arcade: zips are matched to a core per game (Arcade.cpp); FBNeo first.
         {"arcade", "Arcade", "ARC", {"fbneo_libretro.so", "mame2003_plus_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
+        // Flycast (GPU), checked against its own NAOMI / Atomiswave list.
+        {"naomi", "NAOMI", "NAO", {"flycast_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
+        {"atomiswave", "Atomiswave", "AW", {"flycast_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
         {"genesis", "Genesis / Mega Drive", "MD", {"genesis_plus_gx_libretro.so"},
          {"md", "gen", "smd", "bin"}, 4.0f / 3.0f, true},
         {"mastersystem", "Master System", "SMS", {"genesis_plus_gx_libretro.so"},
@@ -179,7 +182,7 @@ std::vector<std::pair<std::string, std::string>> controlHints(const std::string&
     if (id == "psx")
         return {{"A", "Cross"}, {"B", "Circle"}, {"X", "Square"}, {"Y", "Triangle"}, {"LB / RB", "L1 / R1"},
                 {"LB2 / RB2", "L2 / R2"}, {"START", "Start"}, {"REWIND", "Select"}};
-    if (id == "arcade")
+    if (id == "arcade" || id == "naomi" || id == "atomiswave")
         return {{"A", "Button 1"}, {"B", "Button 2"}, {"X", "Button 3"}, {"Y", "Button 4"},
                 {"LB / RB", "Button 5 / 6"}, {"REWIND", "Coin"}, {"START", "Start"}};
     if (id == "lynx")
@@ -193,8 +196,10 @@ const System* findSystem(const std::string& id) {
     return nullptr;
 }
 
+bool isArcadeSystem(const std::string& id) { return id == "arcade" || id == "naomi" || id == "atomiswave"; }
+
 std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
-    if (sys.id == "arcade") return Arcade::scan(appDir, sys);
+    if (isArcadeSystem(sys.id)) return Arcade::scan(appDir, sys);
     std::vector<Game> games;
     std::string dir = appDir + "/roms/" + sys.id;
     DIR* d = ::opendir(dir.c_str());
@@ -276,6 +281,9 @@ static const char* biosNote(const std::string& id) {
     if (id == "psx")
         return "Optional: scph5501.bin (USA), scph5500.bin (Japan), scph5502.bin (Europe). PCSX ReARMed has a "
                "built-in BIOS; a real one runs more games.";
+    if (id == "naomi")
+        return "Required: naomi.zip (some games want their own, e.g. hod2bios.zip), with the games or in system/dc/.";
+    if (id == "atomiswave") return "Required: awbios.zip, with the games or in system/dc/.";
     if (id == "arcade") return "BIOS zips (neogeo.zip, pgm.zip...) go in roms/arcade/ with the games, not in system/.";
     return "";
 }
@@ -312,12 +320,16 @@ static void writeGuides(const std::string& appDir) {
                        "\nUse .chd if you can (one small file per disc). A .cue or .gdi needs its track\n"
                        "files beside it; an .m3u lists a multi-disc game's discs. Don't zip disc images.\n"
                            : exts + ".zip\n") +
-            (bios.empty() ? "" : (s.id == "arcade" ? "BIOS: " : "BIOS (in system/): ") + bios + "\n") +
+            (bios.empty() ? "" : (isArcadeSystem(s.id) ? "BIOS: " : "BIOS (in system/): ") + bios + "\n") +
             (s.id == "arcade"
                  ? std::string("Leave the zips as they are (don't unpack them). Each one is checked against the\n"
                                "ROM lists in cores/ and played with the emulator it is complete for: FBNeo\n"
                                "(current sets), else MAME 2003-Plus (MAME 0.78-era sets). Parent zips\n"
                                "(sf2.zip for sf2ce.zip) go here too. Vertical games play on the playfield.\n")
+             : s.id == "naomi" || s.id == "atomiswave"
+                 ? std::string("Leave the zips as they are (MAME-style sets). Each is checked against Flycast's\n"
+                               "own game list. GD-ROM games also need their .chd in a folder named after the\n"
+                               "zip, e.g. ikaruga/gdl-0010.chd. Vertical games play on the playfield.\n")
                  : "Core: " + s.cores[0] + (s.cores.size() > 1 ? " (else " + s.cores[1] + ")" : "") + "\n"));
     }
     std::string bios;

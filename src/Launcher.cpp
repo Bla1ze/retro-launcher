@@ -977,7 +977,7 @@ void Menu::drawRowIcon(int row, const FRect& slot, bool dim) {
         }
     }
     SDL_Color c = dim ? SDL_Color{90, 98, 120, 255} : Theme::badgeColor(m_systems[i].sys->id);
-    Theme::icon(r, m_systems[i].sys->id == "arcade" ? Theme::Icon::Joystick : Theme::Icon::Gamepad, ix, iy, is, c);
+    Theme::icon(r, Library::isArcadeSystem(m_systems[i].sys->id) ? Theme::Icon::Joystick : Theme::Icon::Gamepad, ix, iy, is, c);
 }
 
 void Menu::renderSystems() {

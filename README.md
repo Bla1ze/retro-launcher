@@ -63,6 +63,8 @@ already in the cabinet's firmware, or better ones built for it (see
 | PlayStation | `roms/psx` | PCSX ReARMed | `cores/` |
 | Dreamcast | `roms/dreamcast` | Flycast (GPU) | `cores/` |
 | PSP | `roms/psp` | PPSSPP (GPU) | `cores/` |
+| NAOMI | `roms/naomi` | Flycast (GPU), checked per set | `cores/` |
+| Atomiswave | `roms/atomiswave` | Flycast (GPU), checked per set | `cores/` |
 | Arcade | `roms/arcade` | FBNeo or MAME 2003-Plus, picked per game | `cores/` |
 
 Genesis is verified on a Legends Pinball 4KP; the others are marked "untested"
@@ -90,6 +92,16 @@ PPSSPP's own files (its `assets` folder: fonts, shaders) must be in
 `system/PPSSPP/`. The joystick drives the analog nub (the D-pad at full tilt
 when the stick reports as one).
 
+### NAOMI and Atomiswave
+
+Zips go in `roms/naomi/` and `roms/atomiswave/` as they are, with `naomi.zip` /
+`awbios.zip` beside them or in `system/dc/`. Each set is checked against
+Flycast's own game list (`cores/flycast_libretro.db`, made by
+`tools/make_arcade_db.py` from Flycast's `naomi_roms.cpp`), the same way as the
+arcade folder: real names, missing BIOS or parent zips named, vertical games
+(Ikaruga...) on the playfield. GD-ROM games also need their `.chd` in a folder
+named after the zip, e.g. `roms/naomi/ikaruga/gdl-0010.chd`.
+
 ### Arcade
 
 Put arcade zips in `roms/arcade/`, as they are (don't unpack them), with any
@@ -109,7 +121,8 @@ with year and maker. **Vertical games** (1942, Galaga, DoDonPachi...) play on
 the playfield by default, filling it in portrait; horizontal ones on the
 backglass. Home on a game changes either. Rewind is the coin button.
 
-The ROM lists are `cores/fbneo_libretro.db` and `cores/mame2003_plus_libretro.db`,
+The ROM lists are `cores/fbneo_libretro.db`, `cores/mame2003_plus_libretro.db` and
+`cores/flycast_libretro.db` (NAOMI / Atomiswave),
 made by `tools/make_arcade_db.py` from the same source the cores are built from.
 
 ## Installing
@@ -244,7 +257,7 @@ docker run --rm --platform linux/amd64 -v "$SDK:/workspace" \
   atgames-external-sdk:glibc-2.26-sdl2-v1 bash /workspace/cores-src/build-cores.sh
 ```
 
-Flycast (Dreamcast) and PPSSPP (PSP) need a newer compiler than the SDK's;
+Flycast (Dreamcast, NAOMI, Atomiswave) and PPSSPP (PSP) need a newer compiler than the SDK's;
 `tools/build-flycast.sh` describes the toolchain, and `tools/build-ppsspp.sh`
 adds what PPSSPP needs (Python for its build, and the cabinet's own
 `libGLESv2`/`libEGL`/`libmali` to link against, from the firmware).

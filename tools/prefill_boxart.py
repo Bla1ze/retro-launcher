@@ -17,6 +17,7 @@ import subprocess
 import sys
 import threading
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -39,6 +40,8 @@ REPOS = {
     "psx": ["Sony_-_PlayStation"],
     "dreamcast": ["Sega_-_Dreamcast"],
     "psp": ["Sony_-_PlayStation_Portable"],
+    "naomi": ["Sega_-_Naomi", "Sega_-_Naomi_2"],
+    "atomiswave": ["Atomiswave"],
 }
 UA = {"User-Agent": "retro-launcher-prefill"}
 
@@ -59,15 +62,23 @@ def covers(app, repo):
     GitHub API allows 60 unauthenticated calls an hour)."""
     cache = os.path.join(app, "media", ".boxart-trees", repo + ".json")
     if not (os.path.exists(cache) and time.time() - os.path.getmtime(cache) < 7 * 86400):
-        root = json.loads(get(f"https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/master"))
+        root, branch = None, None
+        for branch in ("master", "main"):  # most sets use master, a few (NAOMI) main
+            try:
+                root = json.loads(get(f"https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/{branch}"))
+                break
+            except urllib.error.HTTPError:
+                continue
         sha = next(t["sha"] for t in root["tree"] if t["path"] == "Named_Boxarts")
-        tree = get(f"https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/{sha}")
+        tree = json.loads(get(f"https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/{sha}"))
+        tree["branch"] = branch
         os.makedirs(os.path.dirname(cache), exist_ok=True)
-        with open(cache, "wb") as f:
-            f.write(tree)
+        with open(cache, "w") as f:
+            json.dump(tree, f)
     with open(cache) as f:
         tree = json.load(f)
-    return [(t["path"], t["mode"] == "120000") for t in tree["tree"] if t["path"].lower().endswith(".png")]
+    branch = tree.get("branch", "master")
+    return [(t["path"], branch) for t in tree["tree"] if t["path"].lower().endswith(".png")]
 
 
 def main():
@@ -85,12 +96,12 @@ def main():
         have = set(os.listdir(out))
         todo = 0
         for repo in repos:
-            for name, _ in covers(app, repo):
+            for name, branch in covers(app, repo):
                 dest = name[:-4] + ".jpg"
                 if dest in have:
                     continue
                 have.add(dest)
-                url = f"https://raw.githubusercontent.com/libretro-thumbnails/{repo}/master/Named_Boxarts/{urllib.parse.quote(name)}"
+                url = f"https://raw.githubusercontent.com/libretro-thumbnails/{repo}/{branch}/Named_Boxarts/{urllib.parse.quote(name)}"
                 jobs.append((url, os.path.join(out, dest)))
                 todo += 1
         print(f"{sys_id}: {len(have)} covers, {todo} to download", flush=True)
