@@ -898,7 +898,8 @@ void Menu::renderSearch() {
     for (int row = 0; row < (int)kb.size(); ++row) {
         float total = 0;
         for (const Key& k : kb[row]) total += k.units;
-        float unitW = (fullW - kKeyGap * (kb[row].size() - 1)) / total;
+        // A key of n units spans the n-1 gaps inside it, so lay out per unit.
+        float unitW = (fullW - kKeyGap * (total - 1.0f)) / total;
         float x = x0, y = kKeysTop + row * (kKeyH + kKeyGap);
         for (int col = 0; col < (int)kb[row].size(); ++col) {
             const Key& k = kb[row][col];
