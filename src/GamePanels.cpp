@@ -566,17 +566,18 @@ uint32_t GamePanels::pickCrtc(uint32_t currentEncoder, const std::vector<uint32_
     return 0;
 }
 
-int GamePanels::init(const DisplayProfile::Topology& topo, Mode mode) {
+int GamePanels::init(const DisplayProfile::Topology& topo, Mode mode, uint32_t gameConnector) {
     m_mode = mode;
     m_fd = findCard0Fd();
     if (m_fd < 0) { log("panels: no card0 fd"); return 0; }
-    const DisplayProfile::Screen* first = mode == Mode::Playing ? &topo.main : &topo.backglass;
-    for (const DisplayProfile::Screen* scr : {first, &topo.dmd}) {
-        if (!scr->available || scr->connectorId == 0) continue;
+    // Whatever SDL owns (the menu on the playfield, or the game's screen) is
+    // left alone; every other screen gets artwork.
+    uint32_t avoid = mode == Mode::Playing ? (gameConnector ? gameConnector : topo.backglass.connectorId)
+                                           : topo.main.connectorId;
+    for (const DisplayProfile::Screen* scr : {&topo.main, &topo.backglass, &topo.dmd}) {
+        if (!scr->available || scr->connectorId == 0 || scr->connectorId == avoid) continue;
         Panel::Role role = scr == &topo.dmd ? Panel::Role::Dmd
                            : scr == &topo.main ? Panel::Role::Playfield : Panel::Role::Backglass;
-        // While a game plays, SDL owns the backglass; the playfield is free.
-        uint32_t avoid = mode == Mode::Playing ? topo.backglass.connectorId : topo.main.connectorId;
         drm_mode_get_connector cn;
         std::memset(&cn, 0, sizeof(cn));
         cn.connector_id = scr->connectorId;

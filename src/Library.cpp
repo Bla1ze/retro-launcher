@@ -234,6 +234,8 @@ bool Settings::save() const {
 
 ScreenId Settings::systemScreen(const std::string& sys) const {
     ScreenId s = ScreenId::Backglass;  // the screen proven on hardware
+    auto def = m_values.find("screen.default");  // Settings > Default game screen
+    if (def != m_values.end()) parseScreen(def->second, s);
     auto it = m_values.find("sys." + sys);
     if (it != m_values.end()) parseScreen(it->second, s);
     return s;
@@ -258,6 +260,8 @@ ScreenId Settings::screenFor(const std::string& sys, const std::string& file) co
     ScreenId s;
     return gameScreen(sys, file, s) ? s : systemScreen(sys);
 }
+
+void Settings::set(const std::string& key, const std::string& value) { m_values[key] = value; }
 
 std::string Settings::value(const std::string& key, const std::string& fallback) const {
     auto it = m_values.find(key);
@@ -330,9 +334,10 @@ void execPlay(const std::string& appDir, const std::string& sys, const std::stri
           returnTo.empty() ? sys : returnTo});
 }
 
-std::vector<std::pair<std::string, std::string>> loadRecent(const std::string& appDir) {
+namespace {
+std::vector<std::pair<std::string, std::string>> loadPairs(const std::string& path) {
     std::vector<std::pair<std::string, std::string>> out;
-    std::ifstream in(appDir + "/data/recent.txt");
+    std::ifstream in(path);
     std::string line;
     while (std::getline(in, line)) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
@@ -343,15 +348,32 @@ std::vector<std::pair<std::string, std::string>> loadRecent(const std::string& a
     return out;
 }
 
+void savePairs(const std::string& path, const std::vector<std::pair<std::string, std::string>>& list) {
+    FILE* f = std::fopen(path.c_str(), "w");
+    if (!f) { log("could not save %s: %s", path.c_str(), std::strerror(errno)); return; }
+    for (auto& e : list) std::fprintf(f, "%s\t%s\n", e.first.c_str(), e.second.c_str());
+    std::fclose(f);
+}
+} // namespace
+
+std::vector<std::pair<std::string, std::string>> loadRecent(const std::string& appDir) {
+    return loadPairs(appDir + "/data/recent.txt");
+}
+
+std::vector<std::pair<std::string, std::string>> loadFavorites(const std::string& appDir) {
+    return loadPairs(appDir + "/data/favorites.txt");
+}
+
+void saveFavorites(const std::string& appDir, const std::vector<std::pair<std::string, std::string>>& list) {
+    savePairs(appDir + "/data/favorites.txt", list);
+}
+
 void pushRecent(const std::string& appDir, const std::string& sys, const std::string& file) {
     auto list = loadRecent(appDir);
     list.erase(std::remove(list.begin(), list.end(), std::make_pair(sys, file)), list.end());
     list.insert(list.begin(), {sys, file});
     if (list.size() > 20) list.resize(20);
-    FILE* f = std::fopen((appDir + "/data/recent.txt").c_str(), "w");
-    if (!f) { log("could not save recent.txt: %s", std::strerror(errno)); return; }
-    for (auto& e : list) std::fprintf(f, "%s\t%s\n", e.first.c_str(), e.second.c_str());
-    std::fclose(f);
+    savePairs(appDir + "/data/recent.txt", list);
 }
 
 } // namespace Library

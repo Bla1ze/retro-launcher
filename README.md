@@ -17,14 +17,17 @@ already in the cabinet's firmware, or better ones built for it (see
 ## Features
 
 - **Menu on the playfield**: Neon-styled systems and game lists, search across
-  every system with an on-screen keyboard, Recently played, and A–Z letter jumps
-  on the flippers.
+  every system with an on-screen keyboard, Recently played, Favourites, A–Z
+  letter jumps on the flippers, and an in-app Settings screen.
+- **Choose the screen per game**: backglass or playfield (Left/Right on a game),
+  with a default in Settings. The screens a game isn't using show artwork.
 - **Backglass and DMD while browsing**: the highlighted game's box art over a
   blurred copy of itself on the backglass, and its title on the DMD. Games
   without art get a generated cover.
-- **Games on the backglass**, with the picture shape correct per system. Bezels
-  (The Bezel Project format) or an ambient glow taken from the game's own colours
-  fill the sides. Blank edge columns (Master System, NES) are cropped so the
+- **Games on the backglass** (or the playfield), with the picture shape correct
+  per system. Bezels (The Bezel Project format) or an ambient glow taken from the
+  game's own colours fill the sides. Smooth, sharp or pixel-perfect scaling, and
+  optional CRT scanlines. Blank edge columns (Master System, NES) are cropped so the
   picture is centred.
 - **While playing**: a "Now playing" card on the playfield with the cover and the
   game's controls, and a photo of the console on the DMD.
@@ -98,10 +101,13 @@ ROM.
 | Where | Control | Action |
 |---|---|---|
 | Lists | Up / Down | Move |
-| Lists | A or Start | Open / play |
+| Lists | A | Open / play |
+| Game lists | Start (or Y) | Add to / remove from Favourites |
+| Game lists | Left / Right | Screen for this game: default, backglass, playfield |
 | Lists | B | Back (exit on the systems list) |
 | Games list | Flippers | Previous / next letter |
-| Lists | X or Y | Search |
+| Lists | X | Search |
+| Settings | Left / Right | Change the highlighted setting |
 | Search | A / left flipper / right flipper | Type / delete / jump to results |
 | In a game | Hold Start (1 s) or Home | Pause menu |
 | Pause menu | A / B or Start | Select / resume |
@@ -111,14 +117,19 @@ each system's mapping while you play.
 
 ## Settings
 
-`data/settings.cfg` (key = value):
+The **Settings** row at the bottom of the consoles list changes these; they are
+stored in `data/settings.cfg` (key = value):
 
-| Key | Values | Default |
-|---|---|---|
-| `bezels` | `on`, `off` | `on` |
-| `bars` | `ambient`, `black` (when there is no bezel) | `ambient` |
-| `panels` | `on`, `off` (backglass/DMD/playfield artwork) | `on` |
-| `rotate.backglass` / `rotate.playfield` / `rotate.dmd` | `0`, `90`, `180`, `270` | per screen |
+| Setting | Key | Values | Default |
+|---|---|---|---|
+| Picture sides | `sides` | `bezel`, `glow`, `black` | `bezel` |
+| Scaling | `scaling` | `smooth`, `sharp`, `integer` (pixel-perfect) | `smooth` |
+| CRT scanlines | `scanlines` | `off`, `light`, `strong` | `off` |
+| Screen artwork | `panels` | `on`, `off` | `on` |
+| Default game screen | `screen.default` | `backglass`, `playfield` | `backglass` |
+| Playfield game rotation | `rotate.playfield` | `90`, `270` | `90` |
+
+Per-game screens are stored as `game.<system>/<rom file> = backglass|playfield`.
 
 `data/core-options.cfg` overrides libretro core options (`option_key = value`).
 

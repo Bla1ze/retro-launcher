@@ -70,6 +70,7 @@ public:
     ScreenId screenFor(const std::string& sys, const std::string& file) const;
     int rotation(ScreenId s, int fallback) const;
     std::string value(const std::string& key, const std::string& fallback) const;
+    void set(const std::string& key, const std::string& value);
 
 private:
     std::string m_path;
@@ -97,6 +98,10 @@ void execMenu(const std::string& appDir, const std::string& sys, int index, cons
 // "@recent" = Recently played); `index` is the row there.
 void execPlay(const std::string& appDir, const std::string& sys, const std::string& romPath, ScreenId screen,
               int index, const std::string& returnTo = "");
+
+// Favourites: data/favorites.txt, same format, any order.
+std::vector<std::pair<std::string, std::string>> loadFavorites(const std::string& appDir);
+void saveFavorites(const std::string& appDir, const std::vector<std::pair<std::string, std::string>>& list);
 
 // Recently played: data/recent.txt, "<system>\t<rom file>" per line, newest first.
 std::vector<std::pair<std::string, std::string>> loadRecent(const std::string& appDir);

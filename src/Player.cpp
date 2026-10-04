@@ -247,6 +247,23 @@ bool g_newFrame = false;
 unsigned long g_frames = 0, g_dupes = 0;
 
 Ambient g_ambient;
+bool g_sharp = false;  // Settings > Scaling: Sharp / Pixel-perfect
+
+// CRT scanlines: a 1-pixel-wide strip with two rows per game line (clear, dark),
+// stretched over the picture with smoothing so the lines stay soft at any size.
+SDL_Texture* makeScanlines(SDL_Renderer* r, int lines, int darkness) {
+    std::vector<uint32_t> px((size_t)lines * 2);
+    for (int i = 0; i < lines; ++i) {
+        px[i * 2] = 0x00000000u;
+        px[i * 2 + 1] = (uint32_t)darkness << 24;
+    }
+    SDL_Texture* t = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, 1, lines * 2);
+    if (t) {
+        SDL_UpdateTexture(t, nullptr, px.data(), 4);
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+    }
+    return t;
+}
 std::vector<int16_t> g_audioBatch;
 std::vector<SDL_GameController*> g_pads;
 uint16_t g_buttons = 0;
@@ -492,7 +509,12 @@ void videoRefresh(const void* data, unsigned w, unsigned h, size_t pitch) {
     int tw = (int)std::max(w, g_av.geometry.max_width), th = (int)std::max(h, g_av.geometry.max_height);
     if (!g_texture || fmt != g_textureFormat || tw > g_texW || th > g_texH) {
         if (g_texture) SDL_DestroyTexture(g_texture);
+        // Filtering is fixed when a texture is created (the cabinet's SDL may
+        // predate SDL_SetTextureScaleMode), so pick it via the hint and put
+        // "linear" back for everything else (fonts, shapes).
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_sharp ? "nearest" : "linear");
         g_texture = SDL_CreateTexture(g_renderer, fmt, SDL_TEXTUREACCESS_STREAMING, tw, th);
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
         g_textureFormat = fmt; g_texW = tw; g_texH = th;
         log("texture %dx%d %s: %s", tw, th, SDL_GetPixelFormatName(fmt), g_texture ? "ok" : SDL_GetError());
     }
@@ -767,9 +789,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     // Playfield + DMD while the game runs on the backglass: a "Now playing"
     // card with the controls. Drawn once on GamePanels' worker thread.
     std::unique_ptr<GamePanels> panels;
-    if (settings.value("panels", "on") != "off" && screen == Library::ScreenId::Backglass) {
+    if (settings.value("panels", "on") != "off") {
         panels.reset(new GamePanels());
-        int up = panels->init(topo, GamePanels::Mode::Playing);
+        int up = panels->init(topo, GamePanels::Mode::Playing, target.connectorId);
         log("panels (playing): %d up", up);
         GamePanels::Item item;
         item.key = "play";
@@ -786,9 +808,21 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         panels->show(item, 0.0f);
     }
     Bezel bezel;
-    if (settings.value("bezels", "on") != "off" && rotate == 0) bezel = loadBezel(appDir, sys->id, baseName(romPath));
-    std::string bars = settings.value("bars", "ambient");
-    g_ambient.init(g_renderer, bars == "black" ? Ambient::Style::Black : Ambient::Style::Ambient);
+    // Settings > Picture sides: bezel (glow where a system has none), glow, black.
+    // Older settings files used bezels=on|off and bars=ambient|black.
+    std::string sides = settings.value("sides", "");
+    if (sides.empty())
+        sides = settings.value("bezels", "on") == "off" ? (settings.value("bars", "ambient") == "black" ? "black" : "glow")
+                                                        : "bezel";
+    if (sides == "bezel" && rotate == 0) bezel = loadBezel(appDir, sys->id, baseName(romPath));
+    std::string bars = sides == "black" ? "black" : "ambient";
+    const std::string scaling = settings.value("scaling", "smooth");  // smooth | sharp | integer
+    g_sharp = scaling == "sharp" || scaling == "integer";
+    const std::string scan = settings.value("scanlines", "off");      // off | light | strong
+    const int scanDark = scan == "strong" ? 150 : scan == "light" ? 80 : 0;
+    SDL_Texture* scanTex = nullptr;
+    int scanLines = 0;
+    log("display: sides %s, scaling %s, scanlines %s", sides.c_str(), scaling.c_str(), scan.c_str());
     log("bars: %s", bars == "black" ? "black" : "ambient");
 
     // Start the game.
@@ -1045,6 +1079,13 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 bw = bezel.window.w * sx; bh = bezel.window.h * sy;
             }
             float cw = std::min(bw, bh * shownAspect), ch = cw / shownAspect;
+            if (scaling == "integer") {
+                // Pixel-perfect: a whole-number multiple of the game's lines.
+                // (Height in the picture's own orientation: ch for upright, cw
+                // is the matching width at the right shape.)
+                int mult = (int)(ch / src.h);
+                if (mult >= 1) { ch = (float)(mult * src.h); cw = ch * shownAspect; }
+            }
             SDL_Rect dst{(int)(bx + (bw - cw) / 2), (int)(by + (bh - ch) / 2), (int)cw, (int)ch};
             if (!bezel.tex) dst = SDL_Rect{(int)((winW - cw) / 2), (int)((winH - ch) / 2), (int)cw, (int)ch};
             // The picture's on-screen footprint after rotation, for the bars.
@@ -1058,6 +1099,14 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 g_ambient.draw(shown, winW, winH, frameDt);
             }
             SDL_RenderCopyEx(g_renderer, g_texture, &src, &dst, rotate, nullptr, SDL_FLIP_NONE);
+            if (scanDark > 0) {
+                if (scanLines != src.h) {
+                    if (scanTex) SDL_DestroyTexture(scanTex);
+                    scanTex = makeScanlines(g_renderer, src.h, scanDark);
+                    scanLines = src.h;
+                }
+                if (scanTex) SDL_RenderCopyEx(g_renderer, scanTex, nullptr, &dst, rotate, nullptr, SDL_FLIP_NONE);
+            }
             if (bezel.tex) SDL_RenderCopy(g_renderer, bezel.tex, nullptr, nullptr);
             if (menu != Menu::None)
                 drawPauseMenu(g_renderer, winW, winH, menu == Menu::Continue ? "WELCOME BACK" : "PAUSED", items, enabled,
@@ -1091,6 +1140,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     g_ambient.shutdown();
     Gfx::shutdown();
     if (bezel.tex) SDL_DestroyTexture(bezel.tex);
+    if (scanTex) SDL_DestroyTexture(scanTex);
     panels.reset();  // join its worker and release buffers before SDL closes the fd
     if (g_texture) SDL_DestroyTexture(g_texture);
     SDL_DestroyRenderer(g_renderer);

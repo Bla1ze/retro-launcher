@@ -18,6 +18,7 @@
 #include <cctype>
 #include <cmath>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -90,7 +91,7 @@ public:
     int run();
 
 private:
-    enum class View { Systems, Games, Search, Recent };
+    enum class View { Systems, Games, Search, Recent, Settings };  // Recent also shows Favourites
 
     bool initVideo();
     void shutdown();
@@ -160,8 +161,28 @@ private:
     int m_canvasW = 0, m_canvasH = 0;
     AtGames::Controls m_controls;
 
-    int sysIndex() const { return m_sysRow - 2; }
-    static constexpr int kFixedRows = 2;  // Search, Recently played
+    int sysIndex() const { return m_sysRow - kFixedRows; }
+    static constexpr int kFixedRows = 3;  // Search, Recently played, Favourites
+    int settingsRow() const { return (int)m_systems.size() + kFixedRows; }  // last row
+    int systemRows() const { return (int)m_systems.size() + kFixedRows + 1; }
+
+    // Favourites, as (system id, ROM file).
+    std::set<std::pair<std::string, std::string>> m_favs;
+    bool m_listIsFav = false;  // the Recent view is showing Favourites
+    bool isFav(int sys, int game) const {
+        return m_favs.count({m_systems[sys].sys->id, m_systems[sys].games[game].file}) > 0;
+    }
+    void toggleFav(int sys, int game);
+    void openList(bool favourites);
+    void cycleGameScreen(int sys, int game, int dir);
+    ScreenId gameScreen(int sys, int game) const;
+
+    // Settings screen.
+    struct SettingDef { std::string label, key; std::vector<std::string> values, labels; };
+    static const std::vector<SettingDef>& settingDefs();
+    int m_setSel = 0;
+    void renderSettings();
+    void changeSetting(int dir);
 };
 
 // ----------------------------------------------------------------- setup
@@ -245,8 +266,13 @@ void Menu::scan() {
 
 void Menu::move(int delta) {
     if (m_view == View::Systems) {
-        int n = (int)m_systems.size() + kFixedRows;
+        int n = systemRows();
         m_sysRow = (m_sysRow + delta % n + n) % n;
+        return;
+    }
+    if (m_view == View::Settings) {
+        int n = (int)settingDefs().size();
+        m_setSel = (m_setSel + delta % n + n) % n;
         return;
     }
     if (m_view == View::Recent) {
@@ -300,9 +326,7 @@ void Menu::launch(int sys, int game, const std::string& returnTo, int returnInde
     if (game < 0 || game >= (int)e.games.size()) return;
     const Library::Game& g = e.games[game];
     Library::pushRecent(m_appDir, e.sys->id, g.file);
-    // Games play on the backglass for now; per-game screen choice comes later
-    // (Settings and the player already support it).
-    const ScreenId screen = ScreenId::Backglass;
+    const ScreenId screen = gameScreen(sys, game);
     // Draw a "Starting" frame so the press registers before the screen goes dark.
     m_toast = "Starting " + g.title + "...";
     m_toastTime = 0.0f;
@@ -313,6 +337,87 @@ void Menu::launch(int sys, int game, const std::string& returnTo, int returnInde
     // Only reached if exec failed: come back up.
     initVideo();
     m_toast = "Could not start the game (see data/launcher.log).";
+}
+
+// ------------------------------------------------- favourites / screens
+
+void Menu::toggleFav(int sys, int game) {
+    auto key = std::make_pair(m_systems[sys].sys->id, m_systems[sys].games[game].file);
+    bool added = !m_favs.count(key);
+    if (added) m_favs.insert(key);
+    else m_favs.erase(key);
+    Library::saveFavorites(m_appDir, {m_favs.begin(), m_favs.end()});
+    m_toast = (added ? "Added to Favourites: " : "Removed from Favourites: ") + m_systems[sys].games[game].title;
+    m_toastTime = 0.0f;
+}
+
+// Recently played (newest first) or Favourites (A-Z), in the same list view.
+void Menu::openList(bool favourites) {
+    m_listIsFav = favourites;
+    if (favourites) {
+        m_recent.clear();
+        for (int s = 0; s < (int)m_systems.size(); ++s)
+            for (int g = 0; g < (int)m_systems[s].games.size(); ++g)
+                if (isFav(s, g)) m_recent.push_back({s, g});
+        std::sort(m_recent.begin(), m_recent.end(), [&](const Hit& a, const Hit& b) {
+            return lower(m_systems[a.sys].games[a.game].title) < lower(m_systems[b.sys].games[b.game].title);
+        });
+    } else {
+        loadRecent();
+    }
+    m_recentSel = 0;
+    m_recentScroll = 0.0f;
+}
+
+// Games play on the backglass or the playfield (never the DMD).
+ScreenId Menu::gameScreen(int sys, int game) const {
+    ScreenId s = m_settings.screenFor(m_systems[sys].sys->id, m_systems[sys].games[game].file);
+    return s == ScreenId::Playfield ? ScreenId::Playfield : ScreenId::Backglass;
+}
+
+// Left/Right on a game: Default -> Backglass -> Playfield -> Default.
+void Menu::cycleGameScreen(int sys, int game, int dir) {
+    const std::string& id = m_systems[sys].sys->id;
+    const std::string& file = m_systems[sys].games[game].file;
+    ScreenId cur;
+    int i = 0;  // 0 default, 1 backglass, 2 playfield
+    if (m_settings.gameScreen(id, file, cur)) i = cur == ScreenId::Playfield ? 2 : 1;
+    i = (i + dir + 3) % 3;
+    if (i == 0) m_settings.clearGameScreen(id, file);
+    else m_settings.setGameScreen(id, file, i == 2 ? ScreenId::Playfield : ScreenId::Backglass);
+    m_settings.save();
+}
+
+// ----------------------------------------------------------------- settings
+
+const std::vector<Menu::SettingDef>& Menu::settingDefs() {
+    static const std::vector<SettingDef> defs = {
+        {"Picture sides", "sides", {"bezel", "glow", "black"}, {"Bezel", "Glow", "Black"}},
+        {"Scaling", "scaling", {"smooth", "sharp", "integer"}, {"Smooth", "Sharp", "Pixel-perfect"}},
+        {"CRT scanlines", "scanlines", {"off", "light", "strong"}, {"Off", "Light", "Strong"}},
+        {"Screen artwork", "panels", {"on", "off"}, {"On", "Off"}},
+        {"Default game screen", "screen.default", {"backglass", "playfield"}, {"Backglass", "Playfield"}},
+        {"Playfield game rotation", "rotate.playfield", {"90", "270"}, {"90 degrees", "270 degrees"}},
+    };
+    return defs;
+}
+
+void Menu::changeSetting(int dir) {
+    const SettingDef& d = settingDefs()[m_setSel];
+    std::string cur = m_settings.value(d.key, d.values[0]);
+    // Older files: picture sides came from bezels=/bars=.
+    if (d.key == "sides" && m_settings.value("sides", "").empty())
+        cur = m_settings.value("bezels", "on") == "off" ? (m_settings.value("bars", "ambient") == "black" ? "black" : "glow")
+                                                        : "bezel";
+    auto it = std::find(d.values.begin(), d.values.end(), cur);
+    int i = it == d.values.end() ? 0 : (int)(it - d.values.begin());
+    int n = (int)d.values.size();
+    m_settings.set(d.key, d.values[(i + dir + n) % n]);
+    m_settings.save();
+    if (d.key == "panels") {
+        m_toast = "Screen artwork changes on the next start";
+        m_toastTime = 0.0f;
+    }
 }
 
 void Menu::openSearch() {
@@ -379,7 +484,8 @@ void Menu::handleSearch(AtGames::ControlEvent ev) {
         int n = (int)m_hits.size();
         if (ev == CE::Up) { if (m_hitSel == 0) m_inHits = false; else --m_hitSel; }
         else if (ev == CE::Down) m_hitSel = std::min(n - 1, m_hitSel + 1);
-        else if (ev == CE::A || ev == CE::Start) launch(m_hits[m_hitSel].sys, m_hits[m_hitSel].game);
+        else if (ev == CE::A) launch(m_hits[m_hitSel].sys, m_hits[m_hitSel].game);
+        else if (ev == CE::Start || ev == CE::Y) toggleFav(m_hits[m_hitSel].sys, m_hits[m_hitSel].game);
         return;
     }
     // Keyboard. Columns map proportionally between rows of different widths.
@@ -420,26 +526,50 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     case CE::RightShoulder:
         if (m_view == View::Games) jumpLetter(1); else move(4);
         break;
-    case CE::X:
-    case CE::Y:
-        openSearch();
+    case CE::Left:
+    case CE::Right: {
+        int dir = ev == CE::Left ? -1 : 1;
+        if (m_view == View::Settings) changeSetting(dir);
+        else if (m_view == View::Games && !m_systems[sysIndex()].games.empty()) cycleGameScreen(sysIndex(), m_gameSel, dir);
+        else if (m_view == View::Recent && !m_recent.empty())
+            cycleGameScreen(m_recent[m_recentSel].sys, m_recent[m_recentSel].game, dir);
         break;
-    case CE::A:
+    }
+    case CE::X:
+        if (m_view != View::Settings) openSearch();
+        break;
+    case CE::Y:
     case CE::Start:
+        // In a game list: toggle Favourite. Elsewhere Start acts like A.
+        if (m_view == View::Games && !m_systems[sysIndex()].games.empty()) { toggleFav(sysIndex(), m_gameSel); break; }
+        if (m_view == View::Recent && !m_recent.empty()) {
+            toggleFav(m_recent[m_recentSel].sys, m_recent[m_recentSel].game);
+            if (m_listIsFav) {  // it left the list
+                int keep = m_recentSel;
+                openList(true);
+                m_recentSel = std::min(keep, std::max(0, (int)m_recent.size() - 1));
+                if (m_recent.empty()) m_view = View::Systems;
+            }
+            break;
+        }
+        if (ev == CE::Y) break;
+        // fall through
+    case CE::A:
+        if (m_view == View::Settings) { changeSetting(1); break; }
         if (m_view == View::Systems) {
             if (m_sysRow == 0) { openSearch(); break; }
-            if (m_sysRow == 1) {
-                loadRecent();
+            if (m_sysRow == 1 || m_sysRow == 2) {
+                openList(m_sysRow == 2);
                 if (m_recent.empty()) {
-                    m_toast = "Nothing played yet - games you start will show up here";
+                    m_toast = m_sysRow == 2 ? "No favourites yet - press START on a game to add it"
+                                            : "Nothing played yet - games you start will show up here";
                     m_toastTime = 0.0f;
                 } else {
                     m_view = View::Recent;
-                    m_recentSel = 0;
-                    m_recentScroll = 0.0f;
                 }
                 break;
             }
+            if (m_sysRow == settingsRow()) { m_view = View::Settings; m_setSel = 0; break; }
             SystemEntry& e = m_systems[sysIndex()];
             if (e.games.empty()) {
                 m_toast = "Add " + e.sys->name + " ROMs to roms/" + e.sys->id + "/";
@@ -451,7 +581,10 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             }
         } else if (m_view == View::Recent) {
             // The game moves to the top of the list, so come back to row 0.
-            if (!m_recent.empty()) launch(m_recent[m_recentSel].sys, m_recent[m_recentSel].game, "@recent", 0);
+            if (!m_recent.empty()) {
+                if (m_listIsFav) launch(m_recent[m_recentSel].sys, m_recent[m_recentSel].game, "@favorites", m_recentSel);
+                else launch(m_recent[m_recentSel].sys, m_recent[m_recentSel].game, "@recent", 0);
+            }
         } else {
             launch(sysIndex(), m_gameSel);
         }
@@ -460,7 +593,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     case CE::Back:
     case CE::Rewind:
     case CE::Rewind2:
-        if (m_view == View::Games || m_view == View::Recent) m_view = View::Systems;
+        if (m_view == View::Games || m_view == View::Recent || m_view == View::Settings) m_view = View::Systems;
         else running = false;
         break;
     default: break;
@@ -492,9 +625,14 @@ void Menu::updatePanels(float dt) {
     } else if (m_sysRow == 0) {
         key = "row:search";
         if (key != m_panelKey) m_panelItem = {key, "Search", "", "Find any game", ""};
-    } else if (m_sysRow == 1) {
-        key = "row:recent";
-        if (key != m_panelKey) m_panelItem = {key, "Recently played", "", "Your last games", ""};
+    } else if (m_view == View::Settings || (m_view == View::Systems && m_sysRow == settingsRow())) {
+        key = "row:settings";
+        if (key != m_panelKey) m_panelItem = {key, "Settings", "", "Display and screens", ""};
+    } else if (m_sysRow == 1 || m_sysRow == 2) {
+        key = m_sysRow == 1 ? "row:recent" : "row:favorites";
+        if (key != m_panelKey)
+            m_panelItem = {key, m_sysRow == 1 ? "Recently played" : "Favourites", "",
+                           m_sysRow == 1 ? "Your last games" : std::to_string(m_favs.size()) + " games", ""};
     } else {
         const SystemEntry& e = m_systems[sysIndex()];
         key = "sys:" + e.sys->id;
@@ -533,11 +671,32 @@ void Menu::endListClip() {
     SDL_RenderSetScale(m_renderer, m_canvasScale, m_canvasScale);
 }
 
+// Right side of a game row: a heart for favourites and a screen chip. The chip
+// shows on the highlighted row, and on any row whose screen was chosen for it
+// (accent colour). Returns the width it took.
+float drawGameExtras(SDL_Renderer* r, const FRect& row, bool active, bool fav, bool overridden, ScreenId screen) {
+    float right = row.x + row.w - 20.0f, used = 20.0f;
+    if (active || overridden) {
+        std::string label = Library::screenLabel(screen);
+        float cw = Theme::chipWidth(r, label, 32.0f);
+        SDL_Color fill = overridden ? Theme::accent() : SDL_Color{255, 255, 255, 34};
+        SDL_Color ink = overridden ? Theme::onAccent(Theme::accent()) : Theme::TextDim;
+        Theme::chip(r, right - cw, row.y + (row.h - 32.0f) * 0.5f, label, fill, ink, 32.0f);
+        right -= cw + 12.0f;
+        used += cw + 12.0f;
+    }
+    if (fav) {
+        Gfx::heart(r, right - 14.0f, row.y + row.h * 0.5f, 26.0f, Theme::Rose);
+        used += 36.0f;
+    }
+    return used;
+}
+
 void Menu::renderSystems() {
     SDL_Renderer* r = m_renderer;
     const int w = AppConfig::kLogicalWidth;
     beginListClip(kListTop, kListBottom);
-    for (int i = 0; i < (int)m_systems.size() + kFixedRows; ++i) {
+    for (int i = 0; i < systemRows(); ++i) {
         float y = kListTop + i * (kRowH + kRowGap) - m_sysScroll;
         if (y + kRowH < kListTop || y > kListBottom) continue;
         bool active = i == m_sysRow;
@@ -548,6 +707,19 @@ void Menu::renderSystems() {
             Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, "?", Theme::Accent);
             AppFont::draw(r, "Search", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
             AppFont::draw(r, "Find any game on any system", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
+            continue;
+        }
+        if (i == 2) {
+            Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, "F", Theme::Rose);
+            AppFont::draw(r, "Favourites", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+            AppFont::draw(r, m_favs.empty() ? "Press START on a game to add it" : std::to_string(m_favs.size()) + " games",
+                          tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
+            continue;
+        }
+        if (i == settingsRow()) {
+            Theme::monogram(r, row.x + 52.0f, y + kRowH * 0.5f, 28.0f, "S", {120, 132, 160, 255});
+            AppFont::draw(r, "Settings", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+            AppFont::draw(r, "Picture, scaling, scanlines, screens", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
         }
         if (i == 1) {
@@ -568,7 +740,7 @@ void Menu::renderSystems() {
         AppFont::draw(r, sub, tx, y + 54.0f, Theme::Type::Caption, empty ? Theme::Faint : Theme::Muted);
     }
     endListClip();
-    drawHeader("Retro Launcher", "Consoles", m_sysRow + 1, (int)m_systems.size() + kFixedRows);
+    drawHeader("Retro Launcher", "Consoles", m_sysRow + 1, systemRows());
     Theme::footerHints(r, w, "A Open   B Exit", "");
 }
 
@@ -584,7 +756,10 @@ void Menu::renderGames() {
         bool active = i == m_gameSel;
         FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
         Theme::rowCard(r, row, active);
-        float tx = row.x + 24.0f, availW = row.w - 48.0f;
+        ScreenId over;
+        bool overridden = m_settings.gameScreen(e.sys->id, g.file, over);
+        float extras = drawGameExtras(r, row, active, isFav(sysIndex(), i), overridden, gameScreen(sysIndex(), i));
+        float tx = row.x + 24.0f, availW = row.w - 28.0f - extras;
         Theme::rowTitle(r, g.title, tx, y + 12.0f, availW, Theme::Type::Body, active ? Theme::Text : Theme::TextDim, active);
         if (!g.tags.empty())
             AppFont::draw(r, Theme::ellipsize(r, g.tags, availW, Theme::Type::Caption, AppFont::Face::Body), tx, y + 54.0f,
@@ -592,7 +767,7 @@ void Menu::renderGames() {
     }
     endListClip();
     drawHeader(e.sys->verified ? "Games" : "Games - untested core", e.sys->name, m_gameSel + 1, (int)e.games.size());
-    Theme::footerHints(r, w, "A Play   LB/RB Letter   X Search   B Back", "");
+    Theme::footerHints(r, w, "A Play   START Favourite   LEFT/RIGHT Screen   LB/RB Letter   B Back", "");
 }
 
 void Menu::renderSearch() {
@@ -613,6 +788,8 @@ void Menu::renderSearch() {
         float chipW = Theme::chipWidth(r, se.sys->shortName, 32.0f);
         Theme::chip(r, row.x + row.w - 18.0f - chipW, y + (kHitH - 32.0f) * 0.5f, se.sys->shortName,
                     Theme::alpha(Theme::badgeColor(se.sys->id), 200), {255, 255, 255, 255}, 32.0f);
+        if (isFav(m_hits[i].sys, m_hits[i].game))
+            Gfx::heart(r, row.x + row.w - 36.0f - chipW, y + kHitH * 0.5f, 22.0f, Theme::Rose);
         std::string label = g.tags.empty() ? g.title : g.title + "  " + g.tags;
         Theme::rowTitle(r, label, row.x + 22.0f, y + 16.0f, row.w - 60.0f - chipW, Theme::Type::Small,
                         active ? Theme::Text : Theme::TextDim, active, 40.0f);
@@ -670,7 +847,7 @@ void Menu::renderSearch() {
         AppFont::drawCentered(r, "No games match", w * 0.5f, kHitsTop + 30.0f, Theme::Type::Small, Theme::Muted);
 
     drawHeader("Search", "All systems", 0, 0);
-    Theme::footerHints(r, w, m_inHits ? "A Play   UP/DOWN Choose   B Keyboard" : "A Type   LB Delete   RB Results   B Back", "");
+    Theme::footerHints(r, w, m_inHits ? "A Play   START Favourite   B Keyboard" : "A Type   LB Delete   RB Results   B Back", "");
 }
 
 void Menu::renderRecent() {
@@ -688,15 +865,54 @@ void Menu::renderRecent() {
         float chipW = Theme::chipWidth(r, se.sys->shortName, 34.0f);
         Theme::chip(r, row.x + row.w - 20.0f - chipW, y + (kRowH - 34.0f) * 0.5f, se.sys->shortName,
                     Theme::alpha(Theme::badgeColor(se.sys->id), 200), {255, 255, 255, 255}, 34.0f);
-        float tx = row.x + 24.0f, availW = row.w - 64.0f - chipW;
+        ScreenId over;
+        bool overridden = m_settings.gameScreen(se.sys->id, g.file, over);
+        FRect er{row.x, row.y, row.w - chipW - 16.0f, row.h};
+        float extras = drawGameExtras(r, er, active, isFav(m_recent[i].sys, m_recent[i].game), overridden,
+                                      gameScreen(m_recent[i].sys, m_recent[i].game));
+        float tx = row.x + 24.0f, availW = row.w - 44.0f - chipW - extras;
         Theme::rowTitle(r, g.title, tx, y + 12.0f, availW, Theme::Type::Body, active ? Theme::Text : Theme::TextDim, active);
         AppFont::draw(r, Theme::ellipsize(r, se.sys->name + (g.tags.empty() ? "" : "   " + g.tags), availW,
                                           Theme::Type::Caption, AppFont::Face::Body),
                       tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
     }
     endListClip();
-    drawHeader("Consoles", "Recently played", m_recentSel + 1, (int)m_recent.size());
-    Theme::footerHints(r, w, "A Play   X Search   B Back", "");
+    drawHeader("Consoles", m_listIsFav ? "Favourites" : "Recently played", m_recentSel + 1, (int)m_recent.size());
+    Theme::footerHints(r, w, "A Play   START Favourite   LEFT/RIGHT Screen   B Back", "");
+}
+
+void Menu::renderSettings() {
+    SDL_Renderer* r = m_renderer;
+    const int w = AppConfig::kLogicalWidth;
+    const std::vector<SettingDef>& defs = settingDefs();
+    for (int i = 0; i < (int)defs.size(); ++i) {
+        const SettingDef& d = defs[i];
+        float y = kListTop + i * (kRowH + kRowGap);
+        bool active = i == m_setSel;
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
+        Theme::rowCard(r, row, active);
+        std::string cur = m_settings.value(d.key, d.values[0]);
+        if (d.key == "sides" && m_settings.value("sides", "").empty())
+            cur = m_settings.value("bezels", "on") == "off"
+                      ? (m_settings.value("bars", "ambient") == "black" ? "black" : "glow") : "bezel";
+        auto it = std::find(d.values.begin(), d.values.end(), cur);
+        std::string label = d.labels[it == d.values.end() ? 0 : it - d.values.begin()];
+        AppFont::draw(r, d.label, row.x + 24.0f, y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
+                      active ? Theme::Text : Theme::TextDim);
+        // Value with arrows either side when highlighted.
+        float vw = AppFont::measureWidth(r, label, Theme::Type::Body);
+        float vx = row.x + row.w - 24.0f - vw - (active ? 30.0f : 0.0f);
+        AppFont::draw(r, label, vx, y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
+                      active ? Theme::accent() : Theme::Muted);
+        if (active) {
+            Gfx::triangle(r, {vx - 30.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 180.0, Theme::accent());
+            Gfx::triangle(r, {row.x + row.w - 42.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
+        }
+    }
+    AppFont::drawCentered(r, "Changes apply to the next game you start", w * 0.5f,
+                          kListTop + defs.size() * (kRowH + kRowGap) + 20.0f, Theme::Type::Caption, Theme::Muted);
+    drawHeader("Retro Launcher", "Settings", m_setSel + 1, (int)defs.size());
+    Theme::footerHints(r, w, "LEFT/RIGHT Change   B Back", "");
 }
 
 // Repaints the background behind the header band, then the header itself, so
@@ -746,7 +962,7 @@ void Menu::render(float dt) {
         if (m_toastTime > 6.0f) m_toast.clear();
     }
     if (m_view == View::Games) m_gameScroll = scrollFor(m_gameScroll, m_gameSel, (int)m_systems[sysIndex()].games.size(), dt);
-    else if (m_view == View::Systems) m_sysScroll = scrollFor(m_sysScroll, m_sysRow, (int)m_systems.size() + kFixedRows, dt);
+    else if (m_view == View::Systems) m_sysScroll = scrollFor(m_sysScroll, m_sysRow, systemRows(), dt);
     else if (m_view == View::Recent) m_recentScroll = scrollFor(m_recentScroll, m_recentSel, (int)m_recent.size(), dt);
     else m_hitScroll = scrollFor(m_hitScroll, m_hitSel, (int)m_hits.size(), dt, kHitsTop, kListBottom, kHitH + kHitGap);
 
@@ -756,6 +972,7 @@ void Menu::render(float dt) {
     if (m_view == View::Games) renderGames();
     else if (m_view == View::Search) renderSearch();
     else if (m_view == View::Recent) renderRecent();
+    else if (m_view == View::Settings) renderSettings();
     else renderSystems();
     renderJump();
     renderToast();
@@ -792,16 +1009,17 @@ int Menu::run() {
     if (!m_startSys.empty() || !m_toast.empty())
         log("menu resumes at %s #%d, message '%s'", m_startSys.c_str(), m_startIndex, m_toast.c_str());
     if (!initVideo()) return 1;
-    if (m_startSys == "@recent") {
-        loadRecent();
-        m_sysRow = 1;
+    for (auto& f : Library::loadFavorites(m_appDir)) m_favs.insert(f);
+    if (m_startSys == "@recent" || m_startSys == "@favorites") {
+        openList(m_startSys == "@favorites");
+        m_sysRow = m_startSys == "@favorites" ? 2 : 1;
         if (!m_recent.empty()) {
             m_view = View::Recent;
             m_recentSel = std::max(0, std::min(m_startIndex, (int)m_recent.size() - 1));
             m_recentScroll = scrollFor(0.0f, m_recentSel, (int)m_recent.size(), 0.0f);
         }
     }
-    m_sysScroll = scrollFor(0.0f, m_sysRow, (int)m_systems.size() + kFixedRows, 0.0f);
+    m_sysScroll = scrollFor(0.0f, m_sysRow, systemRows(), 0.0f);
     m_gameScroll = m_view == View::Games ? scrollFor(0.0f, m_gameSel, (int)m_systems[sysIndex()].games.size(), 0.0f) : 0.0f;
 
     bool running = true;

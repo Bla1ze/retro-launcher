@@ -12,9 +12,9 @@
 
 // The screens around whatever owns SDL's window:
 //   Browse mode (menu on the playfield):   backglass + DMD show the highlighted game.
-//   Playing mode (game on the backglass):  playfield shows a "Now playing" card with
-//                                          the cover and the game's controls, and the
-//                                          DMD shows the title. Driven directly over KMS with SDL's own card0 fd,
+//   Playing mode (game on any screen):     the free screens show the playfield card
+//                                          (cover + controls), the backglass cover,
+//                                          and the console photo on the DMD. Driven directly over KMS with SDL's own card0 fd,
 // the technique Jukebox ships (see its PanelOutput):
 //   backglass: box art (or a snap/title screen) over a blurred, darkened copy
 //              of itself, with the game's title; a styled title card when the
@@ -37,7 +37,9 @@ public:
     enum class Mode { Browse, Playing };
 
     ~GamePanels();
-    int init(const DisplayProfile::Topology& topology, Mode mode = Mode::Browse);
+    // Browse: the menu owns the playfield; drive backglass + DMD.
+    // Playing: the game owns `gameConnector`; drive every other screen.
+    int init(const DisplayProfile::Topology& topology, Mode mode = Mode::Browse, uint32_t gameConnector = 0);
     bool active() const { return !m_panels.empty(); }
 
     // Call every frame with what is highlighted; dt in seconds.
