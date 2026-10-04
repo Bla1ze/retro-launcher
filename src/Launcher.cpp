@@ -183,6 +183,28 @@ private:
     int m_setSel = 0;
     void renderSettings();
     void changeSetting(int dir);
+
+    // Held directions repeat: polled each frame from every controller, the
+    // left stick and the keyboard, so a hold works however it is reported.
+    enum Dir { DirUp, DirDown, DirLeft, DirRight, DirCount };
+    bool m_dirTap[DirCount] = {};    // a press event seen this frame
+    bool m_dirHeld[DirCount] = {};
+    bool m_repeating = false;        // the current event is a held repeat
+    Uint32 m_dirSince[DirCount] = {}, m_dirNext[DirCount] = {};
+    void pollDirections(bool& running);
+    void moveSystem(int dir);
+
+    // "Exit Retro Launcher?" on B at the consoles list.
+    bool m_confirmExit = false;
+    int m_confirmSel = 0;  // 0 Cancel, 1 Exit
+
+    // Home on a game: options popup.
+    bool m_popup = false;
+    int m_popupSys = 0, m_popupGame = 0, m_popupSel = 0;
+    bool highlightedGame(int& sys, int& game) const;
+    void handlePopup(AtGames::ControlEvent ev, bool& running);
+    void renderPopup();
+    enum { PopPlay, PopFav, PopScreen, PopSearch, PopCount };
 };
 
 // ----------------------------------------------------------------- setup
@@ -270,24 +292,17 @@ void Menu::scan() {
 // ----------------------------------------------------------------- input
 
 void Menu::move(int delta) {
-    if (m_view == View::Systems) {
-        int n = systemRows();
-        m_sysRow = (m_sysRow + delta % n + n) % n;
-        return;
-    }
-    if (m_view == View::Settings) {
-        int n = (int)settingDefs().size();
-        m_setSel = (m_setSel + delta % n + n) % n;
-        return;
-    }
-    if (m_view == View::Recent) {
-        int n = (int)m_recent.size();
-        if (n) m_recentSel = (m_recentSel + delta % n + n) % n;
-        return;
-    }
-    int n = (int)m_systems[sysIndex()].games.size();
-    if (n == 0) return;
-    m_gameSel = (m_gameSel + delta + n) % n;
+    // A single press wraps around; held repeats and flipper jumps stop at the ends.
+    bool wrap = (delta == 1 || delta == -1) && !m_repeating;
+    auto step = [delta, wrap](int cur, int n) {
+        if (n <= 0) return 0;
+        if (wrap) return (cur + delta + n) % n;
+        return std::max(0, std::min(n - 1, cur + delta));
+    };
+    if (m_view == View::Systems) { m_sysRow = step(m_sysRow, systemRows()); return; }
+    if (m_view == View::Settings) { m_setSel = step(m_setSel, (int)settingDefs().size()); return; }
+    if (m_view == View::Recent) { m_recentSel = step(m_recentSel, (int)m_recent.size()); return; }
+    if (m_view == View::Games) m_gameSel = step(m_gameSel, (int)m_systems[sysIndex()].games.size());
 }
 
 // Flippers in a game list: jump to the start of the previous / next letter.
@@ -380,7 +395,7 @@ ScreenId Menu::gameScreen(int sys, int game) const {
     return s == ScreenId::Playfield ? ScreenId::Playfield : ScreenId::Backglass;
 }
 
-// Left/Right on a game: Default -> Backglass -> Playfield -> Default.
+// Screen option in the Home popup: Default -> Backglass -> Playfield -> Default.
 void Menu::cycleGameScreen(int sys, int game, int dir) {
     const std::string& id = m_systems[sys].sys->id;
     const std::string& file = m_systems[sys].games[game].file;
@@ -482,16 +497,18 @@ void Menu::handleSearch(AtGames::ControlEvent ev) {
         if (!m_query.empty()) { m_query.pop_back(); runQuery(); return; }
         m_view = m_searchReturn;
     };
-    bool favKey = ev == CE::Rewind || ev == CE::Rewind2 || ev == CE::Y;
-    if (m_inHits && favKey && !m_hits.empty()) { toggleFav(m_hits[m_hitSel].sys, m_hits[m_hitSel].game); return; }
-    if (ev == CE::B || ev == CE::Back || ev == CE::Rewind || ev == CE::Rewind2) { back(); return; }
+    if (ev == CE::B || ev == CE::Back) { back(); return; }
     if (ev == CE::LeftShoulder) { if (!m_query.empty()) { m_query.pop_back(); runQuery(); } return; }
     if (ev == CE::RightShoulder) { if (!m_hits.empty()) m_inHits = true; return; }
     if (m_inHits) {
+        if (m_hits.empty()) { m_inHits = false; return; }
         int n = (int)m_hits.size();
-        if (ev == CE::Up) { if (m_hitSel == 0) m_inHits = false; else --m_hitSel; }
+        const Hit& h = m_hits[m_hitSel];
+        if (ev == CE::Up) { if (m_hitSel > 0) --m_hitSel; else if (!m_repeating) m_inHits = false; }
         else if (ev == CE::Down) m_hitSel = std::min(n - 1, m_hitSel + 1);
-        else if (ev == CE::A || ev == CE::Start) launch(m_hits[m_hitSel].sys, m_hits[m_hitSel].game);
+        else if (ev == CE::Rewind || ev == CE::Rewind2 || ev == CE::Y) toggleFav(h.sys, h.game);
+        else if (ev == CE::Guide) { m_popup = true; m_popupSys = h.sys; m_popupGame = h.game; m_popupSel = 0; }
+        else if (ev == CE::A || ev == CE::Start) launch(h.sys, h.game);
         return;
     }
     // Keyboard. Columns map proportionally between rows of different widths.
@@ -520,9 +537,67 @@ void Menu::handleSearch(AtGames::ControlEvent ev) {
     } else if (ev == CE::A || ev == CE::Start) pressKey();
 }
 
+// The game under the cursor in a games list, Recent / Favourites or search results.
+bool Menu::highlightedGame(int& sys, int& game) const {
+    if (m_view == View::Games && !m_systems[sysIndex()].games.empty()) { sys = sysIndex(); game = m_gameSel; return true; }
+    if (m_view == View::Recent && !m_recent.empty()) { sys = m_recent[m_recentSel].sys; game = m_recent[m_recentSel].game; return true; }
+    if (m_view == View::Search && m_inHits && !m_hits.empty()) { sys = m_hits[m_hitSel].sys; game = m_hits[m_hitSel].game; return true; }
+    return false;
+}
+
+// Second flippers in a games list: previous / next system that has games.
+void Menu::moveSystem(int dir) {
+    int n = (int)m_systems.size();
+    for (int k = 1; k < n; ++k) {
+        int i = ((sysIndex() + dir * k) % n + n) % n;
+        if (m_systems[i].games.empty()) continue;
+        m_sysRow = i + kFixedRows;
+        m_gameSel = 0;
+        m_gameScroll = 0.0f;
+        return;
+    }
+}
+
+void Menu::handlePopup(AtGames::ControlEvent ev, bool& running) {
+    using CE = AtGames::ControlEvent;
+    (void)running;
+    switch (ev) {
+    case CE::Up: if (m_popupSel > 0) --m_popupSel; else if (!m_repeating) m_popupSel = PopCount - 1; break;
+    case CE::Down: if (m_popupSel < PopCount - 1) ++m_popupSel; else if (!m_repeating) m_popupSel = 0; break;
+    case CE::Left:
+    case CE::Right:
+        if (m_popupSel == PopScreen) cycleGameScreen(m_popupSys, m_popupGame, ev == CE::Left ? -1 : 1);
+        break;
+    case CE::B: case CE::Back: case CE::Guide: m_popup = false; break;
+    case CE::Rewind: case CE::Rewind2: case CE::Y:
+        m_popup = false;
+        handle(ev, running);
+        break;
+    case CE::A:
+    case CE::Start:
+        switch (m_popupSel) {
+        case PopPlay: m_popup = false; handle(CE::A, running); break;
+        case PopFav: m_popup = false; handle(CE::Rewind, running); break;
+        case PopScreen: cycleGameScreen(m_popupSys, m_popupGame, 1); break;
+        case PopSearch: m_popup = false; openSearch(); break;
+        }
+        break;
+    default: break;
+    }
+}
+
 void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     using CE = AtGames::ControlEvent;
+    if (m_confirmExit) {
+        if (ev == CE::Up || ev == CE::Down) m_confirmSel ^= 1;
+        else if (ev == CE::B || ev == CE::Back) m_confirmExit = false;
+        else if (ev == CE::A || ev == CE::Start) { if (m_confirmSel == 1) running = false; m_confirmExit = false; }
+        return;
+    }
+    if (m_popup) { handlePopup(ev, running); return; }
     if (m_view == View::Search) { handleSearch(ev); return; }
+    int hs = 0, hg = 0;
+    bool onGame = highlightedGame(hs, hg);
     switch (ev) {
     case CE::Up: move(-1); break;
     case CE::Down: move(1); break;
@@ -532,37 +607,36 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     case CE::RightShoulder:
         if (m_view == View::Games) jumpLetter(1); else move(4);
         break;
-    case CE::Left:
-    case CE::Right: {
-        int dir = ev == CE::Left ? -1 : 1;
-        if (m_view == View::Settings) changeSetting(dir);
-        else if (m_view == View::Games && !m_systems[sysIndex()].games.empty()) cycleGameScreen(sysIndex(), m_gameSel, dir);
-        else if (m_view == View::Recent && !m_recent.empty())
-            cycleGameScreen(m_recent[m_recentSel].sys, m_recent[m_recentSel].game, dir);
+    case CE::LeftTrigger:
+    case CE::RightTrigger:
+        if (m_view == View::Games) moveSystem(ev == CE::LeftTrigger ? -1 : 1);
         break;
-    }
+    case CE::Left:
+    case CE::Right:
+        // Only where there is something to the side: a setting's value.
+        if (m_view == View::Settings) changeSetting(ev == CE::Left ? -1 : 1);
+        break;
+    case CE::Guide:
+        if (onGame) { m_popup = true; m_popupSys = hs; m_popupGame = hg; m_popupSel = 0; }
+        else if (m_view == View::Systems) openSearch();
+        break;
     case CE::X:
         if (m_view != View::Settings) openSearch();
         break;
     case CE::Y:
     case CE::Rewind:
     case CE::Rewind2:
-        // Rewind (or Y on the Arcade Control Panel) toggles a Favourite on the
-        // highlighted game. Outside game lists Rewind still goes back.
-        if (m_view == View::Games && !m_systems[sysIndex()].games.empty()) { toggleFav(sysIndex(), m_gameSel); break; }
-        if (m_view == View::Recent && !m_recent.empty()) {
-            toggleFav(m_recent[m_recentSel].sys, m_recent[m_recentSel].game);
+        // Favourite the highlighted game. Nothing anywhere else.
+        if (m_view == View::Games && onGame) { toggleFav(hs, hg); break; }
+        if (m_view == View::Recent && onGame) {
+            toggleFav(hs, hg);
             if (m_listIsFav) {  // it left the list
                 int keep = m_recentSel;
                 openList(true);
                 m_recentSel = std::min(keep, std::max(0, (int)m_recent.size() - 1));
                 if (m_recent.empty()) m_view = View::Systems;
             }
-            break;
         }
-        if (ev == CE::Y) break;
-        if (m_view == View::Games || m_view == View::Recent || m_view == View::Settings) m_view = View::Systems;
-        else if (m_view == View::Systems) running = false;
         break;
     case CE::A:
     case CE::Start:
@@ -602,14 +676,12 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
         break;
     case CE::B:
     case CE::Back:
-        if (m_view == View::Games || m_view == View::Recent || m_view == View::Settings) m_view = View::Systems;
-        else running = false;
+        if (m_view == View::Systems) { m_confirmExit = true; m_confirmSel = 0; }
+        else m_view = View::Systems;
         break;
     default: break;
     }
 }
-
-// ----------------------------------------------------------------- panels
 
 void Menu::updatePanels(float dt) {
     if (!m_panels || !m_panels->active()) return;
@@ -750,7 +822,7 @@ void Menu::renderSystems() {
     }
     endListClip();
     drawHeader("Retro Launcher", "Consoles", m_sysRow + 1, systemRows());
-    Theme::footerHints(r, w, "A Open   B Exit", "");
+    Theme::footerHints(r, w, "A Open   HOME Search   B Exit", "");
 }
 
 void Menu::renderGames() {
@@ -776,7 +848,7 @@ void Menu::renderGames() {
     }
     endListClip();
     drawHeader(e.sys->verified ? "Games" : "Games - untested core", e.sys->name, m_gameSel + 1, (int)e.games.size());
-    Theme::footerHints(r, w, "A Play   REWIND Favourite   LEFT/RIGHT Screen   LB/RB Letter   B Back", "");
+    Theme::footerHints(r, w, "A Play   HOME Options   REWIND Favourite   B Back", "");
 }
 
 void Menu::renderSearch() {
@@ -856,7 +928,7 @@ void Menu::renderSearch() {
         AppFont::drawCentered(r, "No games match", w * 0.5f, kHitsTop + 30.0f, Theme::Type::Small, Theme::Muted);
 
     drawHeader("Search", "All systems", 0, 0);
-    Theme::footerHints(r, w, m_inHits ? "A Play   REWIND Favourite   B Keyboard" : "A Type   LB Delete   RB Results   B Back", "");
+    Theme::footerHints(r, w, m_inHits ? "A Play   HOME Options   REWIND Favourite   B Keyboard" : "A Type   LB Delete   RB Results   B Back", "");
 }
 
 void Menu::renderRecent() {
@@ -887,7 +959,7 @@ void Menu::renderRecent() {
     }
     endListClip();
     drawHeader("Consoles", m_listIsFav ? "Favourites" : "Recently played", m_recentSel + 1, (int)m_recent.size());
-    Theme::footerHints(r, w, "A Play   REWIND Favourite   LEFT/RIGHT Screen   B Back", "");
+    Theme::footerHints(r, w, "A Play   HOME Options   REWIND Favourite   B Back", "");
 }
 
 void Menu::renderSettings() {
@@ -934,6 +1006,45 @@ void Menu::drawHeader(const std::string& caption, const std::string& title, int 
     endListClip();
     Theme::header(r, w, caption, title);
     if (total > 0) Theme::counter(r, w, index, total);
+}
+
+// Home on a game: Play, Favourite, Screen, Search.
+void Menu::renderPopup() {
+    SDL_Renderer* r = m_renderer;
+    const int w = AppConfig::kLogicalWidth, h = AppConfig::kLogicalHeight;
+    const SystemEntry& se = m_systems[m_popupSys];
+    const Library::Game& g = se.games[m_popupGame];
+    Gfx::rect(r, {0.0f, 0.0f, (float)w, (float)h}, {4, 6, 12, 200});
+    const float itemH = 96.0f, gap = 16.0f;
+    const float pw = w - 2.0f * Theme::kMargin - 32.0f, ph = 190.0f + PopCount * (itemH + gap);
+    const float px = (w - pw) * 0.5f, py = (h - ph) * 0.5f - 40.0f;
+    Gfx::softRect(r, {px, py, pw, ph}, 32.0f, 40.0f, {0, 0, 0, 200}, false);
+    Gfx::panel(r, {px, py, pw, ph}, 32.0f, {30, 36, 58, 255}, {18, 22, 38, 255}, {255, 255, 255, 26}, 1.0f);
+    AppFont::drawCentered(r, Theme::ellipsize(r, g.title, pw - 80.0f, Theme::Type::Heading, AppFont::Face::Display),
+                          w * 0.5f, py + 40.0f, Theme::Type::Heading, Theme::Text, AppFont::Face::Display);
+    AppFont::drawCentered(r, se.sys->name, w * 0.5f, py + 104.0f, Theme::Type::Caption, Theme::Muted);
+    ScreenId over;
+    bool overridden = m_settings.gameScreen(se.sys->id, g.file, over);
+    std::string screen = !overridden ? std::string("Default (") + (m_settings.systemScreen(se.sys->id) == ScreenId::Playfield ? "Playfield" : "Backglass") + ")"
+                                     : over == ScreenId::Playfield ? "Playfield" : "Backglass";
+    const std::string labels[PopCount] = {
+        "Play", isFav(m_popupSys, m_popupGame) ? "Remove from Favourites" : "Add to Favourites", "Screen", "Search"};
+    for (int i = 0; i < PopCount; ++i) {
+        FRect row{px + 40.0f, py + 160.0f + i * (itemH + gap), pw - 80.0f, itemH};
+        bool active = i == m_popupSel;
+        Theme::rowCard(r, row, active);
+        float ty = row.y + (itemH - Theme::Type::Body) * 0.5f - 4.0f;
+        AppFont::draw(r, labels[i], row.x + 28.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+        if (i == PopScreen) {
+            float vw = AppFont::measureWidth(r, screen, Theme::Type::Body);
+            float vx = row.x + row.w - 28.0f - vw - (active ? 30.0f : 0.0f);
+            AppFont::draw(r, screen, vx, ty, Theme::Type::Body, active ? Theme::accent() : Theme::Muted);
+            if (active) {
+                Gfx::triangle(r, {vx - 30.0f, row.y + itemH * 0.5f - 9.0f, 18.0f, 18.0f}, 180.0, Theme::accent());
+                Gfx::triangle(r, {row.x + row.w - 46.0f, row.y + itemH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
+            }
+        }
+    }
 }
 
 void Menu::renderToast() {
@@ -984,6 +1095,10 @@ void Menu::render(float dt) {
     else if (m_view == View::Settings) renderSettings();
     else renderSystems();
     renderJump();
+    if (m_popup) renderPopup();
+    if (m_confirmExit)
+        Theme::confirmDialog(m_renderer, AppConfig::kLogicalWidth, AppConfig::kLogicalHeight, "Exit Retro Launcher?",
+                             "Cancel", "Exit", m_confirmSel);
     renderToast();
     AppFont::drawRight(m_renderer, "v" APP_VERSION, AppConfig::kLogicalWidth - Theme::kMargin, 18.0f, 16.0f, Theme::Faint);
     SDL_RenderSetScale(m_renderer, 1.0f, 1.0f);
@@ -1000,6 +1115,65 @@ void Menu::present() {
     SDL_RenderClear(m_renderer);
     SDL_RenderCopyEx(m_renderer, m_canvas, nullptr, &dst, AppConfig::kFirmwareRotationDegrees, nullptr, SDL_FLIP_NONE);
     SDL_RenderPresent(m_renderer);
+}
+
+static const char* eventName(AtGames::ControlEvent e) {
+    using CE = AtGames::ControlEvent;
+    switch (e) {
+    case CE::Up: return "UP"; case CE::Down: return "DOWN"; case CE::Left: return "LEFT"; case CE::Right: return "RIGHT";
+    case CE::A: return "A"; case CE::B: return "B"; case CE::X: return "X"; case CE::Y: return "Y";
+    case CE::Start: return "START"; case CE::Back: return "BACK"; case CE::Guide: return "HOME";
+    case CE::Rewind: return "REWIND"; case CE::Rewind2: return "REWIND2";
+    case CE::LeftShoulder: return "LEFT FLIPPER"; case CE::RightShoulder: return "RIGHT FLIPPER";
+    case CE::LeftTrigger: return "LEFT FLIPPER 2"; case CE::RightTrigger: return "RIGHT FLIPPER 2";
+    default: return "?";
+    }
+}
+
+// Reads the held directions from every controller (D-pad and left stick) and the
+// keyboard, fires on the press, then repeats while held: after 400 ms, every
+// 110 ms, speeding up to every 40 ms after 1.5 s.
+void Menu::pollDirections(bool& running) {
+    using CE = AtGames::ControlEvent;
+    static const CE kEv[DirCount] = {CE::Up, CE::Down, CE::Left, CE::Right};
+    static const SDL_GameControllerButton kBtn[DirCount] = {
+        SDL_CONTROLLER_BUTTON_DPAD_UP, SDL_CONTROLLER_BUTTON_DPAD_DOWN,
+        SDL_CONTROLLER_BUTTON_DPAD_LEFT, SDL_CONTROLLER_BUTTON_DPAD_RIGHT};
+    static const SDL_Scancode kKey[DirCount] = {SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT};
+    const int kStick = 16000;
+    bool held[DirCount] = {};
+    for (int j = 0; j < SDL_NumJoysticks(); ++j) {
+        SDL_GameController* gc = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(j));
+        if (!gc) continue;
+        for (int d = 0; d < DirCount; ++d)
+            if (SDL_GameControllerGetButton(gc, kBtn[d])) held[d] = true;
+        int x = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX);
+        int y = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY);
+        if (y < -kStick) held[DirUp] = true;
+        if (y > kStick) held[DirDown] = true;
+        if (x < -kStick) held[DirLeft] = true;
+        if (x > kStick) held[DirRight] = true;
+    }
+    const Uint8* keys = SDL_GetKeyboardState(nullptr);
+    Uint32 now = SDL_GetTicks();
+    for (int d = 0; d < DirCount; ++d) {
+        if (keys && keys[kKey[d]]) held[d] = true;
+        bool tap = m_dirTap[d];  // pressed and released between two polls
+        m_dirTap[d] = false;
+        if ((held[d] || tap) && !m_dirHeld[d]) {
+            log("input: %s", eventName(kEv[d]));
+            m_repeating = false;
+            handle(kEv[d], running);
+            m_dirSince[d] = now;
+            m_dirNext[d] = now + 400;
+        } else if (held[d] && m_dirHeld[d] && (Sint32)(now - m_dirNext[d]) >= 0) {
+            m_repeating = true;
+            handle(kEv[d], running);
+            m_repeating = false;
+            m_dirNext[d] = now + (now - m_dirSince[d] > 1500 ? 40 : 110);
+        }
+        m_dirHeld[d] = held[d];
+    }
 }
 
 int Menu::run() {
@@ -1037,9 +1211,19 @@ int Menu::run() {
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_QUIT) running = false;
-            AtGames::ControlEvent ce = m_controls.event(ev, true, false);
-            if (ce != AtGames::ControlEvent::None) handle(ce, running);
+            using CE = AtGames::ControlEvent;
+            CE ce = m_controls.event(ev, true, false);
+            if (ce == CE::None) continue;
+            // Directions come from pollDirections (for hold-to-repeat); the event
+            // only makes sure a very short tap is not missed.
+            if (ce == CE::Up) { m_dirTap[DirUp] = true; continue; }
+            if (ce == CE::Down) { m_dirTap[DirDown] = true; continue; }
+            if (ce == CE::Left) { m_dirTap[DirLeft] = true; continue; }
+            if (ce == CE::Right) { m_dirTap[DirRight] = true; continue; }
+            log("input: %s", eventName(ce));
+            handle(ce, running);
         }
+        pollDirections(running);
         Uint32 now = SDL_GetTicks();
         float dt = std::min((now - last) / 1000.0f, 0.033f);
         last = now;

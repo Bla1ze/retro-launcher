@@ -19,7 +19,7 @@ already in the cabinet's firmware, or better ones built for it (see
 - **Menu on the playfield**: Neon-styled systems and game lists, search across
   every system with an on-screen keyboard, Recently played, Favourites, A–Z
   letter jumps on the flippers, and an in-app Settings screen.
-- **Choose the screen per game**: backglass or playfield (Left/Right on a game),
+- **Choose the screen per game**: backglass or playfield (Home on a game),
   with a default in Settings. The screens a game isn't using show artwork.
 - **Backglass and DMD while browsing**: the highlighted game's box art over a
   blurred copy of itself on the backglass, and its title on the DMD. Games
@@ -101,14 +101,16 @@ ROM.
 
 | Where | Control | Action |
 |---|---|---|
-| Lists | Up / Down | Move |
+| Lists | Up / Down (D-pad or joystick) | Move; hold to scroll, faster the longer you hold |
 | Lists | A or Start | Open / play |
+| Lists | Flippers | Previous / next letter in a games list, a page elsewhere |
+| Games list | Second flippers | Previous / next system |
 | Game lists | Rewind (or Y) | Add to / remove from Favourites |
-| Game lists | Left / Right | Screen for this game: default, backglass, playfield |
-| Lists | B | Back (exit on the systems list) |
-| Games list | Flippers | Previous / next letter |
-| Lists | X | Search |
+| Game lists | Home | Game options: Play, Favourite, Screen (default / backglass / playfield), Search |
+| Consoles | Home or X | Search |
+| Lists | B | Back; on the consoles list, asks before exiting |
 | Settings | Left / Right | Change the highlighted setting |
+| Search | Left / Right / Up / Down | Move on the keyboard |
 | Search | A / left flipper / right flipper | Type / delete / jump to results |
 | In a game | Hold Start (1 s) or Home | Pause menu |
 | Pause menu | A / B or Start | Select / resume |
