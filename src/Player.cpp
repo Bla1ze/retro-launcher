@@ -653,10 +653,12 @@ uint16_t readButtons() {
 // Drawn over the frozen game in the Neon style, in a 1280x720 logical space
 // scaled to the screen (Gfx/AppFont/Theme bake per renderer).
 
+// `winW` x `winH` is the area as the player sees it (portrait on the playfield,
+// where the caller draws into a texture and turns it like the game picture).
 void drawPauseMenu(SDL_Renderer* r, int winW, int winH, const std::string& title, const std::vector<std::string>& items,
                    const std::vector<bool>& enabled, int sel, const std::string& toast) {
-    const float scale = winH / 720.0f;
-    const float W = winW / scale, H = 720.0f;
+    const float scale = std::min(winW, winH) / 720.0f;
+    const float W = winW / scale, H = winH / scale;
     SDL_RenderSetScale(r, scale, scale);
     Gfx::rect(r, {0, 0, W, H}, {4, 6, 12, 190});
     const float rowH = 62.0f, gap = 10.0f, pw = 560.0f;
@@ -793,7 +795,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                                           SDL_WINDOW_SHOWN | SDL_WINDOW_FULLSCREEN_DESKTOP);
     if (!window) return fail(std::string("Could not open the screen: ") + SDL_GetError());
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
-    g_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
+    g_renderer = SDL_CreateRenderer(window, -1,
+                                    SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC | SDL_RENDERER_TARGETTEXTURE);
     if (!g_renderer) g_renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     if (!g_renderer) return fail(std::string("Could not draw on the screen: ") + SDL_GetError());
     int winW = 0, winH = 0;
@@ -905,6 +908,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     Uint32 started = SDL_GetTicks(), statsAt = started, startHeld = 0;
     unsigned long statFrames = 0, coreFrames = 0, underruns = 0, catchUps = 0;
     Uint32 lastPresent = SDL_GetTicks();
+    SDL_Texture* menuLayer = nullptr;  // pause menu, turned with the game on rotated screens
     const Uint32 drcTarget = bytesPerSec * 50 / 1000;  // hold ~50 ms queued
     double ratioSum = 0.0;
     unsigned long ratioCount = 0;
@@ -1131,9 +1135,31 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 }
             }
             if (bezel.tex) SDL_RenderCopy(g_renderer, bezel.tex, nullptr, nullptr);
-            if (menu != Menu::None)
-                drawPauseMenu(g_renderer, winW, winH, menu == Menu::Continue ? "WELCOME BACK" : "PAUSED", items, enabled,
-                              menuSel, toast);
+            if (menu != Menu::None) {
+                const char* title = menu == Menu::Continue ? "WELCOME BACK" : "PAUSED";
+                if (!sideways && rotate == 0) {
+                    drawPauseMenu(g_renderer, winW, winH, title, items, enabled, menuSel, toast);
+                } else {
+                    // Draw upright on a layer the size of the player's view,
+                    // then turn it exactly like the game picture.
+                    int tw = sideways ? winH : winW, th = sideways ? winW : winH;
+                    if (!menuLayer) {
+                        menuLayer = SDL_CreateTexture(g_renderer, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, tw, th);
+                        if (menuLayer) SDL_SetTextureBlendMode(menuLayer, SDL_BLENDMODE_BLEND);
+                        log("pause menu layer %dx%d (rotate %d): %s", tw, th, rotate, menuLayer ? "ok" : SDL_GetError());
+                    }
+                    if (menuLayer && SDL_SetRenderTarget(g_renderer, menuLayer) == 0) {
+                        SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 0);
+                        SDL_RenderClear(g_renderer);
+                        drawPauseMenu(g_renderer, tw, th, title, items, enabled, menuSel, toast);
+                        SDL_SetRenderTarget(g_renderer, nullptr);
+                        SDL_Rect md{(winW - tw) / 2, (winH - th) / 2, tw, th};
+                        SDL_RenderCopyEx(g_renderer, menuLayer, nullptr, &md, rotate, nullptr, SDL_FLIP_NONE);
+                    } else {
+                        drawPauseMenu(g_renderer, winW, winH, title, items, enabled, menuSel, toast);
+                    }
+                }
+            }
             SDL_RenderPresent(g_renderer);
             static bool firstShown = false;
             if (!firstShown) { firstShown = true; log("first frame shown"); }
@@ -1166,6 +1192,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     Gfx::shutdown();
     if (bezel.tex) SDL_DestroyTexture(bezel.tex);
     if (scanTex) SDL_DestroyTexture(scanTex);
+    if (menuLayer) SDL_DestroyTexture(menuLayer);
     panels.reset();  // join its worker and release buffers before SDL closes the fd
     if (g_texture) SDL_DestroyTexture(g_texture);
     SDL_DestroyRenderer(g_renderer);
