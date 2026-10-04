@@ -129,7 +129,7 @@ private:
     Library::Settings m_settings;
     std::vector<SystemEntry> m_systems;
     View m_view = View::Systems;
-    int m_sysRow = 0;   // 0 = Search, 1 = Recently played, 2.. = m_systems[row - 2]
+    int m_sysRow = 0;   // 0 Search, 1 Recently played, 2 Favourites, 3 Settings, 4.. = m_systems[row - 4]
     int m_gameSel = 0;
     float m_sysScroll = 0.0f, m_gameScroll = 0.0f;
     float m_clock = 0.0f;
@@ -164,9 +164,9 @@ private:
     AtGames::Controls m_controls;
 
     int sysIndex() const { return m_sysRow - kFixedRows; }
-    static constexpr int kFixedRows = 3;  // Search, Recently played, Favourites
-    int settingsRow() const { return (int)m_systems.size() + kFixedRows; }  // last row
-    int systemRows() const { return (int)m_systems.size() + kFixedRows + 1; }
+    static constexpr int kFixedRows = 4;  // Search, Recently played, Favourites, Settings
+    int settingsRow() const { return 3; }
+    int systemRows() const { return (int)m_systems.size() + kFixedRows; }
 
     // Favourites, as (system id, ROM file).
     std::set<std::pair<std::string, std::string>> m_favs;

@@ -136,7 +136,7 @@ each system's mapping while you play.
 
 ## Settings
 
-The **Settings** row at the bottom of the consoles list changes these; they are
+The **Settings** row (under Favourites on the consoles list) changes these; they are
 stored in `data/settings.cfg` (key = value):
 
 | Setting | Key | Values | Default |
