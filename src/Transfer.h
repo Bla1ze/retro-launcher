@@ -9,7 +9,7 @@
 #include <thread>
 #include <vector>
 
-// Settings > Wi-Fi transfer: a small web server, only while that screen is open,
+// Settings > Network transfer: a small web server, only while that screen is open,
 // so games can be sent from any computer or phone on the same network straight
 // into roms/<system>/. A browser page (built in) lists the systems; files are
 // uploaded one at a time with a PUT per file.

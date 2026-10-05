@@ -220,9 +220,9 @@ external/retro-launcher/
   data/                 settings.cfg, core-options.cfg, recent.txt, launcher.log
 ```
 
-### Wi-Fi transfer
+### Network transfer
 
-**Settings > Wi-Fi transfer** lets you send games to the cabinet without taking
+**Settings > Network transfer** lets you send games to the cabinet without taking
 out the USB stick:
 
 1. Open it on the cabinet. It shows an address, such as

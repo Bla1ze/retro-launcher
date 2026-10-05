@@ -43,28 +43,28 @@ const int kMaxBadPins = 20;
 const char* kPage = R"HTML(<!doctype html>
 <html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Retro Launcher transfer</title>
+<title>Retro Launcher network transfer</title>
 <style>
 :root{--bg:#0e0b1f;--card:#1a1536;--line:#2c2552;--text:#eef0f8;--dim:#9aa0bd;--teal:#2bc7b8;--violet:#7c5ce8;--rose:#ef5c78;--gold:#f5d65f}
 *{box-sizing:border-box}
 body{margin:0;background:radial-gradient(1200px 600px at 10% -10%,#2a1a5e 0,transparent 60%),var(--bg);color:var(--text);
  font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif;min-height:100vh}
-main{max-width:760px;margin:0 auto;padding:24px 16px 60px}
+main{max-width:760px;margin:0 auto;padding:24px 16px 60px;text-align:center}
 h1{font-size:26px;margin:4px 0 2px;letter-spacing:.5px}
 h1 span{color:var(--teal)}
 .sub{color:var(--dim);margin:0 0 20px}
 .card{background:var(--card);border:1px solid var(--line);border-radius:16px;padding:18px;margin:14px 0}
 label{display:block;color:var(--dim);font-size:13px;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
-select,input{width:100%;font:inherit;color:var(--text);background:#120e28;border:1px solid var(--line);border-radius:10px;padding:12px}
+select,input{width:100%;text-align:center;text-align-last:center;font:inherit;color:var(--text);background:#120e28;border:1px solid var(--line);border-radius:10px;padding:12px}
 input.pin{font-size:32px;letter-spacing:12px;text-align:center}
 button{font:inherit;font-weight:600;border:0;border-radius:10px;padding:12px 18px;cursor:pointer;color:#0e0b1f;background:var(--teal)}
 button.alt{background:#2c2552;color:var(--text)}
 button:disabled{opacity:.4;cursor:default}
-.row{display:flex;gap:10px;flex-wrap:wrap}
+.row{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
 .drop{border:2px dashed #3d3470;border-radius:14px;padding:34px 16px;text-align:center;color:var(--dim);transition:.15s}
 .drop.on{border-color:var(--teal);color:var(--text);background:#16123a}
 .hint{color:var(--dim);font-size:14px;margin-top:10px}
-.item{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--line)}
+.item{display:flex;align-items:center;gap:12px;text-align:left;padding:10px 0;border-top:1px solid var(--line)}
 .item:first-child{border-top:0}
 .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .state{font-size:14px;color:var(--dim);white-space:nowrap}
@@ -74,7 +74,7 @@ button:disabled{opacity:.4;cursor:default}
 .err{color:var(--rose)}
 .hidden{display:none}
 </style></head><body><main>
-<h1>Retro Launcher <span>Wi-Fi transfer</span></h1>
+<h1>Retro Launcher <span>Network transfer</span></h1>
 <p class="sub">Send games from this device straight into the cabinet's library.</p>
 
 <div id="login" class="card">
@@ -549,7 +549,7 @@ void TransferServer::serve(int fd) {
         return;
     }
     if (path.compare(0, 5, "/api/") != 0) { respondError(fd, 404, "not found"); return; }
-    if (m_badPins >= kMaxBadPins) { respondError(fd, 429, "too many wrong PINs - close and reopen Wi-Fi transfer on the cabinet"); return; }
+    if (m_badPins >= kMaxBadPins) { respondError(fd, 429, "too many wrong PINs - close and reopen Network transfer on the cabinet"); return; }
     std::string want;
     {
         std::lock_guard<std::mutex> lock(m_mu);

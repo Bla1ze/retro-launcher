@@ -248,7 +248,7 @@ private:
     int trashRow() const { return (int)settingDefs().size() + 2; }
     float m_setScroll = 0.0f;
 
-    // Settings > Wi-Fi transfer (Transfer.h): its own screen while the server runs.
+    // Settings > Network transfer (Transfer.h): its own screen while the server runs.
     TransferServer m_transfer;
     View m_transferReturn = View::Settings;
     void openTransfer();
@@ -1068,7 +1068,7 @@ void Menu::updatePanels(float dt) {
             std::string where = st.listening && !st.addresses.empty()
                                     ? st.addresses[0] + ":" + std::to_string(st.port) + "   PIN " + st.pin
                                     : "Not available";
-            m_panelItem = {key, "Wi-Fi transfer", "", where, ""};
+            m_panelItem = {key, "Network transfer", "", where, ""};
         }
         m_panelKey = key;
         m_panels->show(m_panelItem, dt);
@@ -1644,8 +1644,8 @@ void Menu::renderSettings() {
     }
     // Download artwork: covers and logos for games without them.
     actionRow(artRow(), "Download artwork", m_art.running() ? m_art.status() : "Missing only", m_art.running());
-    // Wi-Fi transfer: send games from a computer or phone (Transfer.h).
-    actionRow(transferRow(), "Wi-Fi transfer", "Open", false);
+    // Network transfer: send games from a computer or phone (Transfer.h).
+    actionRow(transferRow(), "Network transfer", "Open", false);
     // Empty trash: games removed with Home > Remove game wait in trash/ until then.
     char size[32];
     if (m_trashBytes == 0) std::snprintf(size, sizeof(size), "Empty");
@@ -1662,7 +1662,7 @@ void Menu::renderSettings() {
     Theme::footerHints(r, w, "LEFT/RIGHT Change   A Select   B Back", "");
 }
 
-// ----------------------------------------------------------------- Wi-Fi transfer
+// ----------------------------------------------------------------- Network transfer
 
 void Menu::openTransfer() {
     m_transferReturn = m_view;
@@ -1699,7 +1699,7 @@ void Menu::renderTransfer() {
                               Theme::Type::Small, Theme::Muted);
     } else if (st.addresses.empty()) {
         AppFont::drawCentered(r, "No network connection", cx, y, Theme::Type::Heading, Theme::Text, AppFont::Face::Display);
-        AppFont::drawCentered(r, "Connect the cabinet to Wi-Fi in its settings, then open this again.", cx, y + 64.0f,
+        AppFont::drawCentered(r, "Connect a network cable or Wi-Fi, then try again.", cx, y + 64.0f,
                               Theme::Type::Small, Theme::Muted);
     } else {
         AppFont::drawCentered(r, "On a computer or phone on the same network, open", cx, y, Theme::Type::Small, Theme::Muted);
@@ -1749,7 +1749,7 @@ void Menu::renderTransfer() {
                       line.find(" - failed") != std::string::npos ? Theme::Rose : Theme::TextDim);
         ty += 38.0f;
     }
-    drawHeader("Settings", "Wi-Fi transfer", 0, 0);
+    drawHeader("Settings", "Network transfer", 0, 0);
     Theme::footerHints(r, w, st.received ? "B Done - adds the new games" : "B Done", "");
 }
 
