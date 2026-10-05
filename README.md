@@ -220,6 +220,30 @@ external/retro-launcher/
   data/                 settings.cfg, core-options.cfg, recent.txt, launcher.log
 ```
 
+### Wi-Fi transfer
+
+**Settings > Wi-Fi transfer** lets you send games to the cabinet without taking
+out the USB stick:
+
+1. Open it on the cabinet. It shows an address, such as
+   `http://192.168.1.20:8080`, and a 4-digit PIN.
+2. Open that address in a browser on any computer or phone on the same network,
+   and enter the PIN.
+3. Pick a system, then drop your games on the page or choose them.
+
+**How files are handled:**
+- Files go straight into `roms/<system>/`. Games already on the stick are skipped.
+- Disc systems (PlayStation, Saturn, Dreamcast, PSP) and NAOMI/Atomiswave can take
+  a game as a folder, such as a .cue with its .bin tracks. For other systems,
+  folders are flattened.
+- The page accepts only the system's own file types.
+
+**While it's open:**
+- The transfer runs only while the screen is open. Each time it opens, it uses a
+  new random PIN.
+- Every request needs the PIN, and nothing outside `roms/` can be written.
+- Press B when you're done. The menu then picks up the new games.
+
 ### Artwork
 
 The repository contains no artwork.

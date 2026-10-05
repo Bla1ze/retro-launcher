@@ -3,6 +3,7 @@
 #include "AppConfig.h"
 #include "AppFont.h"
 #include "ArtDownload.h"
+#include "Transfer.h"
 #include "Arcade.h"
 #include "DisplayProfile.h"
 #include "GamePanels.h"
@@ -43,7 +44,6 @@ using Library::ScreenId;
 constexpr float kListTop = 210.0f;
 constexpr float kRowH = 92.0f;
 constexpr float kRowGap = 10.0f;
-constexpr float kSetRowH = 76.0f;  // Settings rows, a little shorter so they all fit
 constexpr float kListBottom = Theme::kFooterTop - 24.0f;
 
 // Search layout.
@@ -102,7 +102,7 @@ public:
     int run();
 
 private:
-    enum class View { Systems, Games, Search, Recent, Settings, Controls, Genres };  // Recent also shows Favorites
+    enum class View { Systems, Games, Search, Recent, Settings, Controls, Genres, Transfer };  // Recent also shows Favorites
 
     bool initVideo();
     void shutdown();
@@ -244,7 +244,16 @@ private:
     ArtDownload m_art;
     std::string m_artLast;  // the last run's result, shown on the row
     int artRow() const { return (int)settingDefs().size(); }
-    int trashRow() const { return (int)settingDefs().size() + 1; }
+    int transferRow() const { return (int)settingDefs().size() + 1; }
+    int trashRow() const { return (int)settingDefs().size() + 2; }
+    float m_setScroll = 0.0f;
+
+    // Settings > Wi-Fi transfer (Transfer.h): its own screen while the server runs.
+    TransferServer m_transfer;
+    View m_transferReturn = View::Settings;
+    void openTransfer();
+    void closeTransfer();
+    void renderTransfer();
     void startArtDownload();
 
     // Home on a game: options popup.
@@ -414,6 +423,7 @@ bool Menu::initVideo() {
 }
 
 void Menu::shutdown() {
+    m_transfer.stop();
     m_art.stop();  // a game is starting (or the menu is closing): the rest waits for next time
     if (m_iconThread.joinable()) {
         m_iconStop = true;
@@ -922,6 +932,10 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     if (m_popup) { handlePopup(ev, running); return; }
     if (m_view == View::Search) { handleSearch(ev); return; }
     if (m_view == View::Controls) { handleControls(ev); return; }
+    if (m_view == View::Transfer) {
+        if (ev == CE::B || ev == CE::Back || ev == CE::Guide || ev == CE::A || ev == CE::Start) closeTransfer();
+        return;
+    }
     int hs = 0, hg = 0;
     bool onGame = highlightedGame(hs, hg);
     switch (ev) {
@@ -968,6 +982,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     case CE::Start:
         if (m_view == View::Settings) {
             if (m_setSel < (int)settingDefs().size()) changeSetting(1);
+            else if (m_setSel == transferRow()) openTransfer();
             else if (m_setSel == artRow()) {
                 if (m_art.running()) ask(Confirm::StopArt, "Stop downloading artwork?", "Stop");
                 else startArtDownload();
@@ -992,6 +1007,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             if (m_sysRow == settingsRow()) {
                 m_view = View::Settings;
                 m_setSel = 0;
+                m_setScroll = 0.0f;
                 m_trashBytes = Library::trashSize(m_appDir);
                 break;
             }
@@ -1045,6 +1061,19 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
 void Menu::updatePanels(float dt) {
     if (!m_panels || !m_panels->active()) return;
     std::string key;
+    if (m_view == View::Transfer) {  // the address and PIN, big, on the backglass
+        TransferServer::Status st = m_transfer.status();
+        key = "transfer:" + std::to_string(st.received) + (st.listening ? "" : ":off");
+        if (key != m_panelKey) {
+            std::string where = st.listening && !st.addresses.empty()
+                                    ? st.addresses[0] + ":" + std::to_string(st.port) + "   PIN " + st.pin
+                                    : "Not available";
+            m_panelItem = {key, "Wi-Fi transfer", "", where, ""};
+        }
+        m_panelKey = key;
+        m_panels->show(m_panelItem, dt);
+        return;
+    }
     int sys = -1, game = -1;
     if (m_view == View::Games && !m_systems[sysIndex()].shown.empty()) { sys = sysIndex(); game = shownGame(); }
     else if (m_view == View::Search && m_inHits && !m_hits.empty()) { sys = m_hits[m_hitSel].sys; game = m_hits[m_hitSel].game; }
@@ -1571,64 +1600,157 @@ void Menu::renderSettings() {
     SDL_Renderer* r = m_renderer;
     const int w = AppConfig::kLogicalWidth;
     const std::vector<SettingDef>& defs = settingDefs();
+    const float step = kRowH + kRowGap;
+    beginListClip(kListTop, kListBottom);
+    auto rowAt = [&](int i, bool& active) {
+        active = i == m_setSel;
+        float y = kListTop + i * step - m_setScroll;
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
+        Theme::rowCard(r, row, active);
+        return row;
+    };
+    // The actions after the settings: a label and a value on the right.
+    auto actionRow = [&](int i, const std::string& label, std::string value, bool lit) {
+        bool active;
+        FRect row = rowAt(i, active);
+        float ty = row.y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f;
+        AppFont::draw(r, label, row.x + 24.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+        float room = row.w - 72.0f - AppFont::measureWidth(r, label, Theme::Type::Body);
+        value = Theme::ellipsize(r, value, room, Theme::Type::Body, AppFont::Face::Body);
+        AppFont::drawRight(r, value, row.x + row.w - 24.0f, ty, Theme::Type::Body, lit || active ? Theme::accent() : Theme::Muted);
+    };
     for (int i = 0; i < (int)defs.size(); ++i) {
         const SettingDef& d = defs[i];
-        float y = kListTop + i * (kSetRowH + kRowGap);
-        bool active = i == m_setSel;
-        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kSetRowH};
-        Theme::rowCard(r, row, active);
+        bool active;
+        FRect row = rowAt(i, active);
+        const float y = row.y;
         std::string cur = m_settings.value(d.key, d.values[0]);
         if (d.key == "sides" && m_settings.value("sides", "").empty())
             cur = m_settings.value("bezels", "on") == "off"
                       ? (m_settings.value("bars", "ambient") == "black" ? "black" : "glow") : "bezel";
         auto it = std::find(d.values.begin(), d.values.end(), cur);
         std::string label = d.labels[it == d.values.end() ? 0 : it - d.values.begin()];
-        AppFont::draw(r, d.label, row.x + 24.0f, y + (kSetRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
+        AppFont::draw(r, d.label, row.x + 24.0f, y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
                       active ? Theme::Text : Theme::TextDim);
         // Value with arrows either side when highlighted.
         float vw = AppFont::measureWidth(r, label, Theme::Type::Body);
         float vx = row.x + row.w - 24.0f - vw - (active ? 30.0f : 0.0f);
-        AppFont::draw(r, label, vx, y + (kSetRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
+        AppFont::draw(r, label, vx, y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
                       active ? Theme::accent() : Theme::Muted);
         if (active) {
-            Gfx::triangle(r, {vx - 30.0f, y + kSetRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 180.0, Theme::accent());
-            Gfx::triangle(r, {row.x + row.w - 42.0f, y + kSetRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
+            Gfx::triangle(r, {vx - 30.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 180.0, Theme::accent());
+            Gfx::triangle(r, {row.x + row.w - 42.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
         }
     }
-    {   // Download artwork: covers and logos for games without them.
-        const int i = artRow();
-        float y = kListTop + i * (kSetRowH + kRowGap);
-        bool active = i == m_setSel;
-        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kSetRowH};
-        Theme::rowCard(r, row, active);
-        float ty = y + (kSetRowH - Theme::Type::Body) * 0.5f - 4.0f;
-        std::string value = m_art.running() ? m_art.status() : "Missing only";
-        AppFont::draw(r, "Download artwork", row.x + 24.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
-        float room = row.w - 72.0f - AppFont::measureWidth(r, "Download artwork", Theme::Type::Body);
-        value = Theme::ellipsize(r, value, room, Theme::Type::Body, AppFont::Face::Body);
-        AppFont::drawRight(r, value, row.x + row.w - 24.0f, ty, Theme::Type::Body,
-                           m_art.running() || active ? Theme::accent() : Theme::Muted);
-    }
-    {   // Empty trash: games removed with Home > Remove game wait in trash/ until then.
-        const int i = trashRow();
-        float y = kListTop + i * (kSetRowH + kRowGap);
-        bool active = i == m_setSel;
-        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kSetRowH};
-        Theme::rowCard(r, row, active);
-        char size[32];
-        if (m_trashBytes == 0) std::snprintf(size, sizeof(size), "Empty");
-        else if (m_trashBytes < 1024ull * 1024 * 1024) std::snprintf(size, sizeof(size), "%.0f MB", m_trashBytes / 1048576.0);
-        else std::snprintf(size, sizeof(size), "%.1f GB", m_trashBytes / 1073741824.0);
-        float ty = y + (kSetRowH - Theme::Type::Body) * 0.5f - 4.0f;
-        AppFont::draw(r, "Empty trash", row.x + 24.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
-        AppFont::drawRight(r, size, row.x + row.w - 24.0f, ty, Theme::Type::Body, active ? Theme::accent() : Theme::Muted);
-    }
-    const float below = kListTop + (trashRow() + 1) * (kSetRowH + kRowGap);
+    // Download artwork: covers and logos for games without them.
+    actionRow(artRow(), "Download artwork", m_art.running() ? m_art.status() : "Missing only", m_art.running());
+    // Wi-Fi transfer: send games from a computer or phone (Transfer.h).
+    actionRow(transferRow(), "Wi-Fi transfer", "Open", false);
+    // Empty trash: games removed with Home > Remove game wait in trash/ until then.
+    char size[32];
+    if (m_trashBytes == 0) std::snprintf(size, sizeof(size), "Empty");
+    else if (m_trashBytes < 1024ull * 1024 * 1024) std::snprintf(size, sizeof(size), "%.0f MB", m_trashBytes / 1048576.0);
+    else std::snprintf(size, sizeof(size), "%.1f GB", m_trashBytes / 1073741824.0);
+    actionRow(trashRow(), "Empty trash", size, false);
+    // Notes after the last row (scrolled into view with it).
+    const float below = kListTop + (trashRow() + 1) * step - m_setScroll;
     AppFont::drawCentered(r, "Changes apply to the next game you start", w * 0.5f, below + 20.0f, Theme::Type::Caption,
                           Theme::Muted);
     AppFont::drawCentered(r, "Retro Launcher v" APP_VERSION, w * 0.5f, below + 56.0f, Theme::Type::Caption, Theme::Faint);
+    endListClip();
     drawHeader("Retro Launcher", "Settings", m_setSel + 1, trashRow() + 1);
-    Theme::footerHints(r, w, "LEFT/RIGHT Change   B Back", "");
+    Theme::footerHints(r, w, "LEFT/RIGHT Change   A Select   B Back", "");
+}
+
+// ----------------------------------------------------------------- Wi-Fi transfer
+
+void Menu::openTransfer() {
+    m_transferReturn = m_view;
+    m_view = View::Transfer;
+    m_transfer.start(m_appDir);
+}
+
+void Menu::closeTransfer() {
+    const TransferServer::Status st = m_transfer.status();
+    m_transfer.stop();
+    m_view = m_transferReturn;
+    if (st.received == 0) return;
+    // New games: read the folders again (indexes into the lists may change).
+    scan();
+    rebuildRows();
+    m_hits.clear();
+    m_inHits = false;
+    m_hitSel = 0;
+    m_recent.clear();
+    m_panelKey.clear();
+    m_toast = "Added " + std::to_string(st.received) + (st.received == 1 ? " file" : " files") + " to your games";
+    m_toastTime = 0.0f;
+}
+
+void Menu::renderTransfer() {
+    SDL_Renderer* r = m_renderer;
+    const int w = AppConfig::kLogicalWidth;
+    const float cx = w * 0.5f, inner = w - 2.0f * Theme::kMargin;
+    const TransferServer::Status st = m_transfer.status();
+    float y = kListTop + 10.0f;
+    if (!st.listening) {
+        AppFont::drawCentered(r, "Couldn't start the transfer", cx, y, Theme::Type::Heading, Theme::Text, AppFont::Face::Display);
+        AppFont::drawCentered(r, Theme::ellipsize(r, st.error, inner, Theme::Type::Small, AppFont::Face::Body), cx, y + 64.0f,
+                              Theme::Type::Small, Theme::Muted);
+    } else if (st.addresses.empty()) {
+        AppFont::drawCentered(r, "No network connection", cx, y, Theme::Type::Heading, Theme::Text, AppFont::Face::Display);
+        AppFont::drawCentered(r, "Connect the cabinet to Wi-Fi in its settings, then open this again.", cx, y + 64.0f,
+                              Theme::Type::Small, Theme::Muted);
+    } else {
+        AppFont::drawCentered(r, "On a computer or phone on the same network, open", cx, y, Theme::Type::Small, Theme::Muted);
+        y += 46.0f;
+        for (size_t i = 0; i < st.addresses.size() && i < 2; ++i) {
+            const std::string url = "http://" + st.addresses[i] + (st.port == 80 ? "" : ":" + std::to_string(st.port));
+            AppFont::drawCentered(r, url, cx, y, Theme::Type::Heading, Theme::accent(), AppFont::Face::Display);
+            y += 58.0f;
+        }
+        y += 20.0f;
+        AppFont::drawCentered(r, "and enter the PIN", cx, y, Theme::Type::Small, Theme::Muted);
+        y += 40.0f;
+        AppFont::drawCentered(r, st.pin, cx, y, Theme::Type::Hero, Theme::Text, AppFont::Face::Display);
+    }
+    // What is happening.
+    y = 640.0f;
+    FRect card{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), 470.0f};
+    Theme::rowCard(r, card, false);
+    float ty = y + 26.0f;
+    const float tx = card.x + 28.0f, tw = card.w - 56.0f;
+    if (!st.current.empty()) {
+        AppFont::draw(r, "Receiving", tx, ty, Theme::Type::Caption, Theme::Muted);
+        ty += 32.0f;
+        AppFont::draw(r, Theme::ellipsize(r, st.current, tw, Theme::Type::Body, AppFont::Face::Body), tx, ty, Theme::Type::Body, Theme::Text);
+        ty += 50.0f;
+        const float f = st.currentTotal ? (float)((double)st.currentDone / (double)st.currentTotal) : 0.0f;
+        Gfx::roundRect(r, {tx, ty, tw, 12.0f}, 6.0f, {255, 255, 255, 30});
+        if (f > 0.0f) Gfx::roundRect(r, {tx, ty, std::max(12.0f, tw * f), 12.0f}, 6.0f, Theme::accent());
+        char pct[48];
+        std::snprintf(pct, sizeof(pct), "%d%%  of %.1f MB", (int)(f * 100.0f), st.currentTotal / 1048576.0);
+        AppFont::draw(r, pct, tx, ty + 22.0f, Theme::Type::Caption, Theme::Muted);
+        ty += 70.0f;
+    } else {
+        AppFont::draw(r, st.listening ? "Waiting for games" : "Not running", tx, ty, Theme::Type::Body, Theme::TextDim);
+        ty += 60.0f;
+    }
+    if (st.received > 0) {
+        char done[64];
+        std::snprintf(done, sizeof(done), "Received %d %s (%.1f MB)", st.received, st.received == 1 ? "file" : "files",
+                      st.receivedBytes / 1048576.0);
+        AppFont::draw(r, done, tx, ty, Theme::Type::Small, Theme::accent());
+        ty += 44.0f;
+    }
+    for (const std::string& line : st.recent) {
+        if (ty > card.y + card.h - 40.0f) break;
+        AppFont::draw(r, Theme::ellipsize(r, line, tw, Theme::Type::Small, AppFont::Face::Body), tx, ty, Theme::Type::Small,
+                      line.find(" - failed") != std::string::npos ? Theme::Rose : Theme::TextDim);
+        ty += 38.0f;
+    }
+    drawHeader("Settings", "Wi-Fi transfer", 0, 0);
+    Theme::footerHints(r, w, st.received ? "B Done - adds the new games" : "B Done", "");
 }
 
 // Repaints the background behind the header band, then the header itself, so
@@ -1862,6 +1984,7 @@ void Menu::render(float dt) {
     else if (m_view == View::Genres) m_genreScroll = scrollFor(m_genreScroll, m_genreSel, (int)genreRows(sysIndex()).size(), dt);
     else if (m_view == View::Systems) m_sysScroll = scrollFor(m_sysScroll, m_sysRow, systemRows(), dt);
     else if (m_view == View::Recent) m_recentScroll = scrollFor(m_recentScroll, m_recentSel, (int)m_recent.size(), dt);
+    else if (m_view == View::Settings) m_setScroll = scrollFor(m_setScroll, m_setSel, trashRow() + 2, dt);  // + the notes
     else if (m_view == View::Controls) {
         m_ctlScroll = scrollFor(m_ctlScroll, m_ctlSel, ctlRows(), dt);
         if (m_ctlCapture && (m_ctlCaptureTime += dt) > 6.0f) m_ctlCapture = false;  // nothing pressed: give up
@@ -1875,6 +1998,7 @@ void Menu::render(float dt) {
     else if (m_view == View::Search) renderSearch();
     else if (m_view == View::Recent) renderRecent();
     else if (m_view == View::Settings) renderSettings();
+    else if (m_view == View::Transfer) renderTransfer();
     else if (m_view == View::Controls) renderControls();
     else if (m_view == View::Genres) renderGenres();
     else renderSystems();
