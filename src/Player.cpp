@@ -1152,9 +1152,10 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     SDL_setenv("ForceConnectID", std::to_string(target.connectorId).c_str(), 1);
     if (topo.keepFirmwareDisplay && screen == Library::ScreenId::Playfield) SDL_setenv("SDL2_DISPLAY_PLANE_TYPE", "OVERLAY", 1);
     else ::unsetenv("SDL2_DISPLAY_PLANE_TYPE");
-    // Backglass is upright (0, proven); playfield and DMD follow the panel's
-    // mounting from DisplayProfile. All overridable as rotate.<screen>.
-    int rotate = settings.rotation(screen, screen == Library::ScreenId::Backglass ? 0 : target.rotationDegrees);
+    // Every screen follows its panel's mounting from DisplayProfile: the 4KP's
+    // backglass is upright (0); the HD Micro's is a portrait panel mounted on
+    // its side (90). All overridable as rotate.<screen>.
+    int rotate = settings.rotation(screen, target.rotationDegrees);
     log("model %s: connector %u %dx%d, rotate %d", topo.model.c_str(), target.connectorId, target.width, target.height,
         rotate);
 
