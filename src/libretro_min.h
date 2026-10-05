@@ -167,3 +167,29 @@ struct retro_hw_render_callback {
 #define RETRO_DEVICE_INDEX_ANALOG_RIGHT 1
 #define RETRO_DEVICE_ID_ANALOG_X 0
 #define RETRO_DEVICE_ID_ANALOG_Y 1
+
+// Disc control (libretro.h): multi-disc games (.m3u, multi-disc .pbp).
+#define RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE 13
+#define RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION 57
+#define RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE 58
+struct retro_disk_control_callback {
+    bool (*set_eject_state)(bool ejected);
+    bool (*get_eject_state)(void);
+    unsigned (*get_image_index)(void);
+    bool (*set_image_index)(unsigned index);
+    unsigned (*get_num_images)(void);
+    bool (*replace_image_index)(unsigned index, const struct retro_game_info* info);
+    bool (*add_image_index)(void);
+};
+struct retro_disk_control_ext_callback {
+    bool (*set_eject_state)(bool ejected);
+    bool (*get_eject_state)(void);
+    unsigned (*get_image_index)(void);
+    bool (*set_image_index)(unsigned index);
+    unsigned (*get_num_images)(void);
+    bool (*replace_image_index)(unsigned index, const struct retro_game_info* info);
+    bool (*add_image_index)(void);
+    bool (*set_initial_image)(unsigned index, const char* path);
+    bool (*get_image_path)(unsigned index, char* path, size_t len);
+    bool (*get_image_label)(unsigned index, char* label, size_t len);
+};

@@ -148,6 +148,8 @@ const std::vector<System>& systems() {
         // Disc images are passed to the core where they are (cue tracks beside them).
         // GPU core (OpenGL ES): Flycast.
         {"dreamcast", "Dreamcast", "DC", {"flycast_libretro.so"}, {"chd", "cdi", "gdi", "cue", "m3u"}, 4.0f / 3.0f, true},
+        {"n64", "Nintendo 64", "N64", {"mupen64plus_next_libretro.so"}, {"n64", "z64", "v64"}, 4.0f / 3.0f, false},
+        {"saturn", "Saturn", "SAT", {"yabasanshiro_libretro.so"}, {"chd", "cue", "iso", "ccd", "m3u"}, 4.0f / 3.0f, false},
         {"psp", "PSP", "PSP", {"ppsspp_libretro.so"}, {"iso", "cso", "chd", "pbp", "elf"}, 16.0f / 9.0f, false},
         {"psx", "PlayStation", "PS1", {"pcsx_rearmed_libretro.so"}, {"chd", "cue", "pbp", "m3u", "iso", "img", "bin"},
          4.0f / 3.0f, true},
@@ -236,6 +238,11 @@ std::vector<std::pair<int, std::string>> buttonTargets(const std::string& id) {
     if (id == "psp")
         return {{kB, "Cross"}, {kA, "Circle"}, {kY, "Square"}, {kX, "Triangle"}, {kL, "L"}, {kR, "R"},
                 {kStart, "Start"}, {kSelect, "Select"}};
+    if (id == "n64")  // with the core's independent C-button layout (set as the default)
+        return {{kB, "A"}, {kY, "B"}, {kL2, "Z"}, {kSelect, "L"}, {kR2, "R"}, {kX, "C-Up"}, {kA, "C-Down"},
+                {kL, "C-Left"}, {kR, "C-Right"}, {kStart, "Start"}};
+    if (id == "saturn")
+        return {{kB, "A"}, {kA, "B"}, {kL, "C"}, {kY, "X"}, {kX, "Y"}, {kR, "Z"}, {kL2, "L"}, {kR2, "R"}, {kStart, "Start"}};
     if (id == "dreamcast")
         return {{kB, "A"}, {kA, "B"}, {kY, "X"}, {kX, "Y"}, {kL2, "L trigger"}, {kR2, "R trigger"}, {kStart, "Start"}};
     if (id == "arcade" || id == "naomi" || id == "atomiswave")
@@ -399,6 +406,9 @@ static const char* biosNote(const std::string& id) {
         return "Optional: gba_bios.bin. gpSP has a built-in BIOS; the original improves compatibility with a few games.";
     if (id == "lynx") return "Recommended: lynxboot.img (512 bytes). Handy can start most games without it.";
     if (id == "pce") return "None for HuCard games (CD games are not supported).";
+    if (id == "n64") return "";
+    if (id == "saturn")
+        return "Optional: saturn_bios.bin. YabaSanshiro has a built-in BIOS replacement; a real one runs more games.";
     if (id == "psp") return "None. PPSSPP's own files (fonts, shaders) go in system/PPSSPP/ - they come with Retro Launcher.";
     if (id == "dreamcast")
         return "dc/dc_boot.bin and dc/dc_flash.bin (in a dc folder inside system/). Official discs run on "
@@ -441,7 +451,7 @@ static void writeGuides(const std::string& appDir) {
             s.name + " games go here.\n\nFile types: " +
             (s.id == "psp" ? exts.substr(0, exts.size() - 2) +
                                  "\n.cso (compressed .iso) or .chd saves space. Don't zip them.\n"
-             : s.id == "psx" || s.id == "dreamcast"
+             : s.id == "psx" || s.id == "dreamcast" || s.id == "saturn"
                  ? exts.substr(0, exts.size() - 2) +
                        "\nUse .chd if you can (one small file per disc). A .cue or .gdi needs its track\n"
                        "files beside it; an .m3u lists a multi-disc game's discs. Don't zip disc images.\n"

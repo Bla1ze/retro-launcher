@@ -41,10 +41,12 @@ REPOS = {
     "psx": ["Sony_-_PlayStation"],
     "dreamcast": ["Sega_-_Dreamcast"],
     "psp": ["Sony_-_PlayStation_Portable"],
+    "n64": ["Nintendo_-_Nintendo_64"],
+    "saturn": ["Sega_-_Saturn"],
 }
 ROM_EXT = {".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".bin", ".sms", ".gg", ".a26", ".col", ".rom",
            ".gb", ".gbc", ".gba", ".pce", ".sgx", ".lnx",
-           ".chd", ".cue", ".pbp", ".m3u", ".iso", ".cdi", ".gdi", ".cso", ".zip"}
+           ".chd", ".cue", ".pbp", ".m3u", ".iso", ".cdi", ".gdi", ".cso", ".n64", ".z64", ".v64", ".ccd", ".zip"}
 GOOD_REGION = {"U": "USA", "E": "Europe", "J": "Japan", "W": "World", "UE": "USA", "JU": "USA", "EU": "Europe"}
 
 

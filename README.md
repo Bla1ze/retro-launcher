@@ -39,7 +39,7 @@ already in the cabinet's firmware, or better ones built for it (see
 - **Button layouts** per system and per game: presets or press-to-assign, from
   Home > Controls.
 - **Pause menu**: hold Start or press Home for Resume, Save state, Load state,
-  Reset, Core options and Quit. Core options lists every setting the running
+  Reset, Core options, Change disc (multi-disc games) and Quit. Core options lists every setting the running
   emulator offers and applies changes straight away. Quitting saves your place, and the next launch offers
   "Continue where you left off".
 - **Solid playback**: vsync-locked pacing with dynamic audio rate control for
@@ -65,6 +65,8 @@ already in the cabinet's firmware, or better ones built for it (see
 | PlayStation | `roms/psx` | PCSX ReARMed | `cores/` |
 | Dreamcast | `roms/dreamcast` | Flycast (GPU) | `cores/` |
 | PSP | `roms/psp` | PPSSPP (GPU) | `cores/` |
+| Nintendo 64 | `roms/n64` | Mupen64Plus-Next (GPU) | `cores/` |
+| Saturn | `roms/saturn` | YabaSanshiro (GPU) | `cores/` |
 | NAOMI | `roms/naomi` | Flycast (GPU), checked per set | `cores/` |
 | Atomiswave | `roms/atomiswave` | Flycast (GPU), checked per set | `cores/` |
 | Arcade | `roms/arcade` | FBNeo or MAME 2003-Plus, picked per game | `cores/` |
@@ -94,6 +96,20 @@ Put games in `roms/psp/` as `.iso`, `.cso` or `.chd`. No BIOS is needed, but
 PPSSPP's own files (its `assets` folder: fonts, shaders) must be in
 `system/PPSSPP/`. The joystick drives the analog nub (the D-pad at full tilt
 when the stick reports as one).
+
+### Nintendo 64 and Saturn
+
+N64 games (`.z64`, `.n64`, `.v64`) go in `roms/n64/`; the C buttons are on their
+own buttons (the core's independent C-button layout is the default here, since
+the cabinet has no right stick). Saturn discs (`.chd`, `.cue`) go in
+`roms/saturn/`; YabaSanshiro has a built-in BIOS replacement, and a real
+`saturn_bios.bin` in `system/` runs more games.
+
+### GPU picture quality
+
+GPU systems render above their original resolution by default: Dreamcast,
+NAOMI and N64 at 2x (1280x960), PSP at 3x (1440x816), Saturn at 2x. Each can be
+changed in the pause menu's Core options.
 
 ### NAOMI and Atomiswave
 
@@ -266,7 +282,8 @@ docker run --rm --platform linux/amd64 -v "$SDK:/workspace" \
   atgames-external-sdk:glibc-2.26-sdl2-v1 bash /workspace/cores-src/build-cores.sh
 ```
 
-Flycast (Dreamcast, NAOMI, Atomiswave) and PPSSPP (PSP) need a newer compiler than the SDK's;
+Flycast (Dreamcast, NAOMI, Atomiswave), PPSSPP (PSP), Mupen64Plus-Next (N64) and
+YabaSanshiro (Saturn; `tools/build-gpu-cores.sh` builds those two) need a newer compiler than the SDK's;
 `tools/build-flycast.sh` describes the toolchain, and `tools/build-ppsspp.sh`
 adds what PPSSPP needs (Python for its build, and the cabinet's own
 `libGLESv2`/`libEGL`/`libmali` to link against, from the firmware).
@@ -317,6 +334,8 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 | Beetle PCE Fast | [libretro/beetle-pce-fast-libretro](https://github.com/libretro/beetle-pce-fast-libretro) | GPL-2.0 |
 | Handy | [libretro/libretro-handy](https://github.com/libretro/libretro-handy) | zlib |
 | PCSX ReARMed | [libretro/pcsx_rearmed](https://github.com/libretro/pcsx_rearmed) (with `tools/patches/pcsx_rearmed-arm64-old-gas.patch`) | GPL-2.0 |
+| Mupen64Plus-Next | [libretro/mupen64plus-libretro-nx](https://github.com/libretro/mupen64plus-libretro-nx) (`tools/build-gpu-cores.sh`) | GPL-2.0 |
+| YabaSanshiro | [libretro/yabause, yabasanshiro branch](https://github.com/libretro/yabause/tree/yabasanshiro) (`tools/build-gpu-cores.sh`) | GPL-2.0 |
 | PPSSPP | [hrydgard/ppsspp](https://github.com/hrydgard/ppsspp) (with `tools/patches/ppsspp-gcc7.patch`, built by `tools/build-ppsspp.sh`; its `assets/` go to `system/PPSSPP/`) | GPL-2.0 |
 | Flycast | [flyinghead/flycast](https://github.com/flyinghead/flycast) (with `tools/patches/flycast-gcc7.patch`, built by `tools/build-flycast.sh`) | GPL-3.0 |
 | FBNeo | [libretro/FBNeo](https://github.com/libretro/FBNeo) | FBNeo license (non-commercial) |

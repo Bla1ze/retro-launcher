@@ -40,6 +40,8 @@ REPOS = {
     "psx": ["Sony_-_PlayStation"],
     "dreamcast": ["Sega_-_Dreamcast"],
     "psp": ["Sony_-_PlayStation_Portable"],
+    "n64": ["Nintendo_-_Nintendo_64"],
+    "saturn": ["Sega_-_Saturn"],
     "naomi": ["Sega_-_Naomi", "Sega_-_Naomi_2"],
     "atomiswave": ["Atomiswave"],
 }

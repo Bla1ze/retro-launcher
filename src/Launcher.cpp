@@ -13,6 +13,7 @@
 
 #include <SDL.h>
 
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <algorithm>
@@ -938,6 +939,41 @@ float drawGameExtras(SDL_Renderer* r, const FRect& row, bool active, bool fav, b
 // Photo slot on a system row, in canvas pixels (3x the 104x72 logical slot).
 constexpr float kIconSlotW = 104.0f, kIconSlotH = 72.0f;
 
+// Console cut-outs are cached in data/icons/<system>.rgba (keyed by the photo's
+// size and date and the slot size), so only the first start pays for decoding
+// full-size photos and removing their backgrounds.
+namespace {
+struct IconCacheHeader { char magic[4]; uint32_t w, h, slotW, slotH; int64_t srcSize, srcTime; };
+
+bool loadIconCache(const std::string& path, const IconCacheHeader& want, std::vector<uint8_t>& px, int& w, int& h) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return false;
+    IconCacheHeader got{};
+    bool ok = std::fread(&got, sizeof(got), 1, f) == 1 && std::memcmp(got.magic, "RLI1", 4) == 0 &&
+              got.slotW == want.slotW && got.slotH == want.slotH && got.srcSize == want.srcSize &&
+              got.srcTime == want.srcTime && got.w > 0 && got.h > 0 && got.w <= 4096 && got.h <= 4096;
+    if (ok) {
+        px.resize((size_t)got.w * got.h * 4);
+        ok = std::fread(px.data(), 1, px.size(), f) == px.size();
+        w = (int)got.w; h = (int)got.h;
+    }
+    std::fclose(f);
+    return ok;
+}
+
+void saveIconCache(const std::string& path, IconCacheHeader head, const std::vector<uint8_t>& px, int w, int h) {
+    std::memcpy(head.magic, "RLI1", 4);
+    head.w = (uint32_t)w; head.h = (uint32_t)h;
+    std::string tmp = path + ".tmp";
+    FILE* f = std::fopen(tmp.c_str(), "wb");
+    if (!f) return;
+    bool ok = std::fwrite(&head, sizeof(head), 1, f) == 1 && std::fwrite(px.data(), 1, px.size(), f) == px.size();
+    std::fclose(f);
+    if (ok) std::rename(tmp.c_str(), path.c_str());
+    else std::remove(tmp.c_str());
+}
+} // namespace
+
 void Menu::startConsoleIcons() {
     m_icons.assign(m_systems.size(), ConsoleIcon());
     m_iconsDone = 0;
@@ -947,14 +983,30 @@ void Menu::startConsoleIcons() {
     for (const SystemEntry& e : m_systems) ids.push_back(e.sys->id);
     m_iconThread = std::thread([this, ids, maxW, maxH]() {
         Uint32 t0 = SDL_GetTicks();
-        int found = 0;
+        int found = 0, cached = 0;
+        const std::string cacheDir = m_appDir + "/data/icons";
+        ::mkdir(cacheDir.c_str(), 0755);
         for (size_t i = 0; i < ids.size() && !m_iconStop; ++i) {
             ConsoleIcon& ic = m_icons[i];
-            ic.ok = consoleCutout(m_appDir, ids[i], maxW, maxH, ic.px, ic.w, ic.h);
+            std::string photo = findConsoleArt(m_appDir, ids[i]);
+            struct stat st;
+            if (!photo.empty() && ::stat(photo.c_str(), &st) == 0) {
+                IconCacheHeader head{};
+                head.slotW = (uint32_t)maxW; head.slotH = (uint32_t)maxH;
+                head.srcSize = (int64_t)st.st_size; head.srcTime = (int64_t)st.st_mtime;
+                const std::string cache = cacheDir + "/" + ids[i] + ".rgba";
+                if (loadIconCache(cache, head, ic.px, ic.w, ic.h)) {
+                    ic.ok = true;
+                    ++cached;
+                } else {
+                    ic.ok = consoleCutout(m_appDir, ids[i], maxW, maxH, ic.px, ic.w, ic.h);
+                    if (ic.ok) saveIconCache(cache, head, ic.px, ic.w, ic.h);
+                }
+            }
             found += ic.ok;
             m_iconsDone.store((int)i + 1, std::memory_order_release);
         }
-        log("console icons: %d of %zu in %u ms", found, ids.size(), SDL_GetTicks() - t0);
+        log("console icons: %d of %zu (%d from cache) in %u ms", found, ids.size(), cached, SDL_GetTicks() - t0);
         t0 = SDL_GetTicks();
         for (size_t i = 0; i < ids.size() && !m_iconStop; ++i) warmArtIndex(m_appDir, ids[i]);
         if (!m_iconStop) log("cover index ready in %u ms", SDL_GetTicks() - t0);

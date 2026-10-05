@@ -65,6 +65,8 @@ bezel pce bezelproject-PCEngine;                photo pce TurboGrafx16-Console-S
 bezel lynx bezelproject-AtariLynx;              photo lynx Atari-Lynx-I-Handheld.jpg
 bezel psx bezelproject-PSX;                     photo psx PSX-Console-wController.png
 bezel dreamcast bezelproject-Dreamcast;         photo dreamcast Dreamcast-Console-Set.png
+bezel n64 bezelproject-N64;                     photo n64 N64-Console-Set.png
+bezel saturn bezelproject-Saturn;               photo saturn Sega-Saturn-Console-Set-Mk1.png
 bezel naomi bezelproject-Naomi
 bezel atomiswave bezelproject-Atomiswave
 photo psp Psp-1000.jpg   # no Bezel Project set for PSP; its 16:9 picture fills the backglass

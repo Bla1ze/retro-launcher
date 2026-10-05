@@ -239,7 +239,9 @@ std::string loadCore(const std::string& path, Core& c) {
 std::string g_systemDir, g_saveDir;
 retro_pixel_format g_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
 retro_system_av_info g_av{};
-unsigned g_coreRotation = 0;  // RETRO_ENVIRONMENT_SET_ROTATION: picture turned 90 * n degrees counter-clockwise
+unsigned g_coreRotation = 0;
+retro_disk_control_ext_callback g_disc{};  // multi-disc games; label calls only from the EXT interface
+bool g_discExt = false;  // RETRO_ENVIRONMENT_SET_ROTATION: picture turned 90 * n degrees counter-clockwise
 
 SDL_Renderer* g_renderer = nullptr;
 SDL_Texture* g_texture = nullptr;
@@ -386,11 +388,27 @@ bool pinnedOption(const std::string& key) {
     return key == "fbneo-vertical-mode" || key == "mame2003-plus_tate_mode" || key == "reicast_screen_rotation";
 }
 
+// Defaults chosen here instead of the core's: GPU cores render above their
+// original resolution (the RK3588 has room to spare and the backglass is 1080p).
+// Still changeable in Core options; a saved choice wins.
+const char* preferredDefault(const std::string& key) {
+    if (key == "reicast_internal_resolution") return "1280x960";  // Dreamcast / NAOMI 2x
+    if (key == "ppsspp_internal_resolution") return "1440x816";   // PSP 3x
+    if (key == "mupen64plus-43screensize") return "1280x960";     // N64 2x
+    if (key == "yabasanshiro_resolution_mode") return "2x";        // Saturn 2x
+    // N64 C buttons on their own buttons: the cabinet has no right stick, and
+    // holding a trigger for them (the core's default) is awkward on a cabinet.
+    if (key == "mupen64plus-alt-map") return "True";
+    return nullptr;
+}
+
 void declareOption(const char* key, const char* spec) {
     std::string v = spec ? spec : "";
     size_t semi = v.find("; ");
     std::string opts = semi == std::string::npos ? v : v.substr(semi + 2);
     std::string def = opts.substr(0, opts.find('|'));
+    if (const char* pref = preferredDefault(key))
+        if (("|" + opts + "|").find(std::string("|") + pref + "|") != std::string::npos) def = pref;
     if (pinnedOption(key)) { g_options[key] = def; return; }
     auto o = g_optionOverrides.find(key);
     g_options[key] = o != g_optionOverrides.end() ? o->second : def;
@@ -455,7 +473,9 @@ struct GlFns {
     void (*ReadPixels)(int, int, int, int, unsigned, unsigned, void*);
     void (*PixelStorei)(unsigned, int);
     const unsigned char* (*GetString)(unsigned);
+    unsigned (*GetError)();
 } gl{};
+bool g_readBgra = true;  // GL_EXT_read_format_bgra: rows come back in XRGB8888 order, no per-pixel swap
 enum : unsigned {
     kGL_FRAMEBUFFER = 0x8D40, kGL_RENDERBUFFER = 0x8D41, kGL_COLOR_ATTACHMENT0 = 0x8CE0,
     kGL_DEPTH_STENCIL_ATTACHMENT = 0x821A, kGL_DEPTH24_STENCIL8 = 0x88F0, kGL_FRAMEBUFFER_COMPLETE = 0x8CD5,
@@ -546,7 +566,7 @@ bool startHwRender(retro_hw_render_callback* cb) {
                   loadGl(gl.FramebufferRenderbuffer, "glFramebufferRenderbuffer") &
                   loadGl(gl.CheckFramebufferStatus, "glCheckFramebufferStatus") &
                   loadGl(gl.ReadPixels, "glReadPixels") & loadGl(gl.PixelStorei, "glPixelStorei") &
-                  loadGl(gl.GetString, "glGetString");
+                  loadGl(gl.GetString, "glGetString") & loadGl(gl.GetError, "glGetError");
         if (!ok) {
             SDL_GL_MakeCurrent(g_window, g_rendererCtx);
             SDL_GL_DeleteContext(g_coreCtx);
@@ -575,14 +595,25 @@ void readHwFrame(unsigned w, unsigned h) {
     g_hwRaw.resize((size_t)w * h * 4);
     gl.BindFramebuffer(kGL_FRAMEBUFFER, g_fbo);
     gl.PixelStorei(kGL_PACK_ALIGNMENT, 4);
-    gl.ReadPixels(0, 0, (int)w, (int)h, kGL_RGBA, kGL_UNSIGNED_BYTE, g_hwRaw.data());
-    // RGBA bytes -> XRGB8888 (B,G,R,A in memory); GL's first row is the bottom.
+    // BGRA comes back already in XRGB8888's byte order (Mali has the
+    // extension); else RGBA, swapped per pixel. GL's first row is the bottom.
+    if (g_readBgra) {
+        while (gl.GetError() != 0) {}
+        gl.ReadPixels(0, 0, (int)w, (int)h, 0x80E1 /* GL_BGRA_EXT */, kGL_UNSIGNED_BYTE, g_hwRaw.data());
+        if (gl.GetError() != 0) { g_readBgra = false; log("gpu: BGRA read-back unsupported, swapping per pixel"); }
+    }
+    if (!g_readBgra) gl.ReadPixels(0, 0, (int)w, (int)h, kGL_RGBA, kGL_UNSIGNED_BYTE, g_hwRaw.data());
     g_hwFrame.resize(g_hwRaw.size());
+    const size_t row = (size_t)w * 4;
     for (unsigned y = 0; y < h; ++y) {
-        const uint8_t* src = &g_hwRaw[(size_t)(g_hw.bottom_left_origin ? h - 1 - y : y) * w * 4];
-        uint8_t* dst = &g_hwFrame[(size_t)y * w * 4];
-        for (unsigned x = 0; x < w; ++x, src += 4, dst += 4) {
-            dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0]; dst[3] = 0xff;
+        const uint8_t* src = &g_hwRaw[(size_t)(g_hw.bottom_left_origin ? h - 1 - y : y) * row];
+        uint8_t* dst = &g_hwFrame[(size_t)y * row];
+        if (g_readBgra) {
+            std::memcpy(dst, src, row);  // alpha is ignored for XRGB8888
+        } else {
+            for (unsigned x = 0; x < w; ++x, src += 4, dst += 4) {
+                dst[0] = src[2]; dst[1] = src[1]; dst[2] = src[0]; dst[3] = 0xff;
+            }
         }
     }
     g_hwW = w; g_hwH = h;
@@ -604,6 +635,16 @@ void flushHwFrame() {
 bool environment(unsigned cmd, void* data) {
     switch (cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL) {
     case RETRO_ENVIRONMENT_GET_CAN_DUPE: *(bool*)data = true; return true;
+    case RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION: *(unsigned*)data = 1; return true;
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
+        g_disc = retro_disk_control_ext_callback{};
+        std::memcpy(&g_disc, data, sizeof(retro_disk_control_callback));
+        g_discExt = false;
+        return true;
+    case RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE:
+        g_disc = *(const retro_disk_control_ext_callback*)data;
+        g_discExt = true;
+        return true;
     case RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER: *(unsigned*)data = RETRO_HW_CONTEXT_OPENGLES3; return true;
     case RETRO_ENVIRONMENT_SET_HW_RENDER: return startHwRender((retro_hw_render_callback*)data);
     case RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT: return true;
@@ -777,6 +818,9 @@ void videoRefresh(const void* data, unsigned w, unsigned h, size_t pitch) {
         // "linear" back for everything else (fonts, shapes).
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, g_sharp ? "nearest" : "linear");
         g_texture = SDL_CreateTexture(g_renderer, fmt, SDL_TEXTUREACCESS_STREAMING, tw, th);
+        // XRGB: the top byte is padding, never transparency (SDL would blend an
+        // ARGB texture by default, and a GPU frame's alpha can be anything).
+        if (g_texture) SDL_SetTextureBlendMode(g_texture, SDL_BLENDMODE_NONE);
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
         g_textureFormat = fmt; g_texW = tw; g_texH = th;
         log("texture %dx%d %s: %s", tw, th, SDL_GetPixelFormatName(fmt), g_texture ? "ok" : SDL_GetError());
@@ -1301,6 +1345,16 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     const std::string coreTitle = std::string(info.library_name ? info.library_name : "Core") + " " +
                                   (info.library_version ? info.library_version : "");
     int menuSel = 0;
+    enum { PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseDisc, PauseQuit };
+    std::vector<int> pauseIds;
+    // Multi-disc games: how many discs, which one is in (asked once; changed here).
+    unsigned discs = 0, discIndex = 0;
+    if (g_disc.get_num_images && g_disc.set_image_index && g_disc.set_eject_state) {
+        CoreGL glScope;
+        discs = g_disc.get_num_images();
+        discIndex = g_disc.get_image_index ? g_disc.get_image_index() : 0;
+        if (discs > 1) log("disc: %u discs, disc %u in", discs, discIndex + 1);
+    }
     std::string toast;
     Uint32 toastAt = 0;
     uint16_t prevButtons = 0;
@@ -1394,8 +1448,20 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         std::vector<std::string> items;
         std::vector<bool> enabled;
         if (menu == Menu::Pause) {
-            items = {"Resume", "Save state", "Load state", "Reset", "Core options", "Quit to menu"};
-            enabled = {true, canState, canState && stateMatches(statePath), core.reset != nullptr, !g_optDefs.empty(), true};
+            pauseIds = {PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions};
+            if (discs > 1) pauseIds.push_back(PauseDisc);
+            pauseIds.push_back(PauseQuit);
+            for (int id : pauseIds) {
+                switch (id) {
+                case PauseResume: items.push_back("Resume"); enabled.push_back(true); break;
+                case PauseSave: items.push_back("Save state"); enabled.push_back(canState); break;
+                case PauseLoad: items.push_back("Load state"); enabled.push_back(canState && stateMatches(statePath)); break;
+                case PauseReset: items.push_back("Reset"); enabled.push_back(core.reset != nullptr); break;
+                case PauseOptions: items.push_back("Core options"); enabled.push_back(!g_optDefs.empty()); break;
+                case PauseDisc: items.push_back("Change disc (" + std::to_string(discIndex + 1) + " of " + std::to_string(discs) + ")"); enabled.push_back(true); break;
+                case PauseQuit: items.push_back("Quit to menu"); enabled.push_back(true); break;
+                }
+            }
         } else if (menu == Menu::Continue) {
             items = {"Continue where you left off", "Start from the beginning"};
             enabled = {true, true};
@@ -1471,16 +1537,31 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 else { ::unlink(autoPath.c_str()); if (core.reset) { CoreGL glScope; core.reset(); } }
                 closeMenu();
             } else if (confirm) {
-                switch (menuSel) {
-                case 0: closeMenu(); break;
-                case 1: toast = saveState(statePath) ? "State saved" : "Could not save the state"; toastAt = t; break;
-                case 2:
+                switch (menuSel < (int)pauseIds.size() ? pauseIds[menuSel] : -1) {
+                case PauseResume: closeMenu(); break;
+                case PauseSave: toast = saveState(statePath) ? "State saved" : "Could not save the state"; toastAt = t; break;
+                case PauseLoad:
                     if (loadState(statePath)) closeMenu();
                     else { toast = "Could not load the state"; toastAt = t; }
                     break;
-                case 3: { CoreGL glScope; core.reset(); } closeMenu(); break;
-                case 4: menu = Menu::Options; optSel = optTop = 0; break;
-                case 5:
+                case PauseReset: { CoreGL glScope; core.reset(); } closeMenu(); break;
+                case PauseOptions: menu = Menu::Options; optSel = optTop = 0; break;
+                case PauseDisc: {
+                    // Open the tray, put the next disc in, close it.
+                    CoreGL glScope;
+                    unsigned next = (discIndex + 1) % discs;
+                    bool ok = g_disc.set_eject_state(true) && g_disc.set_image_index(next) && g_disc.set_eject_state(false);
+                    discIndex = g_disc.get_image_index ? g_disc.get_image_index() : next;
+                    char label[128] = "";
+                    if (ok && g_discExt && g_disc.get_image_label) g_disc.get_image_label(discIndex, label, sizeof(label));
+                    toast = !ok ? "Could not change the disc"
+                                : "Disc " + std::to_string(discIndex + 1) + " of " + std::to_string(discs) +
+                                      (label[0] ? std::string(": ") + label : "");
+                    toastAt = t;
+                    log("disc: %s", toast.c_str());
+                    break;
+                }
+                case PauseQuit:
                     if (canState) saveState(autoPath);  // resume here next time
                     reason = "menu";
                     break;
