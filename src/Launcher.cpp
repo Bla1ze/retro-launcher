@@ -1218,6 +1218,8 @@ void Menu::renderSettings() {
     }
     AppFont::drawCentered(r, "Changes apply to the next game you start", w * 0.5f,
                           kListTop + defs.size() * (kRowH + kRowGap) + 20.0f, Theme::Type::Caption, Theme::Muted);
+    AppFont::drawCentered(r, "Retro Launcher v" APP_VERSION, w * 0.5f,
+                          kListTop + defs.size() * (kRowH + kRowGap) + 56.0f, Theme::Type::Caption, Theme::Faint);
     drawHeader("Retro Launcher", "Settings", m_setSel + 1, (int)defs.size());
     Theme::footerHints(r, w, "LEFT/RIGHT Change   B Back", "");
 }
@@ -1471,7 +1473,6 @@ void Menu::render(float dt) {
         Theme::confirmDialog(m_renderer, AppConfig::kLogicalWidth, AppConfig::kLogicalHeight, "Exit Retro Launcher?",
                              "Cancel", "Exit", m_confirmSel);
     renderToast();
-    AppFont::drawRight(m_renderer, "v" APP_VERSION, AppConfig::kLogicalWidth - Theme::kMargin, 18.0f, 16.0f, Theme::Faint);
     SDL_RenderSetScale(m_renderer, 1.0f, 1.0f);
     SDL_SetRenderTarget(m_renderer, nullptr);
 }

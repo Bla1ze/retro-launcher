@@ -201,22 +201,22 @@ inline void backgroundAnimated(SDL_Renderer* r, int w, int h, float time)
 // aligned on the margin. Content starts at y ~200.
 inline void header(SDL_Renderer* r, int w, const std::string& title, const std::string& subtitle)
 {
+    // Centered: the small caption, then the big title.
     const std::string big = subtitle.empty() ? title : subtitle;
     if (!subtitle.empty()) {
-        tracked(r, upper(title), kMargin, 44.0f, Type::Caption, accent());
+        trackedCentered(r, upper(title), w * 0.5f, 44.0f, Type::Caption, accent());
     }
-    const float maxW = w - kMargin * 2.0f - 120.0f; // leave room for a counter
+    const float maxW = w - kMargin * 2.0f;
     const float size = fitSize(r, upper(big), maxW, Type::Hero, Type::Heading, AppFont::Face::Display);
-    AppFont::draw(r, ellipsize(r, upper(big), maxW, size, AppFont::Face::Display),
-        kMargin, 76.0f + (Type::Hero - size) * 0.5f, size, Text, AppFont::Face::Display);
+    AppFont::drawCentered(r, ellipsize(r, upper(big), maxW, size, AppFont::Face::Display),
+        w * 0.5f, 76.0f + (Type::Hero - size) * 0.5f, size, Text, AppFont::Face::Display);
 }
-
-// Right-aligned "3 / 48" position counter on the header's caption row.
+// "3 / 18", centered under the title, above the list.
 inline void counter(SDL_Renderer* r, int w, int index, int total)
 {
     if (total <= 0) return;
-    trackedRight(r, std::to_string(index) + " / " + std::to_string(total),
-        w - kMargin, 44.0f, Type::Caption, Faint);
+    trackedCentered(r, std::to_string(index) + " / " + std::to_string(total),
+        w * 0.5f, 172.0f, Type::Caption, Faint);
 }
 
 // Selectable list row. Idle rows are a whisper of surface; the focused row is
