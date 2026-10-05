@@ -10,7 +10,8 @@
 #include <vector>
 
 // Settings > Download artwork: covers and logos for the games on the stick that
-// have none yet, from libretro-thumbnails, on a worker thread.
+// have none yet, from libretro-thumbnails, and a bezel for each system with
+// games (The Bezel Project), on a worker thread.
 //
 //   - Games that already have a cover / logo are skipped before anything is
 //     fetched; with nothing missing, no network is used at all.
@@ -39,6 +40,7 @@ private:
     void run();
     struct Listing { std::string origin; std::vector<std::string> names; };  // origin "libretro" / "github:<branch>"
     bool listing(const std::string& repo, const char* folder, Listing& out);
+    std::string bezelUrl(const std::string& repo);
     void setup();
     int curl(std::vector<std::string> args, const std::string& stdoutTo = "");
     bool fetch(const std::string& url, const std::string& dest, int maxTime, int& rc);

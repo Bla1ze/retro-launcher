@@ -157,6 +157,21 @@ const std::vector<Src>& sources() {
     return list;
 }
 
+// The Bezel Project's set per system (as tools/fetch_media.sh); PSP has none.
+const char* bezelRepo(const std::string& id) {
+    static const std::pair<const char*, const char*> repos[] = {
+        {"genesis", "bezelproject-MegaDrive"}, {"mastersystem", "bezelproject-MasterSystem"},
+        {"gamegear", "bezelproject-GameGear"}, {"nes", "bezelproject-NES"}, {"snes", "bezelproject-SNES"},
+        {"atari2600", "bezelproject-Atari2600"}, {"colecovision", "bezelproject-ColecoVision"},
+        {"gb", "bezelproject-GB"}, {"gbc", "bezelproject-GBC"}, {"gba", "bezelproject-GBA"},
+        {"pce", "bezelproject-PCEngine"}, {"lynx", "bezelproject-AtariLynx"}, {"psx", "bezelproject-PSX"},
+        {"dreamcast", "bezelproject-Dreamcast"}, {"n64", "bezelproject-N64"}, {"saturn", "bezelproject-Saturn"},
+        {"naomi", "bezelproject-Naomi"}, {"atomiswave", "bezelproject-Atomiswave"}};
+    for (const auto& r : repos)
+        if (id == r.first) return r.second;
+    return nullptr;
+}
+
 bool isFile(const std::string& p) {
     struct stat st;
     return ::stat(p.c_str(), &st) == 0 && S_ISREG(st.st_mode);
@@ -567,6 +582,45 @@ bool ArtDownload::listing(const std::string& repo, const char* folder, Listing& 
     return true;
 }
 
+// The download link of a Bezel Project set's system bezel (the first .png in
+// its retroarch/overlay folder), from the GitHub API; remembered in
+// media/.art-index/ for a month. "" when there is none or GitHub can't be reached.
+std::string ArtDownload::bezelUrl(const std::string& repo) {
+    const std::string dir = m_appDir + "/media/.art-index";
+    ::mkdir((m_appDir + "/media").c_str(), 0755);
+    ::mkdir(dir.c_str(), 0755);
+    const std::string cache = dir + "/bezel-" + repo + ".txt";
+    struct stat st;
+    if (::stat(cache.c_str(), &st) == 0 && std::time(nullptr) - st.st_mtime < 30 * 24 * 3600) {
+        std::string url = readFile(cache);
+        while (!url.empty() && (url.back() == '\n' || url.back() == '\r')) url.pop_back();
+        return url;
+    }
+    const std::string tmp = dir + "/.bezel.part";
+    ::unlink(tmp.c_str());
+    int rc = curl({"--max-time", "60", "-o", tmp,
+                   "https://api.github.com/repos/thebezelproject/" + repo + "/contents/retroarch/overlay"});
+    std::string body = rc == 0 ? readFile(tmp) : "";
+    ::unlink(tmp.c_str());
+    if (rc != 0) {
+        m_lastExit = rc;
+        if (isNetworkError(rc)) m_netDown = true;
+        log("art: no bezel list for %s (curl %d)", repo.c_str(), rc);
+        return "";
+    }
+    std::string url;
+    size_t at = 0;
+    while (url.empty()) {
+        std::string name = jsonNext(body, "name", at);
+        if (at == std::string::npos) break;
+        size_t urlAt = at;
+        std::string dl = jsonNext(body, "download_url", urlAt);
+        if (name.size() > 4 && name.compare(name.size() - 4, 4, ".png") == 0 && urlAt != std::string::npos) url = dl;
+    }
+    std::ofstream(cache) << url << "\n";  // remembered even when empty: this set has no bezel
+    return url;
+}
+
 // ---------------------------------------------------------------- the run
 
 void ArtDownload::run() {
@@ -601,7 +655,13 @@ void ArtDownload::run() {
             }
         }
     }
-    log("art: %d game(s) without a cover, %d without a logo", coverNeeds, logoNeeds);
+    // Systems with games and no bezel yet.
+    std::vector<size_t> bezelNeeds;
+    for (size_t s = 0; s < m_work.size(); ++s)
+        if (!m_work[s].games.empty() && bezelRepo(m_work[s].id) && !isFile(m_appDir + "/media/" + m_work[s].id + "/bezel.png"))
+            bezelNeeds.push_back(s);
+    log("art: %d game(s) without a cover, %d without a logo, %zu system(s) without a bezel", coverNeeds, logoNeeds,
+        bezelNeeds.size());
 
     struct Job { std::vector<std::string> urls; std::string dest; bool logo; };  // urls: tried in order
     // Source files known to be broken (incomplete upstream), skipped so the next
@@ -754,7 +814,28 @@ void ArtDownload::run() {
     log("art: looking again for the games whose file was broken");
     }
 
-    // 4. The menu sees the new files (not when it is closing: it rereads them).
+    // 4. Bezels (The Bezel Project), one per system: the frame around the game.
+    std::atomic<int> bezels{0};
+    for (size_t s : bezelNeeds) {
+        if (m_stop || m_netDown) break;
+        const std::string& id = m_work[s].id;
+        const Library::System* sys = Library::findSystem(id);
+        setStatus("Bezel for " + (sys ? sys->name : id));
+        const std::string url = bezelUrl(bezelRepo(id));
+        if (url.empty()) continue;
+        ::mkdir((m_appDir + "/media/" + id).c_str(), 0755);
+        int rc = 0;
+        if (fetch(url, m_appDir + "/media/" + id + "/bezel.png", 120, rc)) {
+            ++bezels;
+            log("art: bezel for %s", id.c_str());
+        } else if (!m_stop) {
+            ++failed;
+            log("art: bezel for %s failed (curl %d)", id.c_str(), rc);
+            if (isNetworkError(rc)) m_lastExit = rc;
+        }
+    }
+
+    // 5. The menu sees the new files (not when it is closing: it rereads them).
     if (!m_quitting)
         for (const std::string& sys : touched) refreshArtIndex(m_appDir, sys);
 
@@ -766,14 +847,16 @@ void ArtDownload::run() {
     }
 
     std::string msg;
-    if (m_netDown && covers + logos == 0) msg = netMessage(m_lastExit);
+    if (m_netDown && covers + logos + bezels == 0) msg = netMessage(m_lastExit);
     else if (m_stop) msg = "Artwork download stopped";
-    else if (coverNeeds + logoNeeds == 0) msg = "Every game already has artwork";
-    else if (covers + logos == 0 && !failed)
+    else if (coverNeeds + logoNeeds == 0 && bezelNeeds.empty()) msg = "Every game already has artwork";
+    else if (covers + logos + bezels == 0 && !failed)
         msg = "No new artwork" + (notFound.empty() ? std::string() : " - " + std::to_string(notFound.size()) +
                                   " games have no cover online");
     else {
-        msg = "Artwork: " + std::to_string(covers.load()) + " covers, " + std::to_string(logos.load()) + " logos added";
+        msg = "Artwork: " + std::to_string(covers.load()) + " covers, " + std::to_string(logos.load()) + " logos";
+        if (bezels) msg += ", " + std::to_string(bezels.load()) + (bezels == 1 ? " bezel" : " bezels");
+        msg += " added";
         if (failed) msg += ", " + std::to_string(failed.load()) + " failed";
         else if (!notFound.empty()) msg += ", " + std::to_string(notFound.size()) + " not found";
         if (m_netDown) msg += " (connection lost)";

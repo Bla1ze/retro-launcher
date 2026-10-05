@@ -250,7 +250,10 @@ The repository contains no artwork.
 
 **From the cabinet:** connect it to the internet, then pick **Settings >
 Download artwork**. This downloads covers and logos for your games from
-[libretro-thumbnails](https://github.com/libretro-thumbnails):
+[libretro-thumbnails](https://github.com/libretro-thumbnails), and a bezel (the
+frame around the picture) for each system you have games for, from
+[The Bezel Project](https://github.com/thebezelproject) (personal use; there is
+none for PSP):
 
 - **Only what's missing.** Games that already have a cover or logo are skipped,
   and so are files already on the stick.
@@ -364,6 +367,24 @@ The output is `dist/external/retro-launcher/`. The build ends with the SDK's
 compatibility check (glibc ≤ 2.26). The SDK's toolchain file sets no
 optimization level, so this project forces a Release (`-O3`) build itself.
 
+### Making a release
+
+```sh
+tools/make_release.sh /path/to/staging/external/retro-launcher   # -> release/retro-launcher-v<version>.zip
+```
+
+The zip holds `INSTALL.txt` and `external/retro-launcher/`, ready to unzip to
+the root of a USB stick. The script copies only an allow-list from the staging
+folder:
+- the app;
+- the cores with `CORES.txt`;
+- PPSSPP's support files and FBNeo's `hiscore.dat`;
+- `licenses/`;
+- the console pictures with their credits.
+
+It then refuses to finish if anything personal or downloaded got in: games,
+saves, settings, logs, BIOS or zips, box art, logos or bezels.
+
 ### Building the cores
 
 Prebuilt libretro cores from the libretro buildbot need glibc 2.29+ and do not
@@ -473,6 +494,7 @@ from the cabinet at run time and are not distributed here.
 - Box art and game logos (marquees): [libretro-thumbnails](https://github.com/libretro-thumbnails)
   (`Named_Boxarts`, `Named_Logos`; arcade logos from its MAME set).
 - Bezels: [The Bezel Project](https://github.com/thebezelproject), fan-made, for personal use.
+  Each cabinet downloads its own (Settings > Download artwork); releases don't include them.
 - Console photos: Evan Amos, [Wikimedia Commons](https://commons.wikimedia.org/wiki/User:Evan-Amos).
   Public domain, except the SNES, Atari Lynx, Dreamcast and Neo Geo photos, which are
   [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). The app changes them on
