@@ -95,6 +95,13 @@ std::string niceTitle(const std::string& appDir, const std::string& system, cons
 // Reads media/<system>/Named_Boxarts once so findArt's title matching is quick
 // later (thousands of files on a USB stick). Call off the UI thread.
 void warmArtIndex(const std::string& appDir, const std::string& system);
+// Reads media/<system>/Named_Boxarts and Named_Logos again (art was added).
+void refreshArtIndex(const std::string& appDir, const std::string& system);
+// Indexes a list of file names under `dir` instead of reading a folder, so
+// matchCover can match against a download server's list.
+void setArtIndex(const std::string& dir, const std::vector<std::string>& names);
+// The file in `base` + `folder` whose title matches the ROM `stem`'s, or "".
+std::string matchCover(const std::string& base, const std::string& stem, const char* folder);
 
 // The console photo cut out of its white background, cropped and scaled to fit
 // maxW x maxH: RGBA, straight alpha. Slow (full-size decode): call off the UI thread.

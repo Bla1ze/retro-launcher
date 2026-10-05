@@ -189,8 +189,27 @@ external/retro-launcher/
 
 ### Artwork
 
-The repository contains no artwork. Two scripts download it into the app folder
-on your USB stick (macOS: they use `sips` to convert images):
+The repository contains no artwork.
+
+**From the cabinet:** connect it to the internet, then pick **Settings >
+Download artwork**. This downloads covers and logos for your games from
+[libretro-thumbnails](https://github.com/libretro-thumbnails):
+
+- **Only what's missing.** Games that already have a cover or logo are skipped,
+  and so are files already on the stick.
+- **Lists are fetched once a week.** Each system's list of covers comes from
+  thumbnails.libretro.com. Sets that server lacks come from GitHub instead
+  (arcade logos and a few others). The lists are kept in `media/.art-index/`.
+  Running it again within the week downloads only new files.
+- **Matching:** files are matched by title, in the same way as prefilled covers.
+  They are saved as PNG in `media/<system>/Named_Boxarts/` and `Named_Logos/`.
+- **Unmatched games** are listed in `media/art-not-found.txt`.
+
+The download runs in the background while you browse. Starting a game stops it;
+pick it again later to continue. It uses the firmware's `curl`.
+
+**From a computer:** these scripts download the artwork into the app folder on
+your USB stick. On macOS they use `sips` to convert the images.
 
 ```sh
 tools/fetch_media.sh  /Volumes/USB/external/retro-launcher           # bezels + console photos
@@ -256,6 +275,12 @@ stored in `data/settings.cfg` (key = value):
 | Screen artwork | `panels` | `on`, `off` | `on` |
 | Default game screen | `screen.default` | `backglass`, `playfield` | `backglass` |
 | Playfield game rotation | `rotate.playfield` | `90`, `270` | `90` |
+| Arcade: hide clones & broken sets | `arcade.hide` | `off`, `on` | `off` |
+
+Below the settings are two actions:
+- **Download artwork** adds covers and logos for games that have none (see Artwork).
+  Press A again while it runs to stop it.
+- **Empty trash** deletes the games removed with Home > Remove game.
 
 Per-game screens are stored as `game.<system>/<rom file> = backglass|playfield`.
 
@@ -380,7 +405,7 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 The firmware's own cores (Genesis Plus GX, QuickNES, SNES Faust, Stella and
 others) are loaded from the cabinet at run time and are not distributed here.
 
-**Artwork** (downloaded by the tools, not in this repository)
+**Artwork** (downloaded by Settings > Download artwork or the tools, not in this repository)
 
 - Box art and game logos (marquees): [libretro-thumbnails](https://github.com/libretro-thumbnails)
   (`Named_Boxarts`, `Named_Logos`; arcade logos from its MAME set).

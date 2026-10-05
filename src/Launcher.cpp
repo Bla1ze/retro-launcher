@@ -2,6 +2,7 @@
 
 #include "AppConfig.h"
 #include "AppFont.h"
+#include "ArtDownload.h"
 #include "Arcade.h"
 #include "DisplayProfile.h"
 #include "GamePanels.h"
@@ -42,6 +43,7 @@ using Library::ScreenId;
 constexpr float kListTop = 210.0f;
 constexpr float kRowH = 92.0f;
 constexpr float kRowGap = 10.0f;
+constexpr float kSetRowH = 84.0f;  // Settings rows, a little shorter so they all fit
 constexpr float kListBottom = Theme::kFooterTop - 24.0f;
 
 // Search layout.
@@ -216,7 +218,7 @@ private:
 
     // "Exit Retro Launcher?" on B at the consoles list.
     // A yes/no question over the menu: exit, remove a game, empty the trash.
-    enum class Confirm { None, Exit, Remove, EmptyTrash } m_confirm = Confirm::None;
+    enum class Confirm { None, Exit, Remove, EmptyTrash, StopArt } m_confirm = Confirm::None;
     int m_confirmSel = 0;  // 0 Cancel, 1 the action
     std::string m_confirmQ, m_confirmOk;
     void ask(Confirm what, const std::string& question, const std::string& ok) {
@@ -225,6 +227,13 @@ private:
     int m_removeSys = 0, m_removeGame = 0;
     void removeGame(int sys, int game);
     unsigned long long m_trashBytes = 0;  // measured when Settings opens and after changes
+
+    // Settings > Download artwork (ArtDownload.h), after the setting rows and before Empty trash.
+    ArtDownload m_art;
+    std::string m_artLast;  // the last run's result, shown on the row
+    int artRow() const { return (int)settingDefs().size(); }
+    int trashRow() const { return (int)settingDefs().size() + 1; }
+    void startArtDownload();
 
     // Home on a game: options popup.
     bool m_popup = false;
@@ -383,6 +392,7 @@ bool Menu::initVideo() {
 }
 
 void Menu::shutdown() {
+    m_art.stop();  // a game is starting (or the menu is closing): the rest waits for next time
     if (m_iconThread.joinable()) {
         m_iconStop = true;
         // Finished: join. Mid-photo: let it go; exec is next and ends it.
@@ -443,7 +453,7 @@ void Menu::move(int delta) {
         return std::max(0, std::min(n - 1, cur + delta));
     };
     if (m_view == View::Systems) { m_sysRow = step(m_sysRow, systemRows()); return; }
-    if (m_view == View::Settings) { m_setSel = step(m_setSel, (int)settingDefs().size() + 1); return; }  // + Empty trash
+    if (m_view == View::Settings) { m_setSel = step(m_setSel, trashRow() + 1); return; }  // + Download artwork, Empty trash
     if (m_view == View::Recent) { m_recentSel = step(m_recentSel, (int)m_recent.size()); return; }
     if (m_view == View::Games) m_gameSel = step(m_gameSel, (int)m_systems[sysIndex()].shown.size());
     if (m_view == View::Genres) m_genreSel = step(m_genreSel, (int)genreRows(sysIndex()).size());
@@ -556,6 +566,30 @@ std::string Menu::artFor(int sys, const Library::Game& g) const {
     if (p.empty() && g.arcade) p = findArt(m_appDir, m_systems[sys].sys->id, g.title + ".zip");
     if (p.empty() && !g.altTitle.empty()) p = findArt(m_appDir, m_systems[sys].sys->id, g.altTitle + ".zip");
     return p;
+}
+
+// Every game's names as artFor tries them, for the downloader to match.
+void Menu::startArtDownload() {
+    std::vector<ArtDownload::System> work;
+    for (const SystemEntry& e : m_systems) {
+        if (e.games.empty()) continue;
+        ArtDownload::System s;
+        s.id = e.sys->id;
+        for (const Library::Game& g : e.games) {
+            size_t slash = g.file.find('/');
+            ArtDownload::Game a;
+            a.names.push_back(slash == std::string::npos ? g.file
+                                                         : g.file.substr(0, slash) + g.file.substr(g.file.find_last_of('.')));
+            if (g.arcade && !g.title.empty()) a.names.push_back(g.title + ".zip");
+            if (!g.altTitle.empty()) a.names.push_back(g.altTitle + ".zip");
+            s.games.push_back(std::move(a));
+        }
+        work.push_back(std::move(s));
+    }
+    if (work.empty()) { m_toast = "Add some games first"; m_toastTime = 0.0f; return; }
+    m_art.start(m_appDir, std::move(work));
+    m_toast = "Downloading artwork - you can keep playing in the menu";
+    m_toastTime = 0.0f;
 }
 
 std::string Menu::logoFor(int sys, const Library::Game& g) const {
@@ -825,6 +859,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             if (m_confirmSel == 1) {
                 if (what == Confirm::Exit) running = false;
                 else if (what == Confirm::Remove) removeGame(m_removeSys, m_removeGame);
+                else if (what == Confirm::StopArt) m_art.stop();
                 else if (what == Confirm::EmptyTrash) {
                     m_toast = Library::emptyTrash(m_appDir) ? "Trash emptied" : "Some files could not be removed";
                     m_toastTime = 0.0f;
@@ -883,6 +918,10 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     case CE::Start:
         if (m_view == View::Settings) {
             if (m_setSel < (int)settingDefs().size()) changeSetting(1);
+            else if (m_setSel == artRow()) {
+                if (m_art.running()) ask(Confirm::StopArt, "Stop downloading artwork?", "Stop");
+                else startArtDownload();
+            }
             else if (m_trashBytes == 0) { m_toast = "The trash is empty"; m_toastTime = 0.0f; }
             else ask(Confirm::EmptyTrash, "Empty the trash?", "Delete for good");
             break;
@@ -1478,9 +1517,9 @@ void Menu::renderSettings() {
     const std::vector<SettingDef>& defs = settingDefs();
     for (int i = 0; i < (int)defs.size(); ++i) {
         const SettingDef& d = defs[i];
-        float y = kListTop + i * (kRowH + kRowGap);
+        float y = kListTop + i * (kSetRowH + kRowGap);
         bool active = i == m_setSel;
-        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kSetRowH};
         Theme::rowCard(r, row, active);
         std::string cur = m_settings.value(d.key, d.values[0]);
         if (d.key == "sides" && m_settings.value("sides", "").empty())
@@ -1488,37 +1527,51 @@ void Menu::renderSettings() {
                       ? (m_settings.value("bars", "ambient") == "black" ? "black" : "glow") : "bezel";
         auto it = std::find(d.values.begin(), d.values.end(), cur);
         std::string label = d.labels[it == d.values.end() ? 0 : it - d.values.begin()];
-        AppFont::draw(r, d.label, row.x + 24.0f, y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
+        AppFont::draw(r, d.label, row.x + 24.0f, y + (kSetRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
                       active ? Theme::Text : Theme::TextDim);
         // Value with arrows either side when highlighted.
         float vw = AppFont::measureWidth(r, label, Theme::Type::Body);
         float vx = row.x + row.w - 24.0f - vw - (active ? 30.0f : 0.0f);
-        AppFont::draw(r, label, vx, y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
+        AppFont::draw(r, label, vx, y + (kSetRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,
                       active ? Theme::accent() : Theme::Muted);
         if (active) {
-            Gfx::triangle(r, {vx - 30.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 180.0, Theme::accent());
-            Gfx::triangle(r, {row.x + row.w - 42.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
+            Gfx::triangle(r, {vx - 30.0f, y + kSetRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 180.0, Theme::accent());
+            Gfx::triangle(r, {row.x + row.w - 42.0f, y + kSetRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
         }
     }
-    {   // Empty trash: games removed with Home > Remove game wait in trash/ until then.
-        const int i = (int)defs.size();
-        float y = kListTop + i * (kRowH + kRowGap);
+    {   // Download artwork: covers and logos for games without them.
+        const int i = artRow();
+        float y = kListTop + i * (kSetRowH + kRowGap);
         bool active = i == m_setSel;
-        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kSetRowH};
+        Theme::rowCard(r, row, active);
+        float ty = y + (kSetRowH - Theme::Type::Body) * 0.5f - 4.0f;
+        std::string value = m_art.running() ? m_art.status() : "Missing only";
+        AppFont::draw(r, "Download artwork", row.x + 24.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+        float room = row.w - 72.0f - AppFont::measureWidth(r, "Download artwork", Theme::Type::Body);
+        value = Theme::ellipsize(r, value, room, Theme::Type::Body, AppFont::Face::Body);
+        AppFont::drawRight(r, value, row.x + row.w - 24.0f, ty, Theme::Type::Body,
+                           m_art.running() || active ? Theme::accent() : Theme::Muted);
+    }
+    {   // Empty trash: games removed with Home > Remove game wait in trash/ until then.
+        const int i = trashRow();
+        float y = kListTop + i * (kSetRowH + kRowGap);
+        bool active = i == m_setSel;
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kSetRowH};
         Theme::rowCard(r, row, active);
         char size[32];
         if (m_trashBytes == 0) std::snprintf(size, sizeof(size), "Empty");
         else if (m_trashBytes < 1024ull * 1024 * 1024) std::snprintf(size, sizeof(size), "%.0f MB", m_trashBytes / 1048576.0);
         else std::snprintf(size, sizeof(size), "%.1f GB", m_trashBytes / 1073741824.0);
-        float ty = y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f;
+        float ty = y + (kSetRowH - Theme::Type::Body) * 0.5f - 4.0f;
         AppFont::draw(r, "Empty trash", row.x + 24.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
         AppFont::drawRight(r, size, row.x + row.w - 24.0f, ty, Theme::Type::Body, active ? Theme::accent() : Theme::Muted);
     }
-    const float below = kListTop + (defs.size() + 1) * (kRowH + kRowGap);
+    const float below = kListTop + (trashRow() + 1) * (kSetRowH + kRowGap);
     AppFont::drawCentered(r, "Changes apply to the next game you start", w * 0.5f, below + 20.0f, Theme::Type::Caption,
                           Theme::Muted);
     AppFont::drawCentered(r, "Retro Launcher v" APP_VERSION, w * 0.5f, below + 56.0f, Theme::Type::Caption, Theme::Faint);
-    drawHeader("Retro Launcher", "Settings", m_setSel + 1, (int)defs.size() + 1);
+    drawHeader("Retro Launcher", "Settings", m_setSel + 1, trashRow() + 1);
     Theme::footerHints(r, w, "LEFT/RIGHT Change   B Back", "");
 }
 
@@ -1890,6 +1943,12 @@ int Menu::run() {
         Uint32 now = SDL_GetTicks();
         float dt = std::min((now - last) / 1000.0f, 0.033f);
         last = now;
+        std::string art;
+        if (m_art.takeResult(art)) {
+            m_toast = m_artLast = art;
+            m_toastTime = 0.0f;
+            m_panelKey.clear();  // the highlighted game may have art now
+        }
         render(dt);
         present();
         updatePanels(dt);

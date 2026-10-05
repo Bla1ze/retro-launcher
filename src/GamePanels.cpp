@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include <dirent.h>
+#include <list>
 #include <map>
 #include <set>
 #include <sys/mman.h>
@@ -568,8 +569,11 @@ std::string titleKey(std::string t, bool underscoreAnd = true) {
         if (j == std::string::npos) j = t.size();
         std::string w = t.substr(i, j - i);
         for (char& ch : w) ch = (char)std::tolower((unsigned char)ch);
-        auto r = romans.find(w);
-        words += (r != romans.end() ? r->second : w) + " ";
+        // Punctuation after a numeral counts too ("II:", "II_" in MAME's names, "II'").
+        size_t core = w.size();
+        while (core > 0 && !std::isalnum((unsigned char)w[core - 1])) --core;
+        auto r = romans.find(w.substr(0, core));
+        words += (r != romans.end() ? r->second + w.substr(core) : w) + " ";
         i = j + 1;
     }
     t = words;
@@ -625,37 +629,48 @@ int coverScore(const std::string& file, const std::string& region) {
     return 100 + parens;
 }
 
+using ArtIndex = std::map<std::string, std::vector<std::string>>;
+
+// File names indexed by title key (and "\x01" + main title key).
+ArtIndex buildIndex(const std::vector<std::string>& names) {
+    ArtIndex index;
+    for (const std::string& n : names) {
+        if (n.empty() || n[0] == '.') continue;
+        const std::string t = titleOf(n.substr(0, n.find_last_of('.')));
+        for (int pass = 0; pass < (t.find('_') != std::string::npos ? 2 : 1); ++pass) {
+            std::string k = titleKey(t, pass == 0);
+            if (k.empty()) continue;
+            auto add = [&](const std::string& key) {
+                std::vector<std::string>& v = index[key];
+                if (v.empty() || v.back() != n) v.push_back(n);
+            };
+            add(k);
+            if (k.compare(0, 3, "the") == 0 && k.size() > 3) add(k.substr(3));
+            std::string m = titleKey(mainTitle(t), pass == 0);
+            if (!m.empty()) add("\x01" + m);  // by main title
+            if (m.compare(0, 3, "the") == 0 && m.size() > 3) add("\x01" + m.substr(3));
+        }
+    }
+    return index;
+}
+
+std::vector<std::string> listDir(const std::string& dir) {
+    std::vector<std::string> names;
+    if (DIR* d = ::opendir(dir.c_str())) {
+        while (struct dirent* e = ::readdir(d)) names.push_back(e->d_name);
+        ::closedir(d);
+    }
+    return names;
+}
+
+std::mutex g_indexMu;
+std::map<std::string, ArtIndex> g_indexes;  // by folder (or a downloader list's name)
+
 // media/<system>/Named_Boxarts indexed by title key, built once per system.
 const std::vector<std::string>* coversFor(const std::string& dir, const std::string& key) {
-    static std::mutex mu;
-    static std::map<std::string, std::map<std::string, std::vector<std::string>>> cache;
-    std::lock_guard<std::mutex> lock(mu);
-    auto it = cache.find(dir);
-    if (it == cache.end()) {
-        std::map<std::string, std::vector<std::string>>& index = cache[dir];
-        if (DIR* d = ::opendir(dir.c_str())) {
-            while (struct dirent* e = ::readdir(d)) {
-                std::string n = e->d_name;
-                if (n.empty() || n[0] == '.') continue;
-                const std::string t = titleOf(n.substr(0, n.find_last_of('.')));
-                for (int pass = 0; pass < (t.find('_') != std::string::npos ? 2 : 1); ++pass) {
-                    std::string k = titleKey(t, pass == 0);
-                    if (k.empty()) continue;
-                    auto add = [&](const std::string& key) {
-                        std::vector<std::string>& v = index[key];
-                        if (v.empty() || v.back() != n) v.push_back(n);
-                    };
-                    add(k);
-                    if (k.compare(0, 3, "the") == 0 && k.size() > 3) add(k.substr(3));
-                    std::string m = titleKey(mainTitle(t), pass == 0);
-                    if (!m.empty()) add("\x01" + m);  // by main title
-                    if (m.compare(0, 3, "the") == 0 && m.size() > 3) add("\x01" + m.substr(3));
-                }
-            }
-            ::closedir(d);
-        }
-        it = cache.find(dir);
-    }
+    std::lock_guard<std::mutex> lock(g_indexMu);
+    auto it = g_indexes.find(dir);
+    if (it == g_indexes.end()) it = g_indexes.emplace(dir, buildIndex(listDir(dir))).first;
     auto hit = it->second.find(key);
     return hit == it->second.end() ? nullptr : &hit->second;
 }
@@ -665,6 +680,23 @@ const std::vector<std::string>* coversFor(const std::string& dir, const std::str
 void warmArtIndex(const std::string& appDir, const std::string& system) {
     coversFor(appDir + "/media/" + system + "/Named_Boxarts", "");
     coversFor(appDir + "/media/" + system + "/Named_Logos", "");
+}
+
+void setArtIndex(const std::string& dir, const std::vector<std::string>& names) {
+    ArtIndex index = buildIndex(names);  // outside the lock: lookups carry on meanwhile
+    std::lock_guard<std::mutex> lock(g_indexMu);
+    g_indexes[dir].swap(index);
+    // matchCover holds pointers into an index after the lock is released, so
+    // a folder's old index is kept (a download list's only the downloader reads).
+    static std::list<ArtIndex> retired;
+    if (!dir.empty() && dir[0] != '@') retired.push_back(std::move(index));
+}
+
+void refreshArtIndex(const std::string& appDir, const std::string& system) {
+    for (const char* f : {"/Named_Boxarts", "/Named_Logos"}) {
+        std::string dir = appDir + "/media/" + system + f;
+        setArtIndex(dir, listDir(dir));
+    }
 }
 
 std::string matchCover(const std::string& base, const std::string& stem, const char* folder);

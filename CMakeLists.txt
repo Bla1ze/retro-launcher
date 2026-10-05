@@ -40,6 +40,7 @@ add_executable(${ATGAMES_APP_NAME}
     src/controls/Controls.cpp
     src/Ambient.cpp
     src/AppFont.cpp
+    src/ArtDownload.cpp
     src/Arcade.cpp
     src/GamePanels.cpp
     src/Gfx.cpp
