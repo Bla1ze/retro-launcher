@@ -439,6 +439,9 @@ const char* preferredDefault(const std::string& key) {
     if (key == "reicast_internal_resolution") return "1280x960";  // Dreamcast / NAOMI 2x
     if (key == "ppsspp_internal_resolution") return "960x544";    // PSP 2x (3x was too heavy for e.g. GTA: LCS)
     if (key == "mupen64plus-43screensize") return "1280x960";     // N64 2x
+    // Saturn: heavy scenes are CPU-bound (SH-2 emulation), so it skips drawing
+    // a frame when behind instead of starving the audio.
+    if (key == "yabasanshiro_frameskip") return "enabled";
     // N64 C buttons on their own buttons: the cabinet has no right stick, and
     // holding a trigger for them (the core's default) is awkward on a cabinet.
     if (key == "mupen64plus-alt-map") return "True";

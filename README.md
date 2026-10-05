@@ -136,7 +136,8 @@ systems without logos (Game Boy Color, Lynx, PSP) keep the title / console photo
 GPU systems render above their original resolution by default: Dreamcast,
 NAOMI and N64 at 2x (1280x960), PSP at 2x (960x544; 3x was too slow for
 heavier games like GTA: Liberty City Stories). Saturn stays at its
-original resolution (YabaSanshiro has no headroom for more in heavy games). Each
+original resolution (YabaSanshiro has no headroom for more in heavy games), with
+auto-frameskip on, so busy scenes drop a drawn frame rather than the sound. Each
 can be changed in the pause menu's Core options.
 
 ### NAOMI and Atomiswave
