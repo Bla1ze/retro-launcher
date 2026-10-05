@@ -34,6 +34,7 @@ public:
         std::vector<std::pair<std::string, std::string>> controls;  // Playing: "A" -> "B button"
         std::string consolePath;  // Playing: photo of the console for the DMD, or empty
         std::string logoPath;     // the game's logo for the DMD (marquee), or empty
+        std::string icon;         // Browse, the menu's own rows: "search", "recent", "favorites", "settings"
     };
     enum class Mode { Browse, Playing };
 
@@ -107,6 +108,9 @@ std::string matchCover(const std::string& base, const std::string& stem, const c
 // maxW x maxH: RGBA, straight alpha. Slow (full-size decode): call off the UI thread.
 bool consoleCutout(const std::string& appDir, const std::string& system, int maxW, int maxH,
                    std::vector<uint8_t>& out, int& outW, int& outH);
+
+// The same for any picture file (white background keyed out unless it has alpha).
+bool cutoutFile(const std::string& path, int maxW, int maxH, std::vector<uint8_t>& out, int& outW, int& outH);
 
 // media/<system>/console.png or .jpg, or empty.
 std::string findConsoleArt(const std::string& appDir, const std::string& system);

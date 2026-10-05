@@ -481,7 +481,10 @@ bool loadImage(const std::string& path, std::vector<uint8_t>& out, int& w, int& 
 
 bool consoleCutout(const std::string& appDir, const std::string& system, int maxW, int maxH,
                    std::vector<uint8_t>& out, int& outW, int& outH) {
-    std::string path = findConsoleArt(appDir, system);
+    return cutoutFile(findConsoleArt(appDir, system), maxW, maxH, out, outW, outH);
+}
+
+bool cutoutFile(const std::string& path, int maxW, int maxH, std::vector<uint8_t>& out, int& outW, int& outH) {
     std::vector<uint8_t> img;
     int w = 0, h = 0;
     if (path.empty() || !loadImage(path, img, w, h)) return false;
@@ -1043,11 +1046,25 @@ void GamePanels::compose(const Item& item) {
     }
     // No art yet: a generated cover (games only; systems keep the title card).
     if (art.empty() && !item.title.empty()) art = makeCover(item.system, item.title, aw, ah);
+    // The console picture, cut out once at DMD size and kept: full-size photos
+    // take a while to decode, and the consoles list asks for them on every move.
+    static std::map<std::string, std::pair<std::vector<uint8_t>, std::pair<int, int>>> cutouts;
     std::vector<uint8_t> console;
     int cw = 0, ch = 0;
     if (!item.consolePath.empty()) {
-        if (loadImage(item.consolePath, console, cw, ch)) keyOutWhite(console, cw, ch);
-        else log("panels: could not decode %s", item.consolePath.c_str());
+        auto it = cutouts.find(item.consolePath);
+        if (it == cutouts.end()) {
+            std::vector<uint8_t> px;
+            int w = 0, h = 0;
+            if (!cutoutFile(item.consolePath, 1200, 760, px, w, h)) {
+                log("panels: could not decode %s", item.consolePath.c_str());
+                px.clear();
+            }
+            it = cutouts.emplace(item.consolePath, std::make_pair(std::move(px), std::make_pair(w, h))).first;
+        }
+        console = it->second.first;
+        cw = it->second.second.first;
+        ch = it->second.second.second;
     }
     std::vector<uint8_t> logo;
     int lw = 0, lh = 0;
@@ -1083,6 +1100,8 @@ void GamePanels::composeBackglass(Panel& p, const Item& item, const std::vector<
     text(c, W, H, item.detail, W * 0.5f, H * 0.62f, H * 0.055f, kGold, PanelFont::Face::Body, W * 0.8f);
 }
 
+void rowIcon(std::vector<uint8_t>& c, int W, int H, const std::string& kind, float x, float y, float s);
+
 void GamePanels::composeDmd(Panel& p, const Item& item, const std::vector<uint8_t>& console, int cw, int ch,
                             const std::vector<uint8_t>& logo, int lw, int lh) {
     const int W = p.vw, H = p.vh;
@@ -1108,13 +1127,87 @@ void GamePanels::composeDmd(Panel& p, const Item& item, const std::vector<uint8_
         return;
     }
     if (item.title.empty()) {
-        text(c, W, H, "RETRO LAUNCHER", W * 0.5f, H * 0.16f, H * 0.12f, kTeal, PanelFont::Face::Display, W * 0.9f);
-        text(c, W, H, item.system, W * 0.5f, H * 0.38f, H * 0.26f, kInk, PanelFont::Face::Display, W * 0.92f);
+        // The consoles list: the backglass names the row, so the DMD shows the
+        // console itself, or the launcher's logo for Search, Favorites and the rest.
+        if (!console.empty()) {
+            glow(c, W, H, W * 0.5f, H * 0.5f, W * 0.42f, kWhite, 0.10f);
+            blitFit(c, W, H, console, cw, ch, (int)(W * 0.05f), (int)(H * 0.07f), (int)(W * 0.90f), (int)(H * 0.86f));
+        } else if (!item.icon.empty()) {
+            const float s = H * 0.74f;
+            glow(c, W, H, W * 0.5f, H * 0.5f, s * 0.75f, kWhite, 0.08f);
+            rowIcon(c, W, H, item.icon, W * 0.5f - s * 0.5f, H * 0.5f - s * 0.5f, s);
+        } else {
+            glow(c, W, H, W * 0.5f, H * 0.42f, W * 0.40f, kViolet, 0.30f);
+            text(c, W, H, "RETRO", W * 0.5f, H * 0.10f, H * 0.40f, kInk, PanelFont::Face::Display, W * 0.9f);
+            text(c, W, H, "LAUNCHER", W * 0.5f, H * 0.56f, H * 0.22f, kTeal, PanelFont::Face::Display, W * 0.9f);
+        }
+        return;
     } else {
         text(c, W, H, item.system, W * 0.5f, H * 0.14f, H * 0.13f, kGold, PanelFont::Face::Display, W * 0.9f);
         text(c, W, H, item.title, W * 0.5f, H * 0.38f, H * 0.24f, kInk, PanelFont::Face::Display, W * 0.94f);
     }
     text(c, W, H, item.detail, W * 0.5f, H * 0.76f, H * 0.09f, kTeal, PanelFont::Face::Body, W * 0.9f);
+}
+
+// Fills, 4x4 supersampled, the pixels of the box for which inside(x, y) holds.
+template <class F>
+void fillShape(std::vector<uint8_t>& c, int W, int H, int x0, int y0, int x1, int y1, const uint8_t col[3], F inside) {
+    for (int y = std::max(0, y0); y < std::min(H, y1); ++y)
+        for (int x = std::max(0, x0); x < std::min(W, x1); ++x) {
+            int n = 0;
+            for (int sy = 0; sy < 4; ++sy)
+                for (int sx = 0; sx < 4; ++sx) n += inside(x + (sx + 0.5f) / 4, y + (sy + 0.5f) / 4);
+            if (!n) continue;
+            uint8_t* p = &c[((size_t)y * W + x) * 4];
+            for (int k = 0; k < 3; ++k) p[k] = (uint8_t)(p[k] + (col[k] - p[k]) * n / 16);
+        }
+}
+
+float segDist(float px, float py, float ax, float ay, float bx, float by) {
+    float dx = bx - ax, dy = by - ay;
+    float t = std::max(0.0f, std::min(1.0f, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
+    return std::hypot(px - ax - t * dx, py - ay - t * dy);
+}
+
+// The menu's row icons (Theme::icon: Search, Clock, Heart, Gear), drawn in an
+// s-pixel square at (x, y).
+void rowIcon(std::vector<uint8_t>& c, int W, int H, const std::string& kind, float x, float y, float s) {
+    static const uint8_t rose[3] = {239, 92, 120}, steel[3] = {150, 160, 185};
+    const float t = s * 0.085f, cx = x + s * 0.5f, cy = y + s * 0.5f;
+    const int X0 = (int)x, Y0 = (int)y, X1 = (int)(x + s) + 1, Y1 = (int)(y + s) + 1;
+    if (kind == "search") {
+        const float rx = x + s * 0.43f, ry = y + s * 0.43f, r = s * 0.27f;
+        fillShape(c, W, H, X0, Y0, X1, Y1, kTeal, [&](float px, float py) {
+            return std::fabs(std::hypot(px - rx, py - ry) - r) <= t * 0.5f ||
+                   segDist(px, py, x + s * 0.64f, y + s * 0.64f, x + s * 0.86f, y + s * 0.86f) <= t * 0.58f;
+        });
+    } else if (kind == "recent") {
+        fillShape(c, W, H, X0, Y0, X1, Y1, kViolet, [&](float px, float py) {
+            return std::fabs(std::hypot(px - cx, py - cy) - s * 0.38f) <= t * 0.5f ||
+                   segDist(px, py, cx, cy, cx, cy - s * 0.24f) <= t * 0.5f ||
+                   segDist(px, py, cx, cy, cx + s * 0.17f, cy + s * 0.08f) <= t * 0.5f;
+        });
+    } else if (kind == "favorites") {
+        const float h = s * 0.43f;
+        fillShape(c, W, H, X0, Y0, X1, Y1, rose, [&](float px, float py) {
+            float u = (px - cx) / h * 1.14f, v = -(py - cy) / h * 1.14f + 0.12f;
+            float a = u * u + v * v - 1.0f;
+            return a * a * a - u * u * v * v * v <= 0.0f;
+        });
+    } else if (kind == "settings") {
+        fillShape(c, W, H, X0, Y0, X1, Y1, steel, [&](float px, float py) {
+            float d = std::hypot(px - cx, py - cy);
+            if (d <= s * 0.12f) return false;  // the hole
+            if (d <= s * 0.30f) return true;
+            for (int k = 0; k < 8; ++k) {
+                const float a = k * 3.14159265f * 0.25f;
+                if (segDist(px, py, cx + std::cos(a) * s * 0.26f, cy + std::sin(a) * s * 0.26f,
+                            cx + std::cos(a) * s * 0.42f, cy + std::sin(a) * s * 0.42f) <= s * 0.075f)
+                    return true;
+            }
+            return false;
+        });
+    }
 }
 
 // Darken a rectangle (a translucent card) with a light top edge.

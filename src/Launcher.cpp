@@ -1060,26 +1060,31 @@ void Menu::updatePanels(float dt) {
         }
     } else if (m_view == View::Search) {
         key = "search:" + std::to_string(m_hits.size());
-        if (key != m_panelKey)
+        if (key != m_panelKey) {
             m_panelItem = {key, "Search", "", m_hits.empty() ? "Type to find a game" :
                            std::to_string(m_hits.size()) + (m_hits.size() == 1 ? " match" : " matches"), ""};
+            m_panelItem.icon = "search";
+        }
     } else if (m_sysRow == 0) {
         key = "row:search";
-        if (key != m_panelKey) m_panelItem = {key, "Search", "", "Find any game", ""};
+        if (key != m_panelKey) { m_panelItem = {key, "Search", "", "Find any game", ""}; m_panelItem.icon = "search"; }
     } else if (m_view == View::Settings || (m_view == View::Systems && m_sysRow == settingsRow())) {
         key = "row:settings";
-        if (key != m_panelKey) m_panelItem = {key, "Settings", "", "Display and screens", ""};
+        if (key != m_panelKey) { m_panelItem = {key, "Settings", "", "Display and screens", ""}; m_panelItem.icon = "settings"; }
     } else if (m_sysRow == 1 || m_sysRow == 2) {
         key = m_sysRow == 1 ? "row:recent" : "row:favorites";
-        if (key != m_panelKey)
+        if (key != m_panelKey) {
             m_panelItem = {key, m_sysRow == 1 ? "Recently played" : "Favorites", "",
                            m_sysRow == 1 ? "Your last games" : std::to_string(m_favs.size()) + " games", ""};
+            m_panelItem.icon = m_sysRow == 1 ? "recent" : "favorites";
+        }
     } else {
         const SystemEntry& e = m_systems[sysIndex()];
         key = "sys:" + e.sys->id;
         if (key != m_panelKey)
             m_panelItem = {key, e.sys->name, "",
                            e.games.empty() ? "No games yet" : std::to_string(e.games.size()) + " games", ""};
+        if (key != m_panelKey) m_panelItem.consolePath = findConsoleArt(m_appDir, e.sys->id);  // for the DMD
     }
     m_panelKey = key;
     m_panels->show(m_panelItem, dt);
