@@ -121,7 +121,7 @@ bool parseScreen(const std::string& s, ScreenId& out) {
 const std::vector<System>& systems() {
     static const std::vector<System> list = {
         // Arcade: zips are matched to a core per game (Arcade.cpp); FBNeo first.
-        {"arcade", "Arcade", "ARC", {"fbneo_libretro.so", "mame2003_plus_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
+        {"arcade", "Arcade", "ARC", {"fbneo_libretro.so", "mame2003_plus_libretro.so"}, {"zip"}, 4.0f / 3.0f, true},
         // Flycast (GPU), checked against its own NAOMI / Atomiswave list.
         {"naomi", "NAOMI", "NAO", {"flycast_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
         {"atomiswave", "Atomiswave", "AW", {"flycast_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
@@ -132,9 +132,9 @@ const std::vector<System>& systems() {
         {"gamegear", "Game Gear", "GG", {"genesis_plus_gx_libretro.so"},
          {"gg"}, 10.0f / 9.0f, false},
         {"nes", "NES", "NES", {"fceumm_libretro.so", "nestopia_libretro.so", "quicknes_libretro.so"},
-         {"nes"}, 4.0f / 3.0f, false},
+         {"nes"}, 4.0f / 3.0f, true},
         {"snes", "Super Nintendo", "SNES", {"snes9x_libretro.so", "snes_mtfaust-arm64-cortex-a53.so"},
-         {"sfc", "smc"}, 4.0f / 3.0f, false},
+         {"sfc", "smc"}, 4.0f / 3.0f, true},
         {"atari2600", "Atari 2600", "2600", {"stella_libretro.so", "stella2014_libretro.so"},
          {"a26", "bin"}, 4.0f / 3.0f, false},
         {"colecovision", "ColecoVision", "CV", {"gearcoleco_libretro.so", "libcv.so"},
@@ -147,10 +147,10 @@ const std::vector<System>& systems() {
         {"lynx", "Atari Lynx", "LNX", {"handy_libretro.so"}, {"lnx"}, 160.0f / 102.0f, false},
         // Disc images are passed to the core where they are (cue tracks beside them).
         // GPU core (OpenGL ES): Flycast.
-        {"dreamcast", "Dreamcast", "DC", {"flycast_libretro.so"}, {"chd", "cdi", "gdi", "cue", "m3u"}, 4.0f / 3.0f, false},
+        {"dreamcast", "Dreamcast", "DC", {"flycast_libretro.so"}, {"chd", "cdi", "gdi", "cue", "m3u"}, 4.0f / 3.0f, true},
         {"psp", "PSP", "PSP", {"ppsspp_libretro.so"}, {"iso", "cso", "chd", "pbp", "elf"}, 16.0f / 9.0f, false},
         {"psx", "PlayStation", "PS1", {"pcsx_rearmed_libretro.so"}, {"chd", "cue", "pbp", "m3u", "iso", "img", "bin"},
-         4.0f / 3.0f, false},
+         4.0f / 3.0f, true},
     };
     return list;
 }
