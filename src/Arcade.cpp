@@ -340,6 +340,7 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
             g.tags = named->year + (named->maker.empty() ? "" : "  " + named->maker);
             if (named->flags.find('P') != std::string::npos) g.tags += "  (not working)";
         }
+        if (named) g.parent = named->parent;
         g.clone = named && !named->parent.empty() && zips.count(named->parent) && fileOf.count(named->parent);
         g.broken = !g.problem.empty() || (named && named->flags.find('P') != std::string::npos);
         if (!g.problem.empty()) g.tags = g.problem + (g.tags.empty() ? "" : "  -  " + g.tags);

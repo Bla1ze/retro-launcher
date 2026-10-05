@@ -215,8 +215,16 @@ private:
     void moveSystem(int dir);
 
     // "Exit Retro Launcher?" on B at the consoles list.
-    bool m_confirmExit = false;
-    int m_confirmSel = 0;  // 0 Cancel, 1 Exit
+    // A yes/no question over the menu: exit, remove a game, empty the trash.
+    enum class Confirm { None, Exit, Remove, EmptyTrash } m_confirm = Confirm::None;
+    int m_confirmSel = 0;  // 0 Cancel, 1 the action
+    std::string m_confirmQ, m_confirmOk;
+    void ask(Confirm what, const std::string& question, const std::string& ok) {
+        m_confirm = what; m_confirmQ = question; m_confirmOk = ok; m_confirmSel = 0;
+    }
+    int m_removeSys = 0, m_removeGame = 0;
+    void removeGame(int sys, int game);
+    unsigned long long m_trashBytes = 0;  // measured when Settings opens and after changes
 
     // Home on a game: options popup.
     bool m_popup = false;
@@ -235,7 +243,7 @@ private:
     std::atomic<bool> m_iconsWarm{false};  // the worker has finished everything
     void startConsoleIcons();
     void drawRowIcon(int row, const FRect& slot, bool dim);
-    enum { PopPlay, PopFav, PopScreen, PopCore, PopControls, PopSearch };
+    enum { PopPlay, PopFav, PopScreen, PopCore, PopControls, PopSearch, PopRemove };
 
     // Controls screen (Home > Controls on a game): the button layout for this
     // game or its whole system, a preset, and press-to-assign per button.
@@ -434,7 +442,7 @@ void Menu::move(int delta) {
         return std::max(0, std::min(n - 1, cur + delta));
     };
     if (m_view == View::Systems) { m_sysRow = step(m_sysRow, systemRows()); return; }
-    if (m_view == View::Settings) { m_setSel = step(m_setSel, (int)settingDefs().size()); return; }
+    if (m_view == View::Settings) { m_setSel = step(m_setSel, (int)settingDefs().size() + 1); return; }  // + Empty trash
     if (m_view == View::Recent) { m_recentSel = step(m_recentSel, (int)m_recent.size()); return; }
     if (m_view == View::Games) m_gameSel = step(m_gameSel, (int)m_systems[sysIndex()].shown.size());
     if (m_view == View::Genres) m_genreSel = step(m_genreSel, (int)genreRows(sysIndex()).size());
@@ -574,6 +582,7 @@ std::vector<int> Menu::popupItems() const {
     if (m_systems[m_popupSys].games[m_popupGame].arcade) items.push_back(PopCore);
     items.push_back(PopControls);
     items.push_back(PopSearch);
+    items.push_back(PopRemove);
     return items;
 }
 
@@ -781,6 +790,12 @@ void Menu::handlePopup(AtGames::ControlEvent ev, bool& running) {
         case PopScreen: cycleGameScreen(m_popupSys, m_popupGame, 1); break;
         case PopCore: cycleGameCore(m_popupSys, m_popupGame, 1); break;
         case PopControls: m_popup = false; openControls(m_popupSys, m_popupGame); break;
+        case PopRemove:
+            m_popup = false;
+            m_removeSys = m_popupSys;
+            m_removeGame = m_popupGame;
+            ask(Confirm::Remove, "Remove this game?", "Move to trash");
+            break;
         case PopSearch: m_popup = false; openSearch(); break;
         }
         break;
@@ -790,10 +805,22 @@ void Menu::handlePopup(AtGames::ControlEvent ev, bool& running) {
 
 void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     using CE = AtGames::ControlEvent;
-    if (m_confirmExit) {
+    if (m_confirm != Confirm::None) {
         if (ev == CE::Up || ev == CE::Down) m_confirmSel ^= 1;
-        else if (ev == CE::B || ev == CE::Back) m_confirmExit = false;
-        else if (ev == CE::A || ev == CE::Start) { if (m_confirmSel == 1) running = false; m_confirmExit = false; }
+        else if (ev == CE::B || ev == CE::Back) m_confirm = Confirm::None;
+        else if (ev == CE::A || ev == CE::Start) {
+            Confirm what = m_confirm;
+            m_confirm = Confirm::None;
+            if (m_confirmSel == 1) {
+                if (what == Confirm::Exit) running = false;
+                else if (what == Confirm::Remove) removeGame(m_removeSys, m_removeGame);
+                else if (what == Confirm::EmptyTrash) {
+                    m_toast = Library::emptyTrash(m_appDir) ? "Trash emptied" : "Some files could not be removed";
+                    m_toastTime = 0.0f;
+                    m_trashBytes = Library::trashSize(m_appDir);
+                }
+            }
+        }
         return;
     }
     if (m_popup) { handlePopup(ev, running); return; }
@@ -817,7 +844,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     case CE::Left:
     case CE::Right:
         // Only where there is something to the side: a setting's value.
-        if (m_view == View::Settings) changeSetting(ev == CE::Left ? -1 : 1);
+        if (m_view == View::Settings && m_setSel < (int)settingDefs().size()) changeSetting(ev == CE::Left ? -1 : 1);
         break;
     case CE::Guide:
         if (onGame) { m_popup = true; m_popupSys = hs; m_popupGame = hg; m_popupSel = 0; }
@@ -843,7 +870,12 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
         break;
     case CE::A:
     case CE::Start:
-        if (m_view == View::Settings) { changeSetting(1); break; }
+        if (m_view == View::Settings) {
+            if (m_setSel < (int)settingDefs().size()) changeSetting(1);
+            else if (m_trashBytes == 0) { m_toast = "The trash is empty"; m_toastTime = 0.0f; }
+            else ask(Confirm::EmptyTrash, "Empty the trash?", "Delete for good");
+            break;
+        }
         if (m_view == View::Systems) {
             if (m_sysRow == 0) { openSearch(); break; }
             if (m_sysRow == 1 || m_sysRow == 2) {
@@ -857,7 +889,12 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
                 }
                 break;
             }
-            if (m_sysRow == settingsRow()) { m_view = View::Settings; m_setSel = 0; break; }
+            if (m_sysRow == settingsRow()) {
+                m_view = View::Settings;
+                m_setSel = 0;
+                m_trashBytes = Library::trashSize(m_appDir);
+                break;
+            }
             SystemEntry& e = m_systems[sysIndex()];
             if (e.games.empty()) {
                 m_toast = "Add " + e.sys->name + " ROMs to roms/" + e.sys->id + "/";
@@ -897,7 +934,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
         break;
     case CE::B:
     case CE::Back:
-        if (m_view == View::Systems) { m_confirmExit = true; m_confirmSel = 0; }
+        if (m_view == View::Systems) ask(Confirm::Exit, "Exit Retro Launcher?", "Exit");
         else if (m_view == View::Games && hasGenres(sysIndex())) m_view = View::Genres;  // back to the genre list
         else m_view = View::Systems;
         break;
@@ -1158,6 +1195,55 @@ void Menu::renderSystems() {
     Theme::footerHints(r, w, "A Open   HOME Search   B Exit", "");
 }
 
+// Home > Remove game (confirmed): its files go to trash/<system>/, the lists
+// forget it. An arcade set other sets need (a parent) stays.
+void Menu::removeGame(int sys, int game) {
+    SystemEntry& e = m_systems[sys];
+    if (game < 0 || game >= (int)e.games.size()) return;
+    const Library::Game g = e.games[game];
+    if (g.arcade) {
+        std::string set = g.file.substr(0, g.file.size() - 4);
+        for (char& c : set) c = (char)std::tolower((unsigned char)c);
+        int needed = 0;
+        std::string example;
+        for (const Library::Game& o : e.games)
+            if (o.parent == set) { if (!needed) example = o.title; ++needed; }
+        if (needed) {
+            m_toast = "Kept: " + std::to_string(needed) + " other game" + (needed == 1 ? "" : "s") + " need it (" + example + ")";
+            m_toastTime = 0.0f;
+            return;
+        }
+    }
+    std::string error;
+    if (!Library::moveToTrash(m_appDir, e.sys->id, Library::gameParts(m_appDir, e.sys->id, g), error)) {
+        m_toast = "Could not remove it: " + error;
+        m_toastTime = 0.0f;
+        return;
+    }
+    if (m_favs.erase({e.sys->id, g.file})) Library::saveFavorites(m_appDir, {m_favs.begin(), m_favs.end()});
+    e.games.erase(e.games.begin() + game);
+    if (Library::isArcadeSystem(e.sys->id)) applyFilter(sys, e.filter);
+    else {
+        e.shown.clear();
+        for (int i = 0; i < (int)e.games.size(); ++i) e.shown.push_back(i);
+    }
+    if (m_view == View::Games) {
+        m_gameSel = std::min(m_gameSel, std::max(0, (int)e.shown.size() - 1));
+        if (e.shown.empty()) m_view = hasGenres(sys) && !e.games.empty() ? View::Genres : View::Systems;
+    } else if (m_view == View::Recent) {
+        openList(m_listIsFav);
+        m_recentSel = std::min(m_recentSel, std::max(0, (int)m_recent.size() - 1));
+        if (m_recent.empty()) m_view = View::Systems;
+    } else if (m_view == View::Search) {
+        runQuery();
+        m_hitSel = std::min(m_hitSel, std::max(0, (int)m_hits.size() - 1));
+        if (m_hits.empty()) m_inHits = false;
+    }
+    m_trashBytes = Library::trashSize(m_appDir);
+    m_toast = "Moved to the trash: " + g.title;
+    m_toastTime = 0.0f;
+}
+
 // Arcade genre rows: All, Vertical, then genres by size (small ones folded
 // into Other). Counts respect the hide-clones-and-broken setting.
 std::vector<Menu::GenreRow> Menu::genreRows(int sys) const {
@@ -1402,11 +1488,25 @@ void Menu::renderSettings() {
             Gfx::triangle(r, {row.x + row.w - 42.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
         }
     }
-    AppFont::drawCentered(r, "Changes apply to the next game you start", w * 0.5f,
-                          kListTop + defs.size() * (kRowH + kRowGap) + 20.0f, Theme::Type::Caption, Theme::Muted);
-    AppFont::drawCentered(r, "Retro Launcher v" APP_VERSION, w * 0.5f,
-                          kListTop + defs.size() * (kRowH + kRowGap) + 56.0f, Theme::Type::Caption, Theme::Faint);
-    drawHeader("Retro Launcher", "Settings", m_setSel + 1, (int)defs.size());
+    {   // Empty trash: games removed with Home > Remove game wait in trash/ until then.
+        const int i = (int)defs.size();
+        float y = kListTop + i * (kRowH + kRowGap);
+        bool active = i == m_setSel;
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
+        Theme::rowCard(r, row, active);
+        char size[32];
+        if (m_trashBytes == 0) std::snprintf(size, sizeof(size), "Empty");
+        else if (m_trashBytes < 1024ull * 1024 * 1024) std::snprintf(size, sizeof(size), "%.0f MB", m_trashBytes / 1048576.0);
+        else std::snprintf(size, sizeof(size), "%.1f GB", m_trashBytes / 1073741824.0);
+        float ty = y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f;
+        AppFont::draw(r, "Empty trash", row.x + 24.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+        AppFont::drawRight(r, size, row.x + row.w - 24.0f, ty, Theme::Type::Body, active ? Theme::accent() : Theme::Muted);
+    }
+    const float below = kListTop + (defs.size() + 1) * (kRowH + kRowGap);
+    AppFont::drawCentered(r, "Changes apply to the next game you start", w * 0.5f, below + 20.0f, Theme::Type::Caption,
+                          Theme::Muted);
+    AppFont::drawCentered(r, "Retro Launcher v" APP_VERSION, w * 0.5f, below + 56.0f, Theme::Type::Caption, Theme::Faint);
+    drawHeader("Retro Launcher", "Settings", m_setSel + 1, (int)defs.size() + 1);
     Theme::footerHints(r, w, "LEFT/RIGHT Change   B Back", "");
 }
 
@@ -1449,7 +1549,7 @@ void Menu::renderPopup() {
         const int it = items[i];
         std::string label = it == PopPlay ? "Play" : it == PopFav ? (isFav(m_popupSys, m_popupGame) ? "Remove from Favorites" : "Add to Favorites")
                           : it == PopScreen ? "Screen" : it == PopCore ? "Emulator"
-                          : it == PopControls ? "Controls" : "Search";
+                          : it == PopControls ? "Controls" : it == PopRemove ? "Remove game" : "Search";
         FRect row{px + 40.0f, py + 160.0f + i * (itemH + gap), pw - 80.0f, itemH};
         bool active = i == m_popupSel;
         Theme::rowCard(r, row, active);
@@ -1657,9 +1757,9 @@ void Menu::render(float dt) {
     else renderSystems();
     renderJump();
     if (m_popup) renderPopup();
-    if (m_confirmExit)
-        Theme::confirmDialog(m_renderer, AppConfig::kLogicalWidth, AppConfig::kLogicalHeight, "Exit Retro Launcher?",
-                             "Cancel", "Exit", m_confirmSel);
+    if (m_confirm != Confirm::None)
+        Theme::confirmDialog(m_renderer, AppConfig::kLogicalWidth, AppConfig::kLogicalHeight, m_confirmQ,
+                             "Cancel", m_confirmOk, m_confirmSel);
     renderToast();
     SDL_RenderSetScale(m_renderer, 1.0f, 1.0f);
     SDL_SetRenderTarget(m_renderer, nullptr);

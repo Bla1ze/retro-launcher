@@ -299,6 +299,135 @@ const System* findSystem(const std::string& id) {
     return nullptr;
 }
 
+// ------------------------------------------------------------------ trash
+
+namespace {
+// Files a disc sheet or playlist names, as written (relative to its folder).
+std::vector<std::string> sheetRefs(const std::string& path) {
+    std::vector<std::string> refs;
+    std::string ext = extOf(path);
+    std::ifstream in(path);
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        std::string ref;
+        if (ext == "cue") {
+            size_t a = line.find('"'), b = line.rfind('"');
+            if (lower(line).find("file") == std::string::npos || a == std::string::npos || b <= a) continue;
+            ref = line.substr(a + 1, b - a - 1);
+        } else if (ext == "gdi") {
+            size_t q = line.find('"');
+            if (q != std::string::npos) {
+                size_t e = line.find('"', q + 1);
+                if (e == std::string::npos) continue;
+                ref = line.substr(q + 1, e - q - 1);
+            } else {
+                std::istringstream fields(line);
+                std::string f[5];
+                if (!(fields >> f[0] >> f[1] >> f[2] >> f[3] >> f[4])) continue;
+                ref = f[4];
+            }
+        } else if (ext == "m3u") {
+            ref = trim(line);
+            if (ref.empty() || ref[0] == '#') continue;
+        }
+        if (!ref.empty() && ref.find("..") == std::string::npos && ref[0] != '/') refs.push_back(ref);
+    }
+    return refs;
+}
+
+bool makeDirs(const std::string& path) {
+    for (size_t i = 1; i <= path.size(); ++i)
+        if (i == path.size() || path[i] == '/') {
+            std::string part = path.substr(0, i);
+            if (!isDir(part) && ::mkdir(part.c_str(), 0755) != 0 && errno != EEXIST) return false;
+        }
+    return true;
+}
+
+unsigned long long sizeOf(const std::string& path) {
+    struct stat st;
+    if (::lstat(path.c_str(), &st) != 0) return 0;
+    if (!S_ISDIR(st.st_mode)) return (unsigned long long)st.st_size;
+    unsigned long long total = 0;
+    if (DIR* d = ::opendir(path.c_str())) {
+        while (struct dirent* e = ::readdir(d)) {
+            std::string n = e->d_name;
+            if (n != "." && n != "..") total += sizeOf(path + "/" + n);
+        }
+        ::closedir(d);
+    }
+    return total;
+}
+
+bool removeAll(const std::string& path) {
+    struct stat st;
+    if (::lstat(path.c_str(), &st) != 0) return true;
+    if (S_ISDIR(st.st_mode)) {
+        if (DIR* d = ::opendir(path.c_str())) {
+            while (struct dirent* e = ::readdir(d)) {
+                std::string n = e->d_name;
+                if (n != "." && n != "..") removeAll(path + "/" + n);
+            }
+            ::closedir(d);
+        }
+        return ::rmdir(path.c_str()) == 0;
+    }
+    return ::unlink(path.c_str()) == 0;
+}
+} // namespace
+
+std::vector<std::string> gameParts(const std::string& appDir, const std::string& sys, const Game& g) {
+    const std::string dir = appDir + "/roms/" + sys + "/";
+    std::vector<std::string> parts;
+    size_t slash = g.file.find('/');
+    if (slash != std::string::npos) return {g.file.substr(0, slash)};  // a game in its own folder
+    parts.push_back(g.file);
+    std::string ext = extOf(g.file);
+    if (ext == "cue" || ext == "gdi" || ext == "m3u")
+        for (const std::string& ref : sheetRefs(dir + g.file)) {
+            if (isFile(dir + ref)) parts.push_back(ref);
+            std::string rext = extOf(ref);
+            if (rext == "cue" || rext == "gdi")  // an .m3u's discs bring their own tracks
+                for (const std::string& r2 : sheetRefs(dir + ref))
+                    if (isFile(dir + r2)) parts.push_back(r2);
+        }
+    if (g.arcade) {  // a NAOMI GD-ROM folder beside the zip
+        std::string set = g.file.substr(0, g.file.size() - 4);
+        if (isDir(dir + set)) parts.push_back(set);
+    }
+    std::sort(parts.begin(), parts.end());
+    parts.erase(std::unique(parts.begin(), parts.end()), parts.end());
+    return parts;
+}
+
+bool moveToTrash(const std::string& appDir, const std::string& sys, const std::vector<std::string>& parts,
+                 std::string& error) {
+    for (const std::string& rel : parts) {
+        std::string from = appDir + "/roms/" + sys + "/" + rel;
+        std::string to = appDir + "/trash/" + sys + "/" + rel;
+        size_t slash = to.find_last_of('/');
+        if (!makeDirs(to.substr(0, slash))) { error = "could not create " + to.substr(0, slash); return false; }
+        for (int n = 2; ::access(to.c_str(), F_OK) == 0; ++n) {  // already one in the trash: keep both
+            size_t dot = rel.find_last_of('.');
+            std::string base = dot == std::string::npos || isDir(from) ? rel : rel.substr(0, dot);
+            std::string tail = dot == std::string::npos || isDir(from) ? "" : rel.substr(dot);
+            to = appDir + "/trash/" + sys + "/" + base + " (" + std::to_string(n) + ")" + tail;
+        }
+        if (::rename(from.c_str(), to.c_str()) != 0) { error = rel + ": " + std::strerror(errno); return false; }
+        log("trash: %s/%s -> %s", sys.c_str(), rel.c_str(), to.c_str());
+    }
+    return true;
+}
+
+unsigned long long trashSize(const std::string& appDir) { return sizeOf(appDir + "/trash"); }
+
+bool emptyTrash(const std::string& appDir) {
+    bool ok = removeAll(appDir + "/trash");
+    log("trash emptied: %s", ok ? "ok" : "some files could not be removed");
+    return ok;
+}
+
 bool isArcadeSystem(const std::string& id) { return id == "arcade" || id == "naomi" || id == "atomiswave"; }
 
 std::vector<Game> scanGames(const std::string& appDir, const System& sys) {

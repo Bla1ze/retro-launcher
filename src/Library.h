@@ -53,6 +53,7 @@ struct Game {
     std::string core, problem;
     std::string altTitle;  // the other emulator's name for it, tried for box art too
     std::string genre;     // arcade: top-level genre from cores/arcade-genres.txt ("Shooter"), "" if unknown
+    std::string parent;    // arcade: the set this one is a clone of ("" if none)
     bool clone = false;    // arcade: a variant of a set whose own zip is also here
     bool broken = false;   // arcade: incomplete, unknown, or marked not working
     std::vector<std::string> cores;
@@ -88,6 +89,17 @@ private:
     std::string m_path;
     std::map<std::string, std::string> m_values;
 };
+
+// ---- Trash: "Remove game" moves a game (all its files) to <app>/trash/<system>/,
+// keeping its path, so it can be copied back from a computer; Settings empties it.
+// The paths (relative to roms/<system>/) that make up a game: a folder game's
+// folder, a .cue/.gdi/.m3u with the files it names, an arcade zip with its
+// GD-ROM folder.
+std::vector<std::string> gameParts(const std::string& appDir, const std::string& systemId, const Game& g);
+bool moveToTrash(const std::string& appDir, const std::string& systemId, const std::vector<std::string>& parts,
+                 std::string& error);
+unsigned long long trashSize(const std::string& appDir);  // bytes
+bool emptyTrash(const std::string& appDir);
 
 // ---- Button mapping: which cabinet button presses each emulated (libretro
 // RetroPad) button. A system layout ("controls.<system>") and an optional per-game
