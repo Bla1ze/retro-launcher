@@ -437,7 +437,7 @@ bool pinnedOption(const std::string& key) {
 // Still changeable in Core options; a saved choice wins.
 const char* preferredDefault(const std::string& key) {
     if (key == "reicast_internal_resolution") return "1280x960";  // Dreamcast / NAOMI 2x
-    if (key == "ppsspp_internal_resolution") return "1440x816";   // PSP 3x
+    if (key == "ppsspp_internal_resolution") return "960x544";    // PSP 2x (3x was too heavy for e.g. GTA: LCS)
     if (key == "mupen64plus-43screensize") return "1280x960";     // N64 2x
     // N64 C buttons on their own buttons: the cabinet has no right stick, and
     // holding a trigger for them (the core's default) is awkward on a cabinet.
