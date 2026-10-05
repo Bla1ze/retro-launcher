@@ -360,17 +360,28 @@ bool TransferServer::start(const std::string& appDir) {
         char pin[8];
         std::snprintf(pin, sizeof(pin), "%04u", v % 10000);
         m_status.pin = pin;
-        // Every IPv4 address that is up, so a wrong one can be told from a firewall.
+        // The IPv4 addresses that are up. Internal ones are left off the screen:
+        // link-local 169.254.x.x (an interface with no network) and the
+        // firmware's container bridges (docker0, br-..., veth...). They are
+        // logged, and shown if nothing else is there.
+        std::vector<std::string> internal;
         struct ifaddrs* ifs = nullptr;
         if (::getifaddrs(&ifs) == 0) {
             for (struct ifaddrs* i = ifs; i; i = i->ifa_next) {
                 if (!i->ifa_addr || i->ifa_addr->sa_family != AF_INET || (i->ifa_flags & IFF_LOOPBACK) || !(i->ifa_flags & IFF_UP)) continue;
                 char buf[INET_ADDRSTRLEN];
+                const uint32_t ip = ntohl(((struct sockaddr_in*)i->ifa_addr)->sin_addr.s_addr);
                 ::inet_ntop(AF_INET, &((struct sockaddr_in*)i->ifa_addr)->sin_addr, buf, sizeof(buf));
-                m_status.addresses.push_back(buf);
+                const std::string ifname = i->ifa_name ? i->ifa_name : "";
+                const bool hidden = (ip >> 16) == 0xA9FE ||  // 169.254.0.0/16
+                                    ifname.compare(0, 6, "docker") == 0 || ifname.compare(0, 3, "br-") == 0 ||
+                                    ifname.compare(0, 4, "veth") == 0 || ifname.compare(0, 6, "virbr") == 0;
+                (hidden ? internal : m_status.addresses).push_back(buf);
+                log("transfer: %s %s%s", ifname.c_str(), buf, hidden ? " (internal, not shown)" : "");
             }
             ::freeifaddrs(ifs);
         }
+        if (m_status.addresses.empty()) m_status.addresses = internal;
     }
     // Leftovers from an upload cut off by a power loss.
     for (const Library::System& s : Library::systems()) {
