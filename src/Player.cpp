@@ -395,7 +395,6 @@ const char* preferredDefault(const std::string& key) {
     if (key == "reicast_internal_resolution") return "1280x960";  // Dreamcast / NAOMI 2x
     if (key == "ppsspp_internal_resolution") return "1440x816";   // PSP 3x
     if (key == "mupen64plus-43screensize") return "1280x960";     // N64 2x
-    if (key == "yabasanshiro_resolution_mode") return "2x";        // Saturn 2x
     // N64 C buttons on their own buttons: the cabinet has no right stick, and
     // holding a trigger for them (the core's default) is awkward on a cabinet.
     if (key == "mupen64plus-alt-map") return "True";
@@ -1328,6 +1327,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     unsigned long statFrames = 0, coreFrames = 0, underruns = 0, catchUps = 0;
     Uint32 lastPresent = SDL_GetTicks();
     SDL_Texture* menuLayer = nullptr;  // pause menu, turned with the game on rotated screens
+    double drcRange = 0.005;  // how far audio may stretch to keep the queue fed (see runFrame)
     const Uint32 drcTarget = bytesPerSec * (50 + extraMs) / 1000;  // hold ~50 ms queued (80 for GPU cores)
     double ratioSum = 0.0;
     unsigned long ratioCount = 0;
@@ -1584,7 +1584,14 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     double drc = 1.0;
                     if (vsyncLock) {  // nudge toward ~50 ms queued (vsync and audio clocks differ slightly)
                         double err = ((double)drcTarget - queued) / drcTarget;  // + = running low
-                        drc = 1.0 + 0.005 * std::max(-1.0, std::min(1.0, err));
+                        // Normally +-0.5% (inaudible). A game running a little
+                        // under full speed (Saturn, heavy scenes) can't feed the
+                        // audio even at +0.5%: while the queue keeps running low
+                        // the range widens, up to 5%, and narrows again once it
+                        // recovers - a slightly slower sound instead of gaps.
+                        if (queued < drcTarget / 2) drcRange = std::min(0.05, drcRange * 1.01);
+                        else drcRange = std::max(0.005, drcRange * 0.995);
+                        drc = 1.0 + drcRange * std::max(-1.0, std::min(1.0, err));
                         ratioSum += drc;
                         ++ratioCount;
                     }

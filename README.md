@@ -108,8 +108,9 @@ the cabinet has no right stick). Saturn discs (`.chd`, `.cue`) go in
 ### GPU picture quality
 
 GPU systems render above their original resolution by default: Dreamcast,
-NAOMI and N64 at 2x (1280x960), PSP at 3x (1440x816), Saturn at 2x. Each can be
-changed in the pause menu's Core options.
+NAOMI and N64 at 2x (1280x960), PSP at 3x (1440x816). Saturn stays at its
+original resolution (YabaSanshiro has no headroom for more in heavy games). Each
+can be changed in the pause menu's Core options.
 
 ### NAOMI and Atomiswave
 
