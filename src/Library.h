@@ -138,6 +138,20 @@ std::string findCore(const std::string& appDir, const System& sys, std::string& 
 // colecovision.rom (or another accepted name) in system/: Gearcoleco runs
 // ColecoVision games; without it the firmware's libcv does (built-in BIOS).
 bool hasColecoBios(const std::string& appDir);
+
+// Settings > BIOS check: each BIOS file a system can use, whether it is there,
+// and whether it is the known good dump (MD5 from libretro's System.dat).
+// Nothing is downloaded; the result says where a file the user has goes.
+struct BiosCheck {
+    std::string system;    // "psx"
+    std::string file;      // "scph5501.bin" (the first accepted name)
+    bool required = false; // false: good to have
+    std::string why;       // what it adds, or why it is needed
+    std::string where;     // folder to put it in, relative to the app ("system/dc/")
+    std::string foundAt;   // relative path when present
+    enum State { Ok, Unrecognized, Missing } state = Missing;
+};
+std::vector<BiosCheck> checkBios(const std::string& appDir, const std::vector<std::string>& systems);
 // The same for one named core file (an arcade game's pick).
 std::string findCoreFile(const std::string& appDir, const std::string& coreFile, std::string& where);
 

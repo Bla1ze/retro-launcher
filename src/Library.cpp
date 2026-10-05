@@ -7,6 +7,7 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <cstdint>
 #include <cctype>
 #include <cerrno>
 #include <cstdlib>
@@ -535,6 +536,138 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
 }
 
 // BIOS files a system's cores look for in system/ ("" = none needed).
+// ------------------------------------------------------------ BIOS check
+
+namespace {
+
+// MD5 (RFC 1321), for telling a known good BIOS dump from another file.
+std::string md5File(const std::string& path) {
+    FILE* f = std::fopen(path.c_str(), "rb");
+    if (!f) return "";
+    static const uint32_t K[64] = {
+        0xd76aa478, 0xe8c7b756, 0x242070db, 0xc1bdceee, 0xf57c0faf, 0x4787c62a, 0xa8304613, 0xfd469501,
+        0x698098d8, 0x8b44f7af, 0xffff5bb1, 0x895cd7be, 0x6b901122, 0xfd987193, 0xa679438e, 0x49b40821,
+        0xf61e2562, 0xc040b340, 0x265e5a51, 0xe9b6c7aa, 0xd62f105d, 0x02441453, 0xd8a1e681, 0xe7d3fbc8,
+        0x21e1cde6, 0xc33707d6, 0xf4d50d87, 0x455a14ed, 0xa9e3e905, 0xfcefa3f8, 0x676f02d9, 0x8d2a4c8a,
+        0xfffa3942, 0x8771f681, 0x6d9d6122, 0xfde5380c, 0xa4beea44, 0x4bdecfa9, 0xf6bb4b60, 0xbebfbc70,
+        0x289b7ec6, 0xeaa127fa, 0xd4ef3085, 0x04881d05, 0xd9d4d039, 0xe6db99e5, 0x1fa27cf8, 0xc4ac5665,
+        0xf4292244, 0x432aff97, 0xab9423a7, 0xfc93a039, 0x655b59c3, 0x8f0ccc92, 0xffeff47d, 0x85845dd1,
+        0x6fa87e4f, 0xfe2ce6e0, 0xa3014314, 0x4e0811a1, 0xf7537e82, 0xbd3af235, 0x2ad7d2bb, 0xeb86d391};
+    static const int R[64] = {7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 7, 12, 17, 22, 5, 9, 14, 20, 5, 9, 14, 20,
+                              5, 9, 14, 20, 5, 9, 14, 20, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23, 4, 11, 16, 23,
+                              6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21, 6, 10, 15, 21};
+    uint32_t h[4] = {0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476};
+    auto block = [&](const uint8_t* b) {
+        uint32_t w[16];
+        for (int i = 0; i < 16; ++i) w[i] = b[i * 4] | (b[i * 4 + 1] << 8) | (b[i * 4 + 2] << 16) | ((uint32_t)b[i * 4 + 3] << 24);
+        uint32_t a = h[0], bb = h[1], c = h[2], d = h[3];
+        for (int i = 0; i < 64; ++i) {
+            uint32_t fn;
+            int g;
+            if (i < 16) { fn = (bb & c) | (~bb & d); g = i; }
+            else if (i < 32) { fn = (d & bb) | (~d & c); g = (5 * i + 1) % 16; }
+            else if (i < 48) { fn = bb ^ c ^ d; g = (3 * i + 5) % 16; }
+            else { fn = c ^ (bb | ~d); g = (7 * i) % 16; }
+            uint32_t t = d;
+            d = c;
+            c = bb;
+            uint32_t x = a + fn + K[i] + w[g];
+            bb = bb + ((x << R[i]) | (x >> (32 - R[i])));
+            a = t;
+        }
+        h[0] += a; h[1] += bb; h[2] += c; h[3] += d;
+    };
+    std::vector<uint8_t> buf(1 << 16);
+    uint64_t total = 0;
+    size_t n, have = 0;
+    uint8_t tail[128];
+    while ((n = std::fread(buf.data(), 1, buf.size(), f)) > 0) {
+        total += n;
+        size_t i = 0;
+        if (have) {  // finish the partial block left over from the last read
+            while (have < 64 && i < n) tail[have++] = buf[i++];
+            if (have == 64) { block(tail); have = 0; }
+        }
+        for (; i + 64 <= n; i += 64) block(&buf[i]);
+        while (i < n) tail[have++] = buf[i++];
+    }
+    std::fclose(f);
+    tail[have++] = 0x80;
+    if (have > 56) { while (have < 64) tail[have++] = 0; block(tail); have = 0; }
+    while (have < 56) tail[have++] = 0;
+    uint64_t bits = total * 8;
+    for (int i = 0; i < 8; ++i) tail[56 + i] = (uint8_t)(bits >> (8 * i));
+    block(tail);
+    char out[33];
+    for (int i = 0; i < 16; ++i) std::snprintf(out + i * 2, 3, "%02x", (h[i / 4] >> (8 * (i % 4))) & 0xff);
+    return out;
+}
+
+struct BiosSpec {
+    const char* system;
+    std::vector<const char*> names;  // accepted file names, the usual one first
+    std::vector<const char*> dirs;   // where the core looks, the suggested one first
+    std::vector<const char*> md5s;   // known good dumps; none: any file will do (arcade BIOS zips)
+    bool required;
+    const char* why;
+};
+
+const std::vector<BiosSpec>& biosSpecs() {
+    static const std::vector<BiosSpec> list = {
+        {"naomi", {"naomi.zip"}, {"roms/naomi/", "system/dc/"}, {}, true, "every NAOMI game needs it"},
+        {"atomiswave", {"awbios.zip"}, {"roms/atomiswave/", "system/dc/"}, {}, true, "every Atomiswave game needs it"},
+        {"neogeo", {"neogeo.zip"}, {"roms/neogeo/", "system/fbneo/", "system/"}, {}, true,
+         "every Neo Geo game needs it (one in roms/arcade/ is copied over for you)"},
+        {"psx", {"scph5501.bin", "scph5500.bin", "scph5502.bin", "scph1001.bin"}, {"system/"},
+         {"490f666e1afb15b7362b406ed1cea246", "8dd7d5296a650fac7319bce665a6a53c", "32736f17079d0b2b7024407c39bd3050",
+          "924e392ed05558ffdb115408c263dccf"},
+         false, "runs more games than the built-in BIOS (USA: scph5501, Japan: scph5500, Europe: scph5502)"},
+        {"saturn", {"saturn_bios.bin"}, {"system/"}, {"af5828fdff51384f99b3c4926be27762"}, false,
+         "runs more games than the built-in BIOS"},
+        {"dreamcast", {"dc_boot.bin", "boot.bin"}, {"system/dc/"}, {"e10c53c2f8b90bab96ead2d368858623"}, false,
+         "needed for homebrew and some conversions; official discs run without it"},
+        {"dreamcast", {"dc_flash.bin", "flash.bin"}, {"system/dc/"}, {"0a93f7940c455905bea6e392dfde92a4"}, false,
+         "goes with dc_boot.bin (console settings)"},
+        {"gba", {"gba_bios.bin"}, {"system/"}, {"a860e8c0b6d573d191e4ec7db1b1e4f6"}, false,
+         "fixes a few games; gpSP has a built-in BIOS"},
+        {"gb", {"gb_bios.bin"}, {"system/"}, {"32fbbd84168d3482956eb3c5051637f5"}, false, "boot logo only"},
+        {"gbc", {"gbc_bios.bin", "cgb_bios.bin"}, {"system/"}, {"dbfce9db9deaa2567f6a84fde55f9680"}, false, "boot logo only"},
+        {"lynx", {"lynxboot.img"}, {"system/"}, {"fcd403db69f54290b51035d82f835e7b"}, false,
+         "Handy starts most games without it"},
+        {"colecovision", {"colecovision.rom", "coleco.rom", "os7.u2"}, {"system/"}, {"2c66f5911e5b42b8ebe113403548eee7"},
+         false, "switches to the Gearcoleco emulator; the cabinet's own one has the BIOS built in"},
+    };
+    return list;
+}
+
+} // namespace
+
+std::vector<BiosCheck> checkBios(const std::string& appDir, const std::vector<std::string>& systems) {
+    std::vector<BiosCheck> out;
+    for (const BiosSpec& b : biosSpecs()) {
+        if (std::find(systems.begin(), systems.end(), b.system) == systems.end()) continue;
+        BiosCheck c;
+        c.system = b.system;
+        c.file = b.names[0];
+        c.required = b.required;
+        c.why = b.why;
+        c.where = b.dirs[0];
+        for (const char* d : b.dirs)
+            for (const char* n : b.names)
+                if (c.foundAt.empty() && isFile(appDir + "/" + d + n)) c.foundAt = std::string(d) + n;
+        if (c.foundAt.empty()) c.state = BiosCheck::Missing;
+        else if (b.md5s.empty()) c.state = BiosCheck::Ok;
+        else {
+            const std::string sum = md5File(appDir + "/" + c.foundAt);
+            c.state = BiosCheck::Unrecognized;
+            for (const char* m : b.md5s)
+                if (sum == m) c.state = BiosCheck::Ok;
+        }
+        out.push_back(c);
+    }
+    return out;
+}
+
 static const char* biosNote(const std::string& id) {
     if (id == "colecovision")
         return "Optional: colecovision.rom (8 KB; coleco.rom and os7.u2 also accepted) for Gearcoleco. "

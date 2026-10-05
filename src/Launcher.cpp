@@ -25,6 +25,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <map>
 #include <memory>
 #include <set>
@@ -102,7 +103,7 @@ public:
     int run();
 
 private:
-    enum class View { Systems, Games, Search, Recent, Settings, Controls, Genres, Transfer };  // Recent also shows Favorites
+    enum class View { Systems, Games, Search, Recent, Settings, Controls, Genres, Transfer, Bios };  // Recent also shows Favorites
 
     bool initVideo();
     void shutdown();
@@ -245,7 +246,20 @@ private:
     std::string m_artLast;  // the last run's result, shown on the row
     int artRow() const { return (int)settingDefs().size(); }
     int transferRow() const { return (int)settingDefs().size() + 1; }
-    int trashRow() const { return (int)settingDefs().size() + 2; }
+    int biosRow() const { return (int)settingDefs().size() + 2; }
+    int trashRow() const { return (int)settingDefs().size() + 3; }
+
+    // Settings > BIOS check: what each system with games can use, and where it goes.
+    struct BiosRow {
+        std::string title, line, why, status;
+        enum Kind { Ok, Missing, Optional, Check } kind = Ok;
+    };
+    std::vector<BiosRow> m_biosRows;
+    int m_biosSel = 0;
+    float m_biosScroll = 0.0f;
+    int m_biosRequiredMissing = 0;
+    void openBios();
+    void renderBios();
     float m_setScroll = 0.0f;
 
     // Settings > Network transfer (Transfer.h): its own screen while the server runs.
@@ -936,6 +950,15 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
         if (ev == CE::B || ev == CE::Back || ev == CE::Guide || ev == CE::A || ev == CE::Start) closeTransfer();
         return;
     }
+    if (m_view == View::Bios) {
+        const int n = (int)m_biosRows.size();
+        if (ev == CE::B || ev == CE::Back || ev == CE::Guide) { m_view = View::Settings; m_panelKey.clear(); }
+        else if (n && ev == CE::Up) m_biosSel = m_biosSel > 0 ? m_biosSel - 1 : (m_repeating ? 0 : n - 1);
+        else if (n && ev == CE::Down) m_biosSel = m_biosSel < n - 1 ? m_biosSel + 1 : (m_repeating ? n - 1 : 0);
+        else if (n && (ev == CE::LeftShoulder || ev == CE::RightShoulder))
+            m_biosSel = std::max(0, std::min(n - 1, m_biosSel + (ev == CE::LeftShoulder ? -4 : 4)));
+        return;
+    }
     int hs = 0, hg = 0;
     bool onGame = highlightedGame(hs, hg);
     switch (ev) {
@@ -983,6 +1006,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
         if (m_view == View::Settings) {
             if (m_setSel < (int)settingDefs().size()) changeSetting(1);
             else if (m_setSel == transferRow()) openTransfer();
+            else if (m_setSel == biosRow()) openBios();
             else if (m_setSel == artRow()) {
                 if (m_art.running()) ask(Confirm::StopArt, "Stop downloading artwork?", "Stop");
                 else startArtDownload();
@@ -1061,6 +1085,19 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
 void Menu::updatePanels(float dt) {
     if (!m_panels || !m_panels->active()) return;
     std::string key;
+    if (m_view == View::Bios) {  // the highlighted file and why it matters
+        key = "bios:" + std::to_string(m_biosSel);
+        if (key != m_panelKey) {
+            if (m_biosRows.empty()) m_panelItem = {key, "BIOS check", "", "Nothing needed", ""};
+            else {
+                const BiosRow& b = m_biosRows[std::min(m_biosSel, (int)m_biosRows.size() - 1)];
+                m_panelItem = {key, "BIOS check", "", b.status + " - " + b.why, ""};
+            }
+        }
+        m_panelKey = key;
+        m_panels->show(m_panelItem, dt);
+        return;
+    }
     if (m_view == View::Transfer) {  // the address and PIN, big, on the backglass
         TransferServer::Status st = m_transfer.status();
         key = "transfer:" + std::to_string(st.received) + (st.listening ? "" : ":off");
@@ -1646,6 +1683,8 @@ void Menu::renderSettings() {
     actionRow(artRow(), "Download artwork", m_art.running() ? m_art.status() : "Missing only", m_art.running());
     // Network transfer: send games from a computer or phone (Transfer.h).
     actionRow(transferRow(), "Network transfer", "Open", false);
+    // BIOS check: which BIOS files the systems with games can use, and where they go.
+    actionRow(biosRow(), "BIOS check", "Open", false);
     // Empty trash: games removed with Home > Remove game wait in trash/ until then.
     char size[32];
     if (m_trashBytes == 0) std::snprintf(size, sizeof(size), "Empty");
@@ -1660,6 +1699,100 @@ void Menu::renderSettings() {
     endListClip();
     drawHeader("Retro Launcher", "Settings", m_setSel + 1, trashRow() + 1);
     Theme::footerHints(r, w, "LEFT/RIGHT Change   A Select   B Back", "");
+}
+
+// ----------------------------------------------------------------- BIOS check
+
+void Menu::openBios() {
+    std::vector<std::string> withGames;
+    for (const SystemEntry& e : m_systems)
+        if (!e.games.empty()) withGames.push_back(e.sys->id);
+    m_biosRows.clear();
+    m_biosRequiredMissing = 0;
+    std::string report = "Retro Launcher BIOS check (Settings > BIOS check), for the systems with games.\n"
+                         "Retro Launcher ships no BIOS files: use your own dumps, named as below.\n\n";
+    for (const Library::BiosCheck& c : Library::checkBios(m_appDir, withGames)) {
+        const Library::System* sys = Library::findSystem(c.system);
+        BiosRow r;
+        r.title = (sys ? sys->name : c.system) + ":  " + c.file;
+        r.why = c.why;
+        const char* need = c.required ? "Required" : "Good to have";
+        if (c.state == Library::BiosCheck::Ok) {
+            r.kind = BiosRow::Ok;
+            r.status = "Found";
+            r.line = std::string(need) + "  -  found in " + c.foundAt;
+        } else if (c.state == Library::BiosCheck::Unrecognized) {
+            r.kind = BiosRow::Check;
+            r.status = "Unknown dump";
+            r.line = std::string(need) + "  -  " + c.foundAt + " is not the known good dump";
+        } else {
+            r.kind = c.required ? BiosRow::Missing : BiosRow::Optional;
+            r.status = c.required ? "Missing" : "Not added";
+            r.line = std::string(need) + "  -  put it in " + c.where;
+            if (c.required) ++m_biosRequiredMissing;
+        }
+        report += std::string(need) + ": " + (sys ? sys->name : c.system) + " - " + c.file + " - " + r.status +
+                  (c.foundAt.empty() ? " - put it in " + c.where : " (" + c.foundAt + ")") + "\n    " + c.why + "\n";
+        m_biosRows.push_back(r);
+    }
+    // Arcade sets that can't run for a missing BIOS or parent zip, from the scan.
+    for (const SystemEntry& e : m_systems) {
+        if (!Library::isArcadeSystem(e.sys->id)) continue;
+        std::map<std::string, int> needs;
+        for (const Library::Game& g : e.games)
+            if (g.problem.compare(0, 6, "Needs ") == 0) ++needs[g.problem.substr(6)];
+        for (const auto& kv : needs) {
+            BiosRow r;
+            r.title = e.sys->name + ":  " + kv.first;
+            bool listed = false;  // already a row above (neogeo.zip, naomi.zip...)
+            for (const BiosRow& o : m_biosRows) listed = listed || o.title == r.title;
+            if (listed) continue;
+            r.kind = BiosRow::Missing;
+            r.status = "Missing";
+            r.why = "a BIOS or parent set " + std::to_string(kv.second) + (kv.second == 1 ? " game needs" : " games need");
+            r.line = "Required for " + std::to_string(kv.second) + (kv.second == 1 ? " game" : " games") + "  -  put it in roms/" +
+                     e.sys->id + "/";
+            ++m_biosRequiredMissing;
+            report += "Required: " + e.sys->name + " - " + kv.first + " - Missing - put it in roms/" + e.sys->id + "/\n    " +
+                      r.why + "\n";
+            m_biosRows.push_back(r);
+        }
+    }
+    if (m_biosRows.empty()) report += "Nothing: your systems need no BIOS files.\n";
+    std::ofstream(m_appDir + "/data/bios-report.txt") << report;
+    m_biosSel = 0;
+    m_biosScroll = 0.0f;
+    m_view = View::Bios;
+    m_panelKey.clear();
+}
+
+void Menu::renderBios() {
+    SDL_Renderer* r = m_renderer;
+    const int w = AppConfig::kLogicalWidth;
+    beginListClip(kListTop, kListBottom);
+    if (m_biosRows.empty())
+        AppFont::drawCentered(r, "Your systems need no BIOS files", w * 0.5f, kListTop + 40.0f, Theme::Type::Body, Theme::TextDim);
+    for (int i = 0; i < (int)m_biosRows.size(); ++i) {
+        const BiosRow& b = m_biosRows[i];
+        const float y = kListTop + i * (kRowH + kRowGap) - m_biosScroll;
+        if (y + kRowH < kListTop || y > kListBottom) continue;
+        const bool active = i == m_biosSel;
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
+        Theme::rowCard(r, row, active);
+        const SDL_Color fill = b.kind == BiosRow::Ok ? Theme::Accent : b.kind == BiosRow::Missing ? Theme::Rose
+                             : b.kind == BiosRow::Check ? Theme::Gold : SDL_Color{80, 90, 112, 255};
+        const float chipW = Theme::chipWidth(r, b.status, 34.0f);
+        Theme::chip(r, row.x + row.w - 20.0f - chipW, y + 14.0f, b.status, fill, Theme::onAccent(fill), 34.0f);
+        const float tx = row.x + 24.0f, avail = row.w - 60.0f - chipW;
+        AppFont::draw(r, Theme::ellipsize(r, b.title, avail, Theme::Type::Body, AppFont::Face::Body), tx, y + 12.0f,
+                      Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+        AppFont::draw(r, Theme::ellipsize(r, b.line, row.w - 48.0f, Theme::Type::Caption, AppFont::Face::Body), tx, y + 56.0f,
+                      Theme::Type::Caption, b.kind == BiosRow::Missing ? Theme::Rose : Theme::Muted);
+    }
+    endListClip();
+    drawHeader("Settings", "BIOS check", m_biosRows.empty() ? 0 : m_biosSel + 1, (int)m_biosRows.size());
+    Theme::footerHints(r, w, m_biosRequiredMissing ? std::to_string(m_biosRequiredMissing) + " required missing   B Back"
+                                                   : "Nothing required is missing   B Back", "");
 }
 
 // ----------------------------------------------------------------- Network transfer
@@ -1985,6 +2118,7 @@ void Menu::render(float dt) {
     else if (m_view == View::Systems) m_sysScroll = scrollFor(m_sysScroll, m_sysRow, systemRows(), dt);
     else if (m_view == View::Recent) m_recentScroll = scrollFor(m_recentScroll, m_recentSel, (int)m_recent.size(), dt);
     else if (m_view == View::Settings) m_setScroll = scrollFor(m_setScroll, m_setSel, trashRow() + 2, dt);  // + the notes
+    else if (m_view == View::Bios) m_biosScroll = scrollFor(m_biosScroll, m_biosSel, (int)m_biosRows.size(), dt);
     else if (m_view == View::Controls) {
         m_ctlScroll = scrollFor(m_ctlScroll, m_ctlSel, ctlRows(), dt);
         if (m_ctlCapture && (m_ctlCaptureTime += dt) > 6.0f) m_ctlCapture = false;  // nothing pressed: give up
@@ -1999,6 +2133,7 @@ void Menu::render(float dt) {
     else if (m_view == View::Recent) renderRecent();
     else if (m_view == View::Settings) renderSettings();
     else if (m_view == View::Transfer) renderTransfer();
+    else if (m_view == View::Bios) renderBios();
     else if (m_view == View::Controls) renderControls();
     else if (m_view == View::Genres) renderGenres();
     else renderSystems();

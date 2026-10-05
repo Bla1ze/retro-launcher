@@ -338,9 +338,20 @@ stored in `data/settings.cfg` (key = value):
 | Arcade: hide clones & broken sets | `arcade.hide` | `off`, `on` | `off` |
 | Hide consoles with no games | `systems.hideEmpty` | `off` (listed, dimmed), `on` | `off` |
 
-Below the settings are two actions:
+Below the settings are four actions:
 - **Download artwork** adds covers and logos for games that have none (see Artwork).
   Press A again while it runs to stop it.
+- **Network transfer** sends games from a browser (see Network transfer).
+- **BIOS check** lists the BIOS files the systems you have games for can use. For
+  each file it shows:
+  - whether it is **Required** or **Good to have**, and why;
+  - whether it is found and is the known good dump (checked against the MD5s in
+    libretro's `System.dat`);
+  - if it is missing, which folder to put it in.
+
+  It also lists the BIOS and parent zips your arcade sets still need. The same
+  report is written to `data/bios-report.txt` to read on a computer. Retro
+  Launcher downloads no BIOS files.
 - **Empty trash** deletes the games removed with Home > Remove game.
 
 Per-game screens are stored as `game.<system>/<rom file> = backglass|playfield`.
