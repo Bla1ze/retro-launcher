@@ -43,7 +43,7 @@ using Library::ScreenId;
 constexpr float kListTop = 210.0f;
 constexpr float kRowH = 92.0f;
 constexpr float kRowGap = 10.0f;
-constexpr float kSetRowH = 84.0f;  // Settings rows, a little shorter so they all fit
+constexpr float kSetRowH = 76.0f;  // Settings rows, a little shorter so they all fit
 constexpr float kListBottom = Theme::kFooterTop - 24.0f;
 
 // Search layout.
@@ -149,7 +149,7 @@ private:
     Library::Settings m_settings;
     std::vector<SystemEntry> m_systems;
     View m_view = View::Systems;
-    int m_sysRow = 0;   // 0 Search, 1 Recently played, 2 Favorites, 3 Settings, 4.. = m_systems[row - 4]
+    int m_sysRow = 0;   // 0 Search, 1 Recently played, 2 Favorites, 3 Settings, 4.. = m_systems[m_rowSys[row - 4]]
     int m_gameSel = 0;
     float m_sysScroll = 0.0f, m_gameScroll = 0.0f;
     float m_clock = 0.0f;
@@ -183,10 +183,22 @@ private:
     int m_canvasW = 0, m_canvasH = 0;
     AtGames::Controls m_controls;
 
-    int sysIndex() const { return m_sysRow - kFixedRows; }
+    // The consoles listed, as m_systems indexes: all of them, or only those with
+    // games when Settings > Hide consoles with no games is on.
+    std::vector<int> m_rowSys;
+    void rebuildRows();
+    int sysIndex() const {
+        int r = m_sysRow - kFixedRows;
+        return r >= 0 && r < (int)m_rowSys.size() ? m_rowSys[r] : 0;
+    }
+    int rowOf(int sys) const {  // the list row showing m_systems[sys], or -1
+        for (int k = 0; k < (int)m_rowSys.size(); ++k)
+            if (m_rowSys[k] == sys) return k + kFixedRows;
+        return -1;
+    }
     static constexpr int kFixedRows = 4;  // Search, Recently played, Favorites, Settings
     int settingsRow() const { return 3; }
-    int systemRows() const { return (int)m_systems.size() + kFixedRows; }
+    int systemRows() const { return (int)m_rowSys.size() + kFixedRows; }
 
     // Favorites, as (system id, ROM file).
     std::set<std::pair<std::string, std::string>> m_favs;
@@ -677,6 +689,7 @@ const std::vector<Menu::SettingDef>& Menu::settingDefs() {
         {"Default game screen", "screen.default", {"backglass", "playfield"}, {"Backglass", "Playfield"}},
         {"Playfield game rotation", "rotate.playfield", {"90", "270"}, {"90 degrees", "270 degrees"}},
         {"Arcade: hide clones & broken sets", "arcade.hide", {"off", "on"}, {"Off", "On"}},
+        {"Hide consoles with no games", "systems.hideEmpty", {"off", "on"}, {"Off", "On"}},
     };
     return defs;
 }
@@ -697,6 +710,7 @@ void Menu::changeSetting(int dir) {
         m_toast = "Screen artwork changes on the next start";
         m_toastTime = 0.0f;
     }
+    if (d.key == "systems.hideEmpty") rebuildRows();
     if (d.key == "arcade.hide") {  // re-filter the arcade lists now
         int hidden = 0;
         for (int i = 0; i < (int)m_systems.size(); ++i)
@@ -817,12 +831,24 @@ bool Menu::highlightedGame(int& sys, int& game) const {
 }
 
 // Second flippers in a games list: previous / next system that has games.
+void Menu::rebuildRows() {
+    const int cur = m_sysRow >= kFixedRows ? sysIndex() : -1;
+    const bool hide = m_settings.value("systems.hideEmpty", "off") == "on";
+    m_rowSys.clear();
+    for (int i = 0; i < (int)m_systems.size(); ++i)
+        if (!hide || !m_systems[i].games.empty()) m_rowSys.push_back(i);
+    if (cur >= 0) {
+        int r = rowOf(cur);
+        m_sysRow = r >= 0 ? r : std::max(0, std::min(m_sysRow, systemRows() - 1));
+    }
+}
+
 void Menu::moveSystem(int dir) {
-    int n = (int)m_systems.size();
+    int n = (int)m_rowSys.size(), cur = m_sysRow - kFixedRows;
     for (int k = 1; k < n; ++k) {
-        int i = ((sysIndex() + dir * k) % n + n) % n;
+        int r = ((cur + dir * k) % n + n) % n, i = m_rowSys[r];
         if (m_systems[i].games.empty()) continue;
-        m_sysRow = i + kFixedRows;
+        m_sysRow = r + kFixedRows;
         applyFilter(i, hasGenres(i) ? m_settings.value("genre." + m_systems[i].sys->id, "") : "");
         m_gameSel = 0;
         m_gameScroll = 0.0f;
@@ -1194,7 +1220,7 @@ void Menu::drawRowIcon(int row, const FRect& slot, bool dim) {
     if (row == 1) { Theme::icon(r, Theme::Icon::Clock, ix, iy, is, Theme::Accent2); return; }
     if (row == 2) { Theme::icon(r, Theme::Icon::Heart, ix, iy, is, Theme::Rose); return; }
     if (row == settingsRow()) { Theme::icon(r, Theme::Icon::Gear, ix, iy, is, {150, 160, 185, 255}); return; }
-    int i = row - kFixedRows;
+    int i = m_rowSys[row - kFixedRows];
     if (i < m_iconsDone.load(std::memory_order_acquire)) {
         ConsoleIcon& ic = m_icons[i];
         if (ic.ok && !ic.tex) {
@@ -1235,7 +1261,7 @@ void Menu::renderSystems() {
         Theme::rowCard(r, row, active);
         float tx = row.x + 140.0f;
         FRect slot{row.x + 18.0f, y + (kRowH - kIconSlotH) * 0.5f, kIconSlotW, kIconSlotH};
-        drawRowIcon(i, slot, i >= kFixedRows && i != settingsRow() && m_systems[i - kFixedRows].games.empty());
+        drawRowIcon(i, slot, i >= kFixedRows && i != settingsRow() && m_systems[m_rowSys[i - kFixedRows]].games.empty());
         if (i == 0) {
             AppFont::draw(r, "Search", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
             AppFont::draw(r, "Find any game on any system", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
@@ -1257,7 +1283,7 @@ void Menu::renderSystems() {
             AppFont::draw(r, "Your last 20 games", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
         }
-        const SystemEntry& e = m_systems[i - kFixedRows];
+        const SystemEntry& e = m_systems[m_rowSys[i - kFixedRows]];
         bool empty = e.games.empty();
         SDL_Color tc = empty ? Theme::Faint : (active ? Theme::Text : Theme::TextDim);
         AppFont::draw(r, e.sys->name, tx, y + 14.0f, Theme::Type::Body, tc);
@@ -1305,6 +1331,7 @@ void Menu::removeGame(int sys, int game) {
     if (m_view == View::Games) {
         m_gameSel = std::min(m_gameSel, std::max(0, (int)e.shown.size() - 1));
         if (e.shown.empty()) m_view = hasGenres(sys) && !e.games.empty() ? View::Genres : View::Systems;
+        if (e.games.empty()) rebuildRows();  // its last game: hidden now if empty consoles are
     } else if (m_view == View::Recent) {
         openList(m_listIsFav);
         m_recentSel = std::min(m_recentSel, std::max(0, (int)m_recent.size() - 1));
@@ -1917,10 +1944,11 @@ int Menu::run() {
     Library::ensureFolders(m_appDir);
     m_settings.load(m_appDir);
     scan();
+    rebuildRows();
     // Return to where the player left off.
     for (int i = 0; i < (int)m_systems.size(); ++i)
-        if (m_systems[i].sys->id == m_startSys) {
-            m_sysRow = i + kFixedRows;
+        if (m_systems[i].sys->id == m_startSys && rowOf(i) >= 0) {
+            m_sysRow = rowOf(i);
             if (!m_systems[i].games.empty()) {
                 m_view = View::Games;
                 // Back in the same genre, on the game (m_startIndex counts all games).

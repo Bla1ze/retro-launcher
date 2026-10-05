@@ -307,6 +307,7 @@ stored in `data/settings.cfg` (key = value):
 | Default game screen | `screen.default` | `backglass`, `playfield` | `backglass` |
 | Playfield game rotation | `rotate.playfield` | `90`, `270` | `90` |
 | Arcade: hide clones & broken sets | `arcade.hide` | `off`, `on` | `off` |
+| Hide consoles with no games | `systems.hideEmpty` | `off` (listed, dimmed), `on` | `off` |
 
 Below the settings are two actions:
 - **Download artwork** adds covers and logos for games that have none (see Artwork).
