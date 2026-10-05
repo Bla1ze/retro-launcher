@@ -125,6 +125,8 @@ const std::vector<System>& systems() {
         // Flycast (GPU), checked against its own NAOMI / Atomiswave list.
         {"naomi", "NAOMI", "NAO", {"flycast_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
         {"atomiswave", "Atomiswave", "AW", {"flycast_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
+        // Neo Geo MVS / AES sets, FBNeo, checked per set like the arcade ones.
+        {"neogeo", "Neo Geo", "NEO", {"fbneo_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
         {"genesis", "Genesis / Mega Drive", "MD", {"genesis_plus_gx_libretro.so"},
          {"md", "gen", "smd", "bin"}, 4.0f / 3.0f, true},
         {"mastersystem", "Master System", "SMS", {"genesis_plus_gx_libretro.so"},
@@ -248,6 +250,8 @@ std::vector<std::pair<int, std::string>> buttonTargets(const std::string& id) {
         return {{kB, "A"}, {kA, "B"}, {kL, "C"}, {kY, "X"}, {kX, "Y"}, {kR, "Z"}, {kL2, "L"}, {kR2, "R"}, {kStart, "Start"}};
     if (id == "dreamcast")
         return {{kB, "A"}, {kA, "B"}, {kY, "X"}, {kX, "Y"}, {kL2, "L trigger"}, {kR2, "R trigger"}, {kStart, "Start"}};
+    if (id == "neogeo")
+        return {{kB, "A"}, {kA, "B"}, {kY, "C"}, {kX, "D"}, {kSelect, "Coin"}, {kStart, "Start"}};
     if (id == "arcade" || id == "naomi" || id == "atomiswave")
         return {{kB, "Button 1"}, {kA, "Button 2"}, {kY, "Button 3"}, {kX, "Button 4"}, {kL, "Button 5"},
                 {kR, "Button 6"}, {kSelect, "Coin"}, {kStart, "Start"}};
@@ -431,7 +435,9 @@ bool emptyTrash(const std::string& appDir) {
     return ok;
 }
 
-bool isArcadeSystem(const std::string& id) { return id == "arcade" || id == "naomi" || id == "atomiswave"; }
+bool isArcadeSystem(const std::string& id) {
+    return id == "arcade" || id == "naomi" || id == "atomiswave" || id == "neogeo";
+}
 
 std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
     if (isArcadeSystem(sys.id)) return Arcade::scan(appDir, sys);
@@ -553,6 +559,8 @@ static const char* biosNote(const std::string& id) {
     if (id == "naomi")
         return "Required: naomi.zip (some games want their own, e.g. hod2bios.zip), with the games or in system/dc/.";
     if (id == "atomiswave") return "Required: awbios.zip, with the games or in system/dc/.";
+    if (id == "neogeo")
+        return "Required: neogeo.zip, with the games or in system/fbneo/ (one in roms/arcade/ is copied there for you).";
     if (id == "arcade") return "BIOS zips (neogeo.zip, pgm.zip...) go in roms/arcade/ with the games, not in system/.";
     return "";
 }
@@ -595,6 +603,10 @@ static void writeGuides(const std::string& appDir) {
                                "ROM lists in cores/ and played with the emulator it is complete for: FBNeo\n"
                                "(current sets), else MAME 2003-Plus (MAME 0.78-era sets). Parent zips\n"
                                "(sf2.zip for sf2ce.zip) go here too. Vertical games play on the playfield.\n")
+             : s.id == "neogeo"
+                 ? std::string("Leave the zips as they are (FBNeo sets, e.g. mslug.zip, kof98.zip). Each is checked\n"
+                               "against FBNeo's ROM list; clones need their parent zip here too. Other arcade\n"
+                               "games go in roms/arcade/.\n")
              : s.id == "naomi" || s.id == "atomiswave"
                  ? std::string("Leave the zips as they are (MAME-style sets). Each is checked against Flycast's\n"
                                "own game list. GD-ROM games also need their .chd in a folder named after the\n"

@@ -69,6 +69,7 @@ already in the cabinet's firmware, or better ones built for it (see
 | Saturn | `roms/saturn` | YabaSanshiro (GPU) | `cores/` |
 | NAOMI | `roms/naomi` | Flycast (GPU), checked per set | `cores/` |
 | Atomiswave | `roms/atomiswave` | Flycast (GPU), checked per set | `cores/` |
+| Neo Geo | `roms/neogeo` | FBNeo, checked per set | `cores/` |
 | Arcade | `roms/arcade` | FBNeo or MAME 2003-Plus, picked per game | `cores/` |
 
 ROMs can be plain files or `.zip`.
@@ -146,6 +147,19 @@ Flycast's own game list (`cores/flycast_libretro.db`, made by
 arcade folder: real names, missing BIOS or parent zips named, vertical games
 (Ikaruga...) on the playfield. GD-ROM games also need their `.chd` in a folder
 named after the zip, e.g. `roms/naomi/ikaruga/gdl-0010.chd`.
+
+### Neo Geo
+
+Neo Geo games have their own row, with the console photo and SNK covers. Put
+the zips in `roms/neogeo/` as they are: FBNeo sets such as `mslug.zip` or
+`kof98.zip`, with any clone's parent zip beside it. FBNeo plays them, and each
+zip is checked against its ROM list like the arcade games are. Zips that aren't
+Neo Geo games are listed with a note to move them to `roms/arcade/`.
+
+The BIOS, `neogeo.zip`, goes with the games or in `system/fbneo/`. If you only
+have it in `roms/arcade/`, it's copied to `system/fbneo/` for you. The cabinet
+buttons A, B, Y and X are the Neo Geo's A, B, C and D. Rewind inserts a coin.
+Neo Geo games in `roms/arcade/` still play there too.
 
 ### Arcade
 
@@ -428,7 +442,7 @@ others) are loaded from the cabinet at run time and are not distributed here.
   (`Named_Boxarts`, `Named_Logos`; arcade logos from its MAME set).
 - Bezels: [The Bezel Project](https://github.com/thebezelproject), fan-made, for personal use.
 - Console photos: Evan Amos, [Wikimedia Commons](https://commons.wikimedia.org/wiki/User:Evan-Amos).
-  Public domain, except the SNES, Atari Lynx and Dreamcast photos (CC BY-SA 3.0).
+  Public domain, except the SNES, Atari Lynx, Dreamcast and Neo Geo photos (CC BY-SA 3.0).
 
 Thanks to the libretro and RetroArch developers, the authors of every core
 listed above, the libretro-thumbnails contributors, The Bezel Project, Evan Amos,

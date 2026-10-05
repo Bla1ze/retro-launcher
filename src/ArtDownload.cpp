@@ -133,6 +133,7 @@ const std::vector<Src>& sources() {
         {"arcade", {"FBNeo_-_Arcade_Games", "MAME"}, {"MAME"}, "arcade"},
         {"naomi", {"Sega_-_Naomi", "Sega_-_Naomi_2"}, {"MAME"}, "arcade"},
         {"atomiswave", {"Atomiswave"}, {"MAME"}, "arcade"},
+        {"neogeo", {"SNK_-_Neo_Geo", "FBNeo_-_Arcade_Games"}, {"MAME"}, "arcade"},
         {"genesis", {"Sega_-_Mega_Drive_-_Genesis"}, {"Sega_-_Mega_Drive_-_Genesis"}, "genesis"},
         {"mastersystem", {"Sega_-_Master_System_-_Mark_III"}, {"Sega_-_Master_System_-_Mark_III"}, "mastersystem"},
         {"gamegear", {"Sega_-_Game_Gear"}, {"Sega_-_Game_Gear"}, "gamegear"},

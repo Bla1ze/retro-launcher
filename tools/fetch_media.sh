@@ -69,6 +69,7 @@ bezel n64 bezelproject-N64;                     photo n64 N64-Console-Set.png
 bezel saturn bezelproject-Saturn;               photo saturn Sega-Saturn-Console-Set-Mk1.png
 bezel naomi bezelproject-Naomi
 bezel atomiswave bezelproject-Atomiswave
+photo neogeo Neo-Geo-AES-Console-Set.png   # no Bezel Project set for Neo Geo
 photo psp Psp-1000.jpg   # no Bezel Project set for PSP; its 16:9 picture fills the backglass
 
 # Credits, rebuilt from every photo's own record.

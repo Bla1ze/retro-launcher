@@ -255,10 +255,29 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         ::closedir(d);
     }
     if (zips.empty()) return games;
-    // Flycast also finds BIOS zips (naomi.zip, awbios.zip) in system/dc/.
+    // Neo Geo: neogeo.zip may be in roms/arcade/ only; FBNeo won't look there,
+    // so copy it to system/fbneo/, one of the places it does look.
+    if (sys.id == "neogeo" && !zips.count("neogeo")) {
+        struct stat st;
+        const std::string from = appDir + "/roms/arcade/neogeo.zip", to = appDir + "/system/fbneo/neogeo.zip";
+        if (::stat(to.c_str(), &st) != 0 && ::stat(from.c_str(), &st) == 0) {
+            ::mkdir((appDir + "/system").c_str(), 0755);
+            ::mkdir((appDir + "/system/fbneo").c_str(), 0755);
+            std::ifstream in(from, std::ios::binary);
+            std::ofstream out(to + ".part", std::ios::binary);
+            out << in.rdbuf();
+            out.close();
+            bool ok = in && out && ::rename((to + ".part").c_str(), to.c_str()) == 0;
+            log("neogeo: %s neogeo.zip from roms/arcade/ to system/fbneo/", ok ? "copied" : "could not copy");
+        }
+    }
+    // BIOS zips the core also finds outside the games' folder: Flycast's
+    // (naomi.zip, awbios.zip) in system/dc/, FBNeo's (neogeo.zip) in system/fbneo/ and system/.
     const bool flycast = !sys.cores.empty() && sys.cores[0].compare(0, 7, "flycast") == 0;
-    if (flycast) {
-        const std::string bdir = appDir + "/system/dc";
+    std::vector<std::string> biosDirs;
+    if (flycast) biosDirs.push_back(appDir + "/system/dc");
+    if (sys.id == "neogeo") { biosDirs.push_back(appDir + "/system/fbneo"); biosDirs.push_back(appDir + "/system"); }
+    for (const std::string& bdir : biosDirs) {
         if (DIR* d = ::opendir(bdir.c_str())) {
             while (struct dirent* de = ::readdir(d)) {
                 std::string file = de->d_name;
@@ -297,7 +316,7 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
     int complete = 0;
     for (const auto& kv : zips) {
         const std::string& set = kv.first;
-        if (!fileOf.count(set)) continue;  // a BIOS zip from system/dc/
+        if (!fileOf.count(set)) continue;  // a BIOS zip from system/
         bool isBios = false;
         for (const auto& db : dbs) {
             auto e = db.second.find(set);
@@ -323,6 +342,18 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
             } else if (bestMissing > 0 && v.missing < bestMissing) {
                 bestCore = db.first; bestMissing = v.missing; bestProblem = v.problem; named = &e;
             }
+        }
+        // The Neo Geo folder takes Neo Geo games only (their sets lead to neogeo.zip).
+        if (sys.id == "neogeo" && named && !dbs.empty()) {
+            bool neo = false;
+            std::string at = named->name;
+            for (int hop = 0; hop < 4 && !at.empty() && !neo; ++hop) {
+                auto e = dbs[0].second.find(at);
+                if (e == dbs[0].second.end()) break;
+                neo = e->second.romof == "neogeo";
+                at = e->second.romof;
+            }
+            if (!neo) { g.cores.clear(); bestCore.clear(); bestProblem = "Not a Neo Geo game - it goes in roms/arcade/"; }
         }
         if (g.cores.empty() && !bestCore.empty()) g.cores.push_back(bestCore);
         g.core = bestCore;

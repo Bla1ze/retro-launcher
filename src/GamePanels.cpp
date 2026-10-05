@@ -709,7 +709,7 @@ std::string findLogo(const std::string& appDir, const std::string& system, const
     for (char& ch : safe)
         if (std::strchr("&*/:`<>?\\|\"", ch)) ch = '_';
     std::vector<std::string> systems{system};
-    if (system == "naomi" || system == "atomiswave") systems.push_back("arcade");
+    if (system == "naomi" || system == "atomiswave" || system == "neogeo") systems.push_back("arcade");
     for (const std::string& sys : systems) {
         std::string base = appDir + "/media/" + sys + "/";
         for (const std::string* name : {&stem, &safe}) {

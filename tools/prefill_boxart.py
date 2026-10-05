@@ -45,6 +45,7 @@ REPOS = {
     "saturn": ["Sega_-_Saturn"],
     "naomi": ["Sega_-_Naomi", "Sega_-_Naomi_2"],
     "atomiswave": ["Atomiswave"],
+    "neogeo": ["SNK_-_Neo_Geo"],
 }
 UA = {"User-Agent": "retro-launcher-prefill"}
 
@@ -60,9 +61,9 @@ def get(url, timeout=120):
             time.sleep(2 + attempt * 3)
 
 
-# --logos: game logos (Named_Logos) for the DMD instead of covers. Arcade, NAOMI
-# and Atomiswave share the MAME set (the launcher looks in media/arcade/ for them).
-LOGO_REPOS = dict(REPOS, arcade=["MAME"], naomi=[], atomiswave=[])
+# --logos: game logos (Named_Logos) for the DMD instead of covers. Arcade, NAOMI,
+# Atomiswave and Neo Geo share the MAME set (the launcher looks in media/arcade/ for them).
+LOGO_REPOS = dict(REPOS, arcade=["MAME"], naomi=[], atomiswave=[], neogeo=[])
 
 
 def covers(app, repo, folder="Named_Boxarts"):
