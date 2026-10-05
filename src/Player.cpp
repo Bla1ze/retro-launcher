@@ -1254,8 +1254,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     const double baseRatio = devRate / streamRate;  // output frames per game audio frame
     const bool passThrough = !vsyncLock && std::fabs(baseRatio - 1.0) < 1e-6;
     const Uint32 bytesPerSec = (Uint32)devRate * 4;
-    const Uint32 cushion = bytesPerSec * 60 / 1000;   // keep ~60 ms queued...
-    const Uint32 maxQueue = bytesPerSec * 120 / 1000; // ...and never more than 120 ms
+    // GPU cores (Flycast, PPSSPP) have less even frame times (shader compiles,
+    // the read-back), so they keep about 30 ms more audio queued: fewer
+    // underruns (crackles) for a delay too small to notice.
+    const Uint32 extraMs = g_coreCtx ? 30 : 0;
+    const Uint32 cushion = bytesPerSec * (60 + extraMs) / 1000;   // keep ~60 ms queued...
+    const Uint32 maxQueue = bytesPerSec * (120 + extraMs) / 1000; // ...and never more than 120 ms
     if (audio) {
         std::vector<uint8_t> silence(cushion, 0);
         SDL_QueueAudio(audio, silence.data(), (Uint32)silence.size());
@@ -1280,7 +1284,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     unsigned long statFrames = 0, coreFrames = 0, underruns = 0, catchUps = 0;
     Uint32 lastPresent = SDL_GetTicks();
     SDL_Texture* menuLayer = nullptr;  // pause menu, turned with the game on rotated screens
-    const Uint32 drcTarget = bytesPerSec * 50 / 1000;  // hold ~50 ms queued
+    const Uint32 drcTarget = bytesPerSec * (50 + extraMs) / 1000;  // hold ~50 ms queued (80 for GPU cores)
     double ratioSum = 0.0;
     unsigned long ratioCount = 0;
     std::string reason;
