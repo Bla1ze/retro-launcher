@@ -1,11 +1,5 @@
 #!/usr/bin/env bash
 # PPSSPP (PSP) libretro core for the cabinet, with the Bootlin GCC 7.2 / glibc 2.26 toolchain.
-# Same setup as tools/build-flycast.sh, plus in $SDK/toolchains:
-#   python/    a standalone Python 3 (python-build-standalone, x86_64-unknown-linux-gnu
-#              install_only); the SDK image has none and glslang's build needs it
-#   cablibs/   libGLESv2.so.2, libEGL.so.1, libmali.so.1.9.0 copied from the cabinet's
-#              firmware (/usr/lib), with .so symlinks: PPSSPP links GL directly
-# and tools/patches/ppsspp-gcc7.patch applied. Its assets/ folder goes to system/PPSSPP/.
 set -u
 T=/workspace/toolchains/aarch64--glibc--bleeding-edge
 export PATH=$T/bin:/workspace/toolchains/cmake/bin:/workspace/toolchains/python/bin:$PATH
@@ -17,7 +11,7 @@ cmake .. -DPYTHON_EXECUTABLE=/workspace/toolchains/python/bin/python3 -DLIBRETRO
   -DCMAKE_C_COMPILER=aarch64-linux-gcc -DCMAKE_CXX_COMPILER=aarch64-linux-g++ \
   -DCMAKE_C_FLAGS="-isystem /workspace/toolchains/compat" -DCMAKE_CXX_FLAGS="-isystem /workspace/toolchains/compat" \
   -DCMAKE_CXX_STANDARD_LIBRARIES="-lstdc++fs" \
-  -DCMAKE_SHARED_LINKER_FLAGS="-L/workspace/toolchains/cablibs -Wl,-rpath-link,/workspace/toolchains/cablibs" \
+  -DCMAKE_SHARED_LINKER_FLAGS="-L/workspace/toolchains/cablibs -Wl,-rpath-link,/workspace/toolchains/cablibs /workspace/toolchains/compat/aarch64_atomics.o" \
   -DCMAKE_FIND_ROOT_PATH=$T/aarch64-buildroot-linux-gnu/sysroot > ../../out/ppsspp.cmake.log 2>&1 || { echo "CMAKE FAIL"; tail -25 ../../out/ppsspp.cmake.log; exit 1; }
 make -k -j$(nproc) ppsspp_libretro > ../../out/ppsspp.log 2>&1 || { echo "BUILD FAIL"; grep -E "error:" ../../out/ppsspp.log | sort | uniq -c | sort -rn | head -25; exit 1; }
 so=$(find . -name "ppsspp_libretro.so" | head -1)

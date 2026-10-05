@@ -1108,7 +1108,10 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
 
     // Arcade cores take the zip itself (and find parent / BIOS zips beside it).
     std::vector<std::string> coreExts = splitExts(info.valid_extensions);
-    const bool zipToCore = hasExt(romPath, "zip") && std::find(coreExts.begin(), coreExts.end(), "zip") != coreExts.end();
+    // A core that lists zip takes it as is: by path if it opens files itself
+    // (arcade), else in memory, still zipped (Gearcoleco).
+    const bool coreTakesZip = hasExt(romPath, "zip") && std::find(coreExts.begin(), coreExts.end(), "zip") != coreExts.end();
+    const bool zipToCore = coreTakesZip && info.need_fullpath;
     // Cores that open the file themselves get it where it is: a disc image can be
     // 700 MB, and a .cue needs its track files beside it.
     const bool direct = zipToCore || (info.need_fullpath && !hasExt(romPath, "zip"));
@@ -1138,8 +1141,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             gameFile = baseName(parent) + (dot == std::string::npos ? "" : romName.substr(dot));
         }
     }
-    if (zipToCore) {
-        if (!info.need_fullpath) return fail("This core wants the game in memory, not a zip.");
+    if (coreTakesZip) {
+        // passed as is (by path, or in memory below)
     } else if (hasExt(romPath, "zip")) {
         std::vector<std::string> exts = splitExts(info.valid_extensions);
         if (exts.empty()) exts = sys->extensions;
@@ -1723,6 +1726,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     if (size_t n = core.get_memory_size(RETRO_MEMORY_SAVE_RAM)) {
         if (writeFile(srm, core.get_memory_data(RETRO_MEMORY_SAVE_RAM), n)) log("saved %s", srm.c_str());
         else log("could not save %s: %s", srm.c_str(), std::strerror(errno));
+    }
+    // The game is saved by now; a core that crashes while shutting itself down
+    // (YabaSanshiro does) just goes back to the menu, without a crash message.
+    if (g_crashArgs.size() > 5) {
+        g_crashArgs[5].clear();
+        g_crashArgv[5] = &g_crashArgs[5][0];
     }
     {
         CoreGL glScope;
