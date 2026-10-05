@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Net.h"
+
 #include <atomic>
 #include <map>
 #include <mutex>
@@ -51,12 +53,11 @@ private:
     std::thread m_thread;
     std::atomic<bool> m_running{false}, m_stop{false};
     std::atomic<bool> m_netDown{false}, m_quitting{false};
-    std::string m_caBundle;  // data/ca-bundle.pem
     bool m_compressed = true;  // drop --compressed if this curl lacks zlib
 
+    Net::Curl m_curl;
     mutable std::mutex m_mu;
     std::string m_status, m_result;
     bool m_hasResult = false;
-    std::set<pid_t> m_children;
     std::atomic<int> m_lastExit{0};  // curl's last failing exit code, for the message
 };

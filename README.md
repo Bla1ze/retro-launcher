@@ -338,7 +338,7 @@ stored in `data/settings.cfg` (key = value):
 | Arcade: hide clones & broken sets | `arcade.hide` | `off`, `on` | `off` |
 | Hide consoles with no games | `systems.hideEmpty` | `off` (listed, dimmed), `on` | `off` |
 
-Below the settings are four actions:
+Below the settings are five actions:
 - **Download artwork** adds covers and logos for games that have none (see Artwork).
   Press A again while it runs to stop it.
 - **Network transfer** sends games from a browser (see Network transfer).
@@ -352,6 +352,17 @@ Below the settings are four actions:
   It also lists the BIOS and parent zips your arcade sets still need. The same
   report is written to `data/bios-report.txt` to read on a computer. Retro
   Launcher downloads no BIOS files.
+- **Updates** checks the latest [GitHub release](https://github.com/Bla1ze/retro-launcher/releases).
+  A on a newer version downloads its zip and replaces only the files that changed
+  (compared by size and CRC-32). Every file is unpacked and checked first, then
+  moved into place, the app itself last, and the menu restarts into the new
+  version.
+  - A release holds only the app, cores, PPSSPP files, licenses and console
+    pictures. Games, saves, settings, downloaded artwork and BIOS files are never
+    touched.
+  - Your own `retro-launcher.png` / `.xml` are kept.
+  - The menu also checks once a day by itself, quietly, and says when a new
+    version is out.
 - **Empty trash** deletes the games removed with Home > Remove game.
 
 Per-game screens are stored as `game.<system>/<rom file> = backglass|playfield`.
@@ -395,6 +406,15 @@ folder:
 
 It then refuses to finish if anything personal or downloaded got in: games,
 saves, settings, logs, BIOS or zips, box art, logos or bezels.
+
+To publish it, attach the zip to a GitHub release tagged `v<version>`, for example:
+
+```sh
+gh release create v0.23.0 release/retro-launcher-v0.23.0.zip
+```
+
+Settings > Updates on a cabinet looks for the newest release with a
+`retro-launcher-v*.zip` file attached.
 
 ### Building the cores
 

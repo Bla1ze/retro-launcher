@@ -47,8 +47,10 @@ add_executable(${ATGAMES_APP_NAME}
     src/PanelFont.cpp
     src/Launcher.cpp
     src/Library.cpp
+    src/Net.cpp
     src/Player.cpp
     src/Transfer.cpp
+    src/Update.cpp
     src/main.cpp
 )
 set_property(TARGET ${ATGAMES_APP_NAME} PROPERTY CXX_STANDARD 14)

@@ -4,6 +4,7 @@
 #include "AppFont.h"
 #include "ArtDownload.h"
 #include "Transfer.h"
+#include "Update.h"
 #include "Arcade.h"
 #include "DisplayProfile.h"
 #include "GamePanels.h"
@@ -231,7 +232,7 @@ private:
 
     // "Exit Retro Launcher?" on B at the consoles list.
     // A yes/no question over the menu: exit, remove a game, empty the trash.
-    enum class Confirm { None, Exit, Remove, EmptyTrash, StopArt } m_confirm = Confirm::None;
+    enum class Confirm { None, Exit, Remove, EmptyTrash, StopArt, Update } m_confirm = Confirm::None;
     int m_confirmSel = 0;  // 0 Cancel, 1 the action
     std::string m_confirmQ, m_confirmOk;
     void ask(Confirm what, const std::string& question, const std::string& ok) {
@@ -247,7 +248,13 @@ private:
     int artRow() const { return (int)settingDefs().size(); }
     int transferRow() const { return (int)settingDefs().size() + 1; }
     int biosRow() const { return (int)settingDefs().size() + 2; }
-    int trashRow() const { return (int)settingDefs().size() + 3; }
+    int updateRow() const { return (int)settingDefs().size() + 3; }
+    int trashRow() const { return (int)settingDefs().size() + 4; }
+
+    // Settings > Updates (Update.h); checked by itself once a day at startup.
+    Updater m_update;
+    bool m_updateAnnounced = false;
+    std::string updateValue() const;
 
     // Settings > BIOS check: what each system with games can use, and where it goes.
     struct BiosRow {
@@ -436,7 +443,22 @@ bool Menu::initVideo() {
     return true;
 }
 
+std::string Menu::updateValue() const {
+    switch (m_update.state()) {
+    case Updater::State::Checking: return "Checking...";
+    case Updater::State::UpToDate: return "Up to date (v" APP_VERSION ")";
+    case Updater::State::NoRelease: return "No release yet";
+    case Updater::State::Available: return "v" + m_update.latest() + " available";
+    case Updater::State::Downloading: return "Downloading " + std::to_string(m_update.progress()) + "%";
+    case Updater::State::Installing: return "Installing...";
+    case Updater::State::Done: return "Restarting...";
+    case Updater::State::Failed: return m_update.message();
+    default: return "v" APP_VERSION " - check";
+    }
+}
+
 void Menu::shutdown() {
+    m_update.stop();
     m_transfer.stop();
     m_art.stop();  // a game is starting (or the menu is closing): the rest waits for next time
     if (m_iconThread.joinable()) {
@@ -934,6 +956,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
                 if (what == Confirm::Exit) running = false;
                 else if (what == Confirm::Remove) removeGame(m_removeSys, m_removeGame);
                 else if (what == Confirm::StopArt) m_art.cancel();
+                else if (what == Confirm::Update) m_update.install();
                 else if (what == Confirm::EmptyTrash) {
                     m_toast = Library::emptyTrash(m_appDir) ? "Trash emptied" : "Some files could not be removed";
                     m_toastTime = 0.0f;
@@ -1007,6 +1030,14 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             if (m_setSel < (int)settingDefs().size()) changeSetting(1);
             else if (m_setSel == transferRow()) openTransfer();
             else if (m_setSel == biosRow()) openBios();
+            else if (m_setSel == updateRow()) {
+                const Updater::State us = m_update.state();
+                if (us == Updater::State::Available)
+                    ask(Confirm::Update, "Install v" + m_update.latest() + "?", "Install and restart");
+                else if (us != Updater::State::Checking && us != Updater::State::Downloading &&
+                         us != Updater::State::Installing && us != Updater::State::Done)
+                    m_update.check(m_appDir, false);
+            }
             else if (m_setSel == artRow()) {
                 if (m_art.running()) ask(Confirm::StopArt, "Stop downloading artwork?", "Stop");
                 else startArtDownload();
@@ -1685,6 +1716,12 @@ void Menu::renderSettings() {
     actionRow(transferRow(), "Network transfer", "Open", false);
     // BIOS check: which BIOS files the systems with games can use, and where they go.
     actionRow(biosRow(), "BIOS check", "Open", false);
+    // Updates: the latest GitHub release, installed in place.
+    {
+        const Updater::State us = m_update.state();
+        actionRow(updateRow(), "Updates", updateValue(),
+                  us == Updater::State::Available || us == Updater::State::Downloading || us == Updater::State::Installing);
+    }
     // Empty trash: games removed with Home > Remove game wait in trash/ until then.
     char size[32];
     if (m_trashBytes == 0) std::snprintf(size, sizeof(size), "Empty");
@@ -2227,6 +2264,7 @@ int Menu::run() {
         log("menu resumes at %s #%d, message '%s'", m_startSys.c_str(), m_startIndex, m_toast.c_str());
     if (!initVideo()) return 1;
     startConsoleIcons();
+    if (Updater::dailyCheckDue(m_appDir)) m_update.check(m_appDir, true);  // quietly, in the background
     for (auto& f : Library::loadFavorites(m_appDir)) m_favs.insert(f);
     if (m_startSys == "@recent" || m_startSys == "@favorites") {
         openList(m_startSys == "@favorites");
@@ -2261,6 +2299,23 @@ int Menu::run() {
         Uint32 now = SDL_GetTicks();
         float dt = std::min((now - last) / 1000.0f, 0.033f);
         last = now;
+        // Updates: a new release found by the daily check, or an install finished.
+        if (!m_updateAnnounced && m_update.quiet() && m_update.state() == Updater::State::Available) {
+            m_updateAnnounced = true;
+            m_toast = "Retro Launcher v" + m_update.latest() + " is available - Settings > Updates";
+            m_toastTime = 0.0f;
+        }
+        if (m_update.state() == Updater::State::Done) {
+            const std::string msg = m_update.message();
+            log("menu: restarting after the update");
+            m_toast = msg + " - restarting";
+            m_toastTime = 0.0f;
+            render(0.0f);
+            present();
+            shutdown();
+            Library::execMenu(m_appDir, "", 0, msg);
+            return 1;  // only if exec failed
+        }
         std::string art;
         if (m_art.takeResult(art)) {
             m_toast = m_artLast = art;
