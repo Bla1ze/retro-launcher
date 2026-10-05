@@ -1819,7 +1819,13 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         CoreGL glScope;
         log("shutdown: unload_game");
         core.unload_game();
-        if (g_coreCtx && g_hw.context_destroy) { log("shutdown: context_destroy"); g_hw.context_destroy(); }
+        // PPSSPP has already freed its GL objects in unload_game; its
+        // context_destroy then crashes (signal 11). The process is replaced by
+        // the menu right after, so it is skipped for PPSSPP.
+        if (g_coreCtx && g_hw.context_destroy && baseName(corePath) != "ppsspp_libretro.so") {
+            log("shutdown: context_destroy");
+            g_hw.context_destroy();
+        }
         log("shutdown: deinit");
         core.deinit();
         log("shutdown: core done");
