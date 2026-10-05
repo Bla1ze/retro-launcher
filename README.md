@@ -444,8 +444,7 @@ others) are loaded from the cabinet at run time and are not distributed here.
 - Bezels: [The Bezel Project](https://github.com/thebezelproject), fan-made, for personal use.
 - Console photos: Evan Amos, [Wikimedia Commons](https://commons.wikimedia.org/wiki/User:Evan-Amos).
   Public domain, except the SNES, Atari Lynx, Dreamcast and Neo Geo photos (CC BY-SA 3.0).
-- Atomiswave photo: Black Squirrel, [Wikimedia Commons](https://commons.wikimedia.org/wiki/File:Atomiswave.jpg) (CC BY 4.0).
-- Arcade cabinet and NAOMI board: drawn for Retro Launcher (`tools/draw_consoles.py`,
+- Arcade cabinet, NAOMI board and Atomiswave board: drawn for Retro Launcher (`tools/draw_consoles.py`,
   `assets/consoles/`), under this repository's license.
 
 Thanks to the libretro and RetroArch developers, the authors of every core

@@ -4,8 +4,8 @@
 #                  fan-made artwork for personal use; it is not part of this repository.
 #   console.*    - console photo from Wikimedia Commons (mostly Evan Amos), each
 #                  photo's author and license kept in console.credit beside it;
-#                  media/CREDITS.txt is rebuilt from those. Arcade and NAOMI have
-#                  no usable photo: they get the drawings in assets/consoles/
+#                  media/CREDITS.txt is rebuilt from those. Arcade, NAOMI and
+#                  Atomiswave have no good photo: they get the drawings in assets/consoles/
 #                  (tools/draw_consoles.py, part of this repository).
 # Systems that already have a bezel / photo are skipped; --force fetches again.
 # Usage: tools/fetch_media.sh <app folder> [--force]
@@ -80,7 +80,7 @@ bezel dreamcast bezelproject-Dreamcast;         photo dreamcast Dreamcast-Consol
 bezel n64 bezelproject-N64;                     photo n64 N64-Console-Set.png
 bezel saturn bezelproject-Saturn;               photo saturn Sega-Saturn-Console-Set-Mk1.png
 bezel naomi bezelproject-Naomi;                 drawing naomi
-bezel atomiswave bezelproject-Atomiswave;       photo atomiswave Atomiswave.jpg
+bezel atomiswave bezelproject-Atomiswave;       drawing atomiswave
 drawing arcade
 photo neogeo Neo-Geo-AES-Console-Set.png   # no Bezel Project set for Neo Geo
 photo psp Psp-1000.jpg   # no Bezel Project set for PSP; its 16:9 picture fills the backglass

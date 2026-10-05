@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
-"""Draws the console pictures for systems that have no usable photo: an arcade
-cabinet (Arcade) and the NAOMI board (NAOMI). Writes assets/consoles/<sys>.svg
+"""Draws the console pictures for systems that have no good photo: an arcade
+cabinet (Arcade), the NAOMI board and the Atomiswave board. Writes assets/consoles/<sys>.svg
 and, with Google Chrome installed, renders each to a transparent
 assets/consoles/<sys>.png (what the launcher shows; fetch_media.sh copies them
 into media/<sys>/console.png).
@@ -163,9 +163,63 @@ def naomi():
     return "\n".join(o), (2020, 740)
 
 
+# ---------------------------------------------------------------- Atomiswave board
+
+def atomiswave():
+    # Same projection as the NAOMI board: (x, z, d) -> (x + .62 d, -z - .42 d).
+    def P(x, z, d):
+        return (x + .62 * d, -z - .42 * d)
+
+    def box(x0, x1, d0, d1, z0, z1, top, front, side, stroke="#5a1d06"):
+        s = 'stroke="%s" stroke-width="2"' % stroke
+        return [poly(P, [(x0, z1, d0), (x1, z1, d0), (x1, z1, d1), (x0, z1, d1)], top, s),
+                poly(P, [(x0, z0, d0), (x1, z0, d0), (x1, z1, d0), (x0, z1, d0)], front, s),
+                poly(P, [(x1, z0, d0), (x1, z0, d1), (x1, z1, d1), (x1, z1, d0)], side, s)]
+    o = ['<svg xmlns="http://www.w3.org/2000/svg" viewBox="-100 -400 1080 430" width="2160" height="860">',
+         '<defs>',
+         ' <linearGradient id="atop" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff8a3d"/><stop offset="1" stop-color="#f0641f"/></linearGradient>',
+         ' <linearGradient id="afront" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e2561a"/><stop offset="1" stop-color="#c44812"/></linearGradient>',
+         ' <linearGradient id="aside" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#b8420f"/><stop offset="1" stop-color="#9c360b"/></linearGradient>',
+         ' <linearGradient id="plate" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#d9dde3"/><stop offset="1" stop-color="#a9afb8"/></linearGradient>',
+         ' <linearGradient id="cart" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff4b4b"/><stop offset="1" stop-color="#c81e2a"/></linearGradient>',
+         '</defs>']
+    # Metal mounting plate, wider than the case, with screw holes.
+    o += box(-70, 690, -20, 440, -8, 0, "url(#plate)", "#9aa0a8", "#868c94", "#6b7078")
+    for x, d in [(-45, 10), (-45, 410), (665, 10), (665, 410)]:
+        cx, cy = P(x, 0, d)
+        o.append('<ellipse cx="%.1f" cy="%.1f" rx="9" ry="5" fill="#5d636b"/>' % (cx, cy))
+    # The case, with the cartridge bay raised around the slot.
+    o += box(0, 620, 0, 420, 0, 100, "url(#atop)", "url(#afront)", "url(#aside)")
+    o += box(150, 560, 90, 400, 100, 122, "#ff9a52", "#e8601f", "#c24a12")
+    o.append(poly(P, [(190, 122, 130), (520, 122, 130), (520, 122, 370), (190, 122, 370)], "#8f2f08"))
+    # The cartridge, standing in its slot, with a plain label.
+    o += box(205, 505, 200, 250, 110, 280, "url(#cart)", "#d42a32", "#a51d25", "#6e0f16")
+    la, lb = P(225, 262, 200), P(485, 168, 200)
+    o.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="6" fill="#f6f4ee"/>' % (la[0], la[1], lb[0] - la[0], lb[1] - la[1]))
+    o.append('<text x="%.1f" y="%.1f" text-anchor="middle" font-family="Helvetica Neue, Arial, sans-serif" font-size="30" '
+             'font-weight="800" letter-spacing="2" fill="#222">ATOMISWAVE</text>' % ((la[0] + lb[0]) / 2, (la[1] + lb[1]) / 2 + 10))
+    s1, s2 = P(225, 150, 200), P(485, 150, 200)
+    o.append('<rect x="%.1f" y="%.1f" width="%.1f" height="10" fill="#e23b3b"/>' % (s1[0], s1[1], s2[0] - s1[0]))
+    # Edge connector (gold fingers) at the front left, below the vents.
+    o += box(10, 240, -24, 0, 6, 26, "#1f6b3f", "#17592f", "#124726", "#0b3a22")
+    a, b = P(18, 24, -24), P(232, 8, -24)
+    for k in range(18):
+        o.append('<rect x="%.1f" y="%.1f" width="6" height="%.1f" fill="#d8b24a"/>' % (a[0] + k * 12, a[1] + 2, b[1] - a[1] - 4))
+    # Front: vents and the connectors.
+    for i in range(10):
+        a, b = P(280 + i * 22, 82, 0), P(292 + i * 22, 30, 0)
+        o.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="3" fill="#9c3a0e"/>' % (a[0], a[1], b[0] - a[0], b[1] - a[1]))
+    for x0, x1 in [(510, 560), (570, 605)]:
+        a, b = P(x0, 72, 0), P(x1, 34, 0)
+        o.append('<rect x="%.1f" y="%.1f" width="%.1f" height="%.1f" rx="4" fill="#2a2e37" stroke="#11131a" stroke-width="2"/>' % (
+            a[0], a[1], b[0] - a[0], b[1] - a[1]))
+    o.append('</svg>')
+    return "\n".join(o), (2160, 860)
+
+
 def main():
     os.makedirs(OUT, exist_ok=True)
-    for name, (svg, (w, h)) in [("arcade", arcade()), ("naomi", naomi())]:
+    for name, (svg, (w, h)) in [("arcade", arcade()), ("naomi", naomi()), ("atomiswave", atomiswave())]:
         path = os.path.join(OUT, name + ".svg")
         with open(path, "w") as f:
             f.write(svg)
