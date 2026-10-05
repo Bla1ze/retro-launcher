@@ -1040,7 +1040,6 @@ void Menu::renderSystems() {
         AppFont::draw(r, e.sys->name, tx, y + 14.0f, Theme::Type::Body, tc);
         std::string sub = empty ? "No games - add ROMs to roms/" + e.sys->id + "/"
                                 : std::to_string(e.games.size()) + (e.games.size() == 1 ? " game" : " games");
-        if (!e.sys->verified) sub += "   untested";
         AppFont::draw(r, sub, tx, y + 54.0f, Theme::Type::Caption, empty ? Theme::Faint : Theme::Muted);
     }
     endListClip();
@@ -1072,7 +1071,7 @@ void Menu::renderGames() {
                           Theme::Type::Caption, Theme::Muted);
     }
     endListClip();
-    drawHeader(e.sys->verified ? "Games" : "Games - untested core", e.sys->name, m_gameSel + 1, (int)e.games.size());
+    drawHeader("Games", e.sys->name, m_gameSel + 1, (int)e.games.size());
     Theme::footerHints(r, w, "A Play   HOME Options   REWIND Favorite   B Back", "");
 }
 

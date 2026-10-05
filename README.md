@@ -69,8 +69,7 @@ already in the cabinet's firmware, or better ones built for it (see
 | Atomiswave | `roms/atomiswave` | Flycast (GPU), checked per set | `cores/` |
 | Arcade | `roms/arcade` | FBNeo or MAME 2003-Plus, picked per game | `cores/` |
 
-Genesis, NES, SNES, Arcade (FBNeo), PlayStation and Dreamcast are verified on a Legends Pinball 4KP; the others are marked "untested"
-in the menu until confirmed. ROMs can be plain files or `.zip`.
+ROMs can be plain files or `.zip`.
 
 ### PlayStation
 
