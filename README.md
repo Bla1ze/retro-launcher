@@ -136,6 +136,16 @@ complete for: **FBNeo** when both can (current FBNeo sets), else **MAME
 listed, dimmed, with the reason: a missing parent or BIOS zip, or ROMs from a
 different version. Home on a game lets you pick the emulator yourself.
 
+Picking **Arcade** first shows its genres: All games, Vertical games, then
+Shooters, Platformers, Fighters, Sports and the rest (from MAME's `catver.ini`,
+made into `cores/arcade-genres.txt` by `tools/make_arcade_db.py`). B in a genre
+goes back to the list; the genre used last is remembered. Settings > **Arcade:
+hide clones & broken sets** leaves out regional / revision variants whose parent
+zip you also have, and sets that are incomplete, unknown or marked not working
+(nothing is deleted). **High scores** are kept: MAME 2003-Plus has its own list,
+and FBNeo uses `system/fbneo/hiscore.dat` (from FBNeo's `metadata/`), saving each
+game's table in `system/fbneo/`.
+
 Games are listed by their real names ("Street Fighter II': Champion Edition"),
 with year and maker. **Vertical games** (1942, Galaga, DoDonPachi...) play on
 the playfield by default, filling it in portrait; horizontal ones on the

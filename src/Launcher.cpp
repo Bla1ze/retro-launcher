@@ -56,6 +56,8 @@ constexpr float kHitGap = 8.0f;
 struct SystemEntry {
     const Library::System* sys;
     std::vector<Library::Game> games;
+    std::vector<int> shown;  // the games list as browsed: indexes into games (an arcade genre, or all)
+    std::string filter;      // "" all, "\x01vertical", or a genre
 };
 
 struct Key { std::string label; char ch; float units; };
@@ -98,7 +100,7 @@ public:
     int run();
 
 private:
-    enum class View { Systems, Games, Search, Recent, Settings, Controls };  // Recent also shows Favorites
+    enum class View { Systems, Games, Search, Recent, Settings, Controls, Genres };  // Recent also shows Favorites
 
     bool initVideo();
     void shutdown();
@@ -119,6 +121,17 @@ private:
     void present();
     void move(int delta);
     void jumpLetter(int dir);
+
+    // Arcade genres: picking Arcade first lists All games, Vertical games and
+    // each genre (MAME's catver.ini), and the games list shows that one.
+    struct GenreRow { std::string key, label; int count; };
+    std::vector<GenreRow> genreRows(int sys) const;
+    bool hasGenres(int sys) const { return m_systems[sys].sys->id == "arcade"; }
+    void applyFilter(int sys, const std::string& key);
+    int m_genreSel = 0;
+    float m_genreScroll = 0.0f;
+    void renderGenres();
+    int shownGame() const { return m_systems[sysIndex()].shown[m_gameSel]; }  // index into games
     void openSearch();
     void runQuery();
     void pressKey();
@@ -382,7 +395,7 @@ void Menu::shutdown() {
 void Menu::scan() {
     m_systems.clear();
     for (const Library::System& s : Library::systems()) {
-        SystemEntry e{&s, Library::scanGames(m_appDir, s)};
+        SystemEntry e{&s, Library::scanGames(m_appDir, s), {}, ""};
         int renamed = 0;
         for (Library::Game& g : e.games) {
             if (g.arcade) continue;
@@ -396,6 +409,14 @@ void Menu::scan() {
                 for (char& c : y) c = (char)std::tolower((unsigned char)c);
                 return x < y;
             });
+        for (int i = 0; i < (int)e.games.size(); ++i) e.shown.push_back(i);
+        if (Library::isArcadeSystem(s.id)) {  // hide clones / broken sets if Settings says so
+            m_systems.push_back(std::move(e));
+            applyFilter((int)m_systems.size() - 1, "");
+            const SystemEntry& added = m_systems.back();
+            log("%s: %zu game(s), %zu shown", s.id.c_str(), added.games.size(), added.shown.size());
+            continue;
+        }
         log("%s: %zu game(s)%s", s.id.c_str(), e.games.size(),
             renamed ? (", " + std::to_string(renamed) + " named from their covers").c_str() : "");
         m_systems.push_back(std::move(e));
@@ -415,13 +436,18 @@ void Menu::move(int delta) {
     if (m_view == View::Systems) { m_sysRow = step(m_sysRow, systemRows()); return; }
     if (m_view == View::Settings) { m_setSel = step(m_setSel, (int)settingDefs().size()); return; }
     if (m_view == View::Recent) { m_recentSel = step(m_recentSel, (int)m_recent.size()); return; }
-    if (m_view == View::Games) m_gameSel = step(m_gameSel, (int)m_systems[sysIndex()].games.size());
+    if (m_view == View::Games) m_gameSel = step(m_gameSel, (int)m_systems[sysIndex()].shown.size());
+    if (m_view == View::Genres) m_genreSel = step(m_genreSel, (int)genreRows(sysIndex()).size());
 }
 
 // Flippers in a game list: jump to the start of the previous / next letter.
 void Menu::jumpLetter(int dir) {
-    const std::vector<Library::Game>& games = m_systems[sysIndex()].games;
-    int n = (int)games.size();
+    const SystemEntry& se = m_systems[sysIndex()];
+    struct Shown {
+        const SystemEntry& e;
+        const Library::Game& operator[](int i) const { return e.games[e.shown[i]]; }
+    } games{se};
+    int n = (int)se.shown.size();
     if (n == 0) return;
     char cur = groupOf(games[m_gameSel].title);
     int i = m_gameSel;
@@ -574,6 +600,7 @@ const std::vector<Menu::SettingDef>& Menu::settingDefs() {
         {"Screen artwork", "panels", {"on", "off"}, {"On", "Off"}},
         {"Default game screen", "screen.default", {"backglass", "playfield"}, {"Backglass", "Playfield"}},
         {"Playfield game rotation", "rotate.playfield", {"90", "270"}, {"90 degrees", "270 degrees"}},
+        {"Arcade: hide clones & broken sets", "arcade.hide", {"off", "on"}, {"Off", "On"}},
     };
     return defs;
 }
@@ -593,6 +620,18 @@ void Menu::changeSetting(int dir) {
     if (d.key == "panels") {
         m_toast = "Screen artwork changes on the next start";
         m_toastTime = 0.0f;
+    }
+    if (d.key == "arcade.hide") {  // re-filter the arcade lists now
+        int hidden = 0;
+        for (int i = 0; i < (int)m_systems.size(); ++i)
+            if (Library::isArcadeSystem(m_systems[i].sys->id)) {
+                applyFilter(i, m_systems[i].filter);
+                for (const Library::Game& g : m_systems[i].games) hidden += g.clone || g.broken;
+            }
+        if (m_settings.value("arcade.hide", "off") == "on") {
+            m_toast = std::to_string(hidden) + " arcade sets hidden (clones and broken sets)";
+            m_toastTime = 0.0f;
+        }
     }
 }
 
@@ -695,7 +734,7 @@ void Menu::handleSearch(AtGames::ControlEvent ev) {
 
 // The game under the cursor in a games list, Recent / Favorites or search results.
 bool Menu::highlightedGame(int& sys, int& game) const {
-    if (m_view == View::Games && !m_systems[sysIndex()].games.empty()) { sys = sysIndex(); game = m_gameSel; return true; }
+    if (m_view == View::Games && !m_systems[sysIndex()].shown.empty()) { sys = sysIndex(); game = shownGame(); return true; }
     if (m_view == View::Recent && !m_recent.empty()) { sys = m_recent[m_recentSel].sys; game = m_recent[m_recentSel].game; return true; }
     if (m_view == View::Search && m_inHits && !m_hits.empty()) { sys = m_hits[m_hitSel].sys; game = m_hits[m_hitSel].game; return true; }
     return false;
@@ -708,6 +747,7 @@ void Menu::moveSystem(int dir) {
         int i = ((sysIndex() + dir * k) % n + n) % n;
         if (m_systems[i].games.empty()) continue;
         m_sysRow = i + kFixedRows;
+        applyFilter(i, hasGenres(i) ? m_settings.value("genre." + m_systems[i].sys->id, "") : "");
         m_gameSel = 0;
         m_gameScroll = 0.0f;
         return;
@@ -822,7 +862,25 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             if (e.games.empty()) {
                 m_toast = "Add " + e.sys->name + " ROMs to roms/" + e.sys->id + "/";
                 m_toastTime = 0.0f;
+            } else if (hasGenres(sysIndex())) {
+                // Arcade: pick a genre first, starting on the one used last.
+                m_view = View::Genres;
+                auto rows = genreRows(sysIndex());
+                m_genreSel = 0;
+                for (int k = 0; k < (int)rows.size(); ++k)
+                    if (rows[k].key == e.filter) m_genreSel = k;
+                m_genreScroll = 0.0f;
             } else {
+                m_view = View::Games;
+                m_gameSel = 0;
+                m_gameScroll = 0.0f;
+            }
+        } else if (m_view == View::Genres) {
+            auto rows = genreRows(sysIndex());
+            if (m_genreSel < (int)rows.size()) {
+                applyFilter(sysIndex(), rows[m_genreSel].key);
+                m_settings.set("genre." + m_systems[sysIndex()].sys->id, rows[m_genreSel].key);
+                m_settings.save();
                 m_view = View::Games;
                 m_gameSel = 0;
                 m_gameScroll = 0.0f;
@@ -834,12 +892,13 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
                 else launch(m_recent[m_recentSel].sys, m_recent[m_recentSel].game, "@recent", 0);
             }
         } else {
-            launch(sysIndex(), m_gameSel);
+            launch(sysIndex(), shownGame());
         }
         break;
     case CE::B:
     case CE::Back:
         if (m_view == View::Systems) { m_confirmExit = true; m_confirmSel = 0; }
+        else if (m_view == View::Games && hasGenres(sysIndex())) m_view = View::Genres;  // back to the genre list
         else m_view = View::Systems;
         break;
     default: break;
@@ -850,7 +909,7 @@ void Menu::updatePanels(float dt) {
     if (!m_panels || !m_panels->active()) return;
     std::string key;
     int sys = -1, game = -1;
-    if (m_view == View::Games) { sys = sysIndex(); game = m_gameSel; }
+    if (m_view == View::Games && !m_systems[sysIndex()].shown.empty()) { sys = sysIndex(); game = shownGame(); }
     else if (m_view == View::Search && m_inHits && !m_hits.empty()) { sys = m_hits[m_hitSel].sys; game = m_hits[m_hitSel].game; }
     else if (m_view == View::Recent && !m_recent.empty()) { sys = m_recent[m_recentSel].sys; game = m_recent[m_recentSel].game; }
 
@@ -1099,21 +1158,93 @@ void Menu::renderSystems() {
     Theme::footerHints(r, w, "A Open   HOME Search   B Exit", "");
 }
 
+// Arcade genre rows: All, Vertical, then genres by size (small ones folded
+// into Other). Counts respect the hide-clones-and-broken setting.
+std::vector<Menu::GenreRow> Menu::genreRows(int sys) const {
+    const SystemEntry& e = m_systems[sys];
+    const bool hide = m_settings.value("arcade.hide", "off") == "on";
+    std::map<std::string, int> counts;
+    int all = 0, vertical = 0;
+    for (const Library::Game& g : e.games) {
+        if (hide && (g.clone || g.broken)) continue;
+        ++all;
+        if (g.vertical) ++vertical;
+        ++counts[g.genre];
+    }
+    std::vector<GenreRow> genres;
+    int other = 0;
+    for (const auto& kv : counts) {
+        if (kv.first.empty() || kv.second < 5) { other += kv.second; continue; }
+        static const std::map<std::string, std::string> plural = {
+            {"Shooter", "Shooters"}, {"Fighter", "Fighters"}, {"Platform", "Platformers"}, {"Maze", "Maze games"},
+            {"Driving", "Driving"}, {"Sports", "Sports"}, {"Puzzle", "Puzzle"}, {"Ball & Paddle", "Ball & paddle"}};
+        auto pl = plural.find(kv.first);
+        genres.push_back({kv.first, pl != plural.end() ? pl->second : kv.first, kv.second});
+    }
+    std::sort(genres.begin(), genres.end(), [](const GenreRow& a, const GenreRow& b) { return a.count > b.count; });
+    std::vector<GenreRow> rows{{"", "All games", all}};
+    if (vertical) rows.push_back({"\x01vertical", "Vertical games", vertical});
+    rows.insert(rows.end(), genres.begin(), genres.end());
+    if (other) rows.push_back({"\x01other", "Other", other});
+    return rows;
+}
+
+void Menu::applyFilter(int sys, const std::string& key) {
+    SystemEntry& e = m_systems[sys];
+    const bool hide = Library::isArcadeSystem(e.sys->id) && m_settings.value("arcade.hide", "off") == "on";
+    // "Other" holds what genreRows folded away: no genre, or a genre under 5 games.
+    std::map<std::string, int> counts;
+    if (key == "\x01other")
+        for (const Library::Game& g : e.games)
+            if (!(hide && (g.clone || g.broken))) ++counts[g.genre];
+    e.filter = key;
+    e.shown.clear();
+    for (int i = 0; i < (int)e.games.size(); ++i) {
+        const Library::Game& g = e.games[i];
+        if (hide && (g.clone || g.broken)) continue;
+        bool in = key.empty() || (key == "\x01vertical" && g.vertical) ||
+                  (key == "\x01other" && (g.genre.empty() || counts[g.genre] < 5)) || g.genre == key;
+        if (in) e.shown.push_back(i);
+    }
+    if (e.shown.empty() && !key.empty()) applyFilter(sys, "");  // a genre that no longer has games
+}
+
+void Menu::renderGenres() {
+    SDL_Renderer* r = m_renderer;
+    const int w = AppConfig::kLogicalWidth;
+    const auto rows = genreRows(sysIndex());
+    beginListClip(kListTop, kListBottom);
+    for (int i = 0; i < (int)rows.size(); ++i) {
+        float y = kListTop + i * (kRowH + kRowGap) - m_genreScroll;
+        if (y + kRowH < kListTop || y > kListBottom) continue;
+        bool active = i == m_genreSel;
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
+        Theme::rowCard(r, row, active);
+        AppFont::draw(r, rows[i].label, row.x + 24.0f, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+        AppFont::draw(r, std::to_string(rows[i].count) + (rows[i].count == 1 ? " game" : " games"), row.x + 24.0f,
+                      y + 54.0f, Theme::Type::Caption, Theme::Muted);
+    }
+    endListClip();
+    drawHeader("Genres", m_systems[sysIndex()].sys->name, m_genreSel + 1, (int)rows.size());
+    Theme::footerHints(r, w, "A Open   B Back", "");
+}
+
 void Menu::renderGames() {
     SDL_Renderer* r = m_renderer;
     const int w = AppConfig::kLogicalWidth;
     const SystemEntry& e = m_systems[sysIndex()];
     beginListClip(kListTop, kListBottom);
-    for (int i = 0; i < (int)e.games.size(); ++i) {
+    for (int i = 0; i < (int)e.shown.size(); ++i) {
         float y = kListTop + i * (kRowH + kRowGap) - m_gameScroll;
         if (y + kRowH < kListTop || y > kListBottom) continue;
-        const Library::Game& g = e.games[i];
+        const int gi = e.shown[i];
+        const Library::Game& g = e.games[gi];
         bool active = i == m_gameSel;
         FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
         Theme::rowCard(r, row, active);
         ScreenId over;
         bool overridden = m_settings.gameScreen(e.sys->id, g.file, over);
-        float extras = drawGameExtras(r, row, active, isFav(sysIndex(), i), overridden, gameScreen(sysIndex(), i));
+        float extras = drawGameExtras(r, row, active, isFav(sysIndex(), gi), overridden, gameScreen(sysIndex(), gi));
         float tx = row.x + 24.0f, availW = row.w - 28.0f - extras;
         // Arcade sets that are incomplete stay listed, dimmer, with the reason.
         SDL_Color tc = active ? Theme::Text : g.problem.empty() ? Theme::TextDim : Theme::Faint;
@@ -1123,7 +1254,11 @@ void Menu::renderGames() {
                           Theme::Type::Caption, Theme::Muted);
     }
     endListClip();
-    drawHeader("Games", e.sys->name, m_gameSel + 1, (int)e.games.size());
+    std::string caption = "Games";
+    if (hasGenres(sysIndex()))
+        for (const GenreRow& gr : genreRows(sysIndex()))
+            if (gr.key == e.filter) caption = gr.label;
+    drawHeader(caption, e.sys->name, m_gameSel + 1, (int)e.shown.size());
     Theme::footerHints(r, w, "A Play   HOME Options   REWIND Favorite   B Back", "");
 }
 
@@ -1500,7 +1635,8 @@ void Menu::render(float dt) {
         m_toastTime += dt;
         if (m_toastTime > 6.0f) m_toast.clear();
     }
-    if (m_view == View::Games) m_gameScroll = scrollFor(m_gameScroll, m_gameSel, (int)m_systems[sysIndex()].games.size(), dt);
+    if (m_view == View::Games) m_gameScroll = scrollFor(m_gameScroll, m_gameSel, (int)m_systems[sysIndex()].shown.size(), dt);
+    else if (m_view == View::Genres) m_genreScroll = scrollFor(m_genreScroll, m_genreSel, (int)genreRows(sysIndex()).size(), dt);
     else if (m_view == View::Systems) m_sysScroll = scrollFor(m_sysScroll, m_sysRow, systemRows(), dt);
     else if (m_view == View::Recent) m_recentScroll = scrollFor(m_recentScroll, m_recentSel, (int)m_recent.size(), dt);
     else if (m_view == View::Controls) {
@@ -1517,6 +1653,7 @@ void Menu::render(float dt) {
     else if (m_view == View::Recent) renderRecent();
     else if (m_view == View::Settings) renderSettings();
     else if (m_view == View::Controls) renderControls();
+    else if (m_view == View::Genres) renderGenres();
     else renderSystems();
     renderJump();
     if (m_popup) renderPopup();
@@ -1595,7 +1732,12 @@ int Menu::run() {
             m_sysRow = i + kFixedRows;
             if (!m_systems[i].games.empty()) {
                 m_view = View::Games;
-                m_gameSel = std::max(0, std::min(m_startIndex, (int)m_systems[i].games.size() - 1));
+                // Back in the same genre, on the game (m_startIndex counts all games).
+                if (hasGenres(i)) applyFilter(i, m_settings.value("genre." + m_systems[i].sys->id, ""));
+                const std::vector<int>& shown = m_systems[i].shown;
+                auto at = std::find(shown.begin(), shown.end(), m_startIndex);
+                if (at == shown.end()) { applyFilter(i, ""); at = std::find(shown.begin(), shown.end(), m_startIndex); }
+                m_gameSel = at == shown.end() ? 0 : (int)(at - shown.begin());
             }
         }
     if (!m_startSys.empty() || !m_toast.empty())
@@ -1613,7 +1755,7 @@ int Menu::run() {
         }
     }
     m_sysScroll = scrollFor(0.0f, m_sysRow, systemRows(), 0.0f);
-    m_gameScroll = m_view == View::Games ? scrollFor(0.0f, m_gameSel, (int)m_systems[sysIndex()].games.size(), 0.0f) : 0.0f;
+    m_gameScroll = m_view == View::Games ? scrollFor(0.0f, m_gameSel, (int)m_systems[sysIndex()].shown.size(), 0.0f) : 0.0f;
 
     bool running = true;
     Uint32 last = SDL_GetTicks();

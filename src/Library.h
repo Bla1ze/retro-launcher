@@ -52,6 +52,9 @@ struct Game {
     bool arcade = false, vertical = false;
     std::string core, problem;
     std::string altTitle;  // the other emulator's name for it, tried for box art too
+    std::string genre;     // arcade: top-level genre from cores/arcade-genres.txt ("Shooter"), "" if unknown
+    bool clone = false;    // arcade: a variant of a set whose own zip is also here
+    bool broken = false;   // arcade: incomplete, unknown, or marked not working
     std::vector<std::string> cores;
 };
 

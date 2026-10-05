@@ -193,3 +193,6 @@ struct retro_disk_control_ext_callback {
     bool (*get_image_path)(unsigned index, char* path, size_t len);
     bool (*get_image_label)(unsigned index, char* label, size_t len);
 };
+
+// Save-state context (libretro.h): 0 = RETRO_SAVESTATE_CONTEXT_NORMAL.
+#define RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT (72 | RETRO_ENVIRONMENT_EXPERIMENTAL)

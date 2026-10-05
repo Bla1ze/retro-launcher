@@ -635,6 +635,9 @@ bool environment(unsigned cmd, void* data) {
     switch (cmd & ~RETRO_ENVIRONMENT_EXPERIMENTAL) {
     case RETRO_ENVIRONMENT_GET_CAN_DUPE: *(bool*)data = true; return true;
     case RETRO_ENVIRONMENT_GET_DISK_CONTROL_INTERFACE_VERSION: *(unsigned*)data = 1; return true;
+    // Save states here are always plain ones (no run-ahead or netplay); FBNeo
+    // checks this before using hiscore.dat.
+    case RETRO_ENVIRONMENT_GET_SAVESTATE_CONTEXT: if (data) *(int*)data = 0; return true;
     case RETRO_ENVIRONMENT_SET_DISK_CONTROL_INTERFACE:
         g_disc = retro_disk_control_ext_callback{};
         std::memcpy(&g_disc, data, sizeof(retro_disk_control_callback));

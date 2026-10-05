@@ -10,6 +10,7 @@ matches the core built from the same checkout:
   FBNeo/dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat -> fbneo_libretro.db
   mame2003-plus-libretro/metadata/mame2003-plus.xml           -> mame2003_plus_libretro.db
   flycast/core/hw/naomi/naomi_roms.cpp (NAOMI, Atomiswave)    -> flycast_libretro.db
+  mame2003-plus-libretro/metadata/catver.ini (genres)          -> arcade-genres.txt
 
 Output: one tab-separated line per game:
   name  cloneof  romof  flags  year  manufacturer  description  crc crc ...
@@ -158,6 +159,28 @@ def build_flycast(cpp_path, out_path, label):
     return n
 
 
+def build_genres(catver_path, out_path):
+    """catver.ini -> "<set>\t<genre>" with the top-level genre ("Shooter / Flying
+    Vertical" -> "Shooter"); adult sets are marked "<genre>\tmature"."""
+    n = 0
+    with open(catver_path, encoding="latin-1") as src, open(out_path, "w", encoding="utf-8") as out:
+        section = ""
+        for line in src:
+            line = line.strip()
+            if line.startswith("["):
+                section = line
+                continue
+            if section.lower() != "[category]" or "=" not in line:
+                continue
+            name, cat = line.split("=", 1)
+            mature = "* Mature *" in cat
+            top = cat.replace("* Mature *", "").split(" / ")[0].strip()
+            if top:
+                out.write(f"{name.strip()}\t{top}" + ("\tmature" if mature else "") + "\n")
+                n += 1
+    return n
+
+
 def main():
     if len(sys.argv) != 3:
         print(__doc__)
@@ -170,6 +193,9 @@ def main():
                                 capture_output=True, text=True).stdout.strip()
         n = build_flycast(fly, os.path.join(out, "flycast_libretro.db"), f"flycast @ {commit}")
         print(f"flycast_libretro.db: {n} sets (flycast @ {commit})")
+    cat = os.path.join(src, "mame2003-plus-libretro", "metadata", "catver.ini")
+    if os.path.exists(cat):
+        print(f"arcade-genres.txt: {build_genres(cat, os.path.join(out, 'arcade-genres.txt'))} sets")
     for name, repo, rel in SOURCES:
         path = os.path.join(src, repo, rel)
         if not os.path.exists(path):

@@ -284,6 +284,16 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
     }
     log("%s: %zu zip(s), %d read, %zu database(s)", sys.id.c_str(), zips.size(), opened, dbs.size());
 
+    // Genres (MAME's catver.ini, made into cores/arcade-genres.txt).
+    std::unordered_map<std::string, std::string> genres;
+    {
+        std::ifstream in(appDir + "/cores/arcade-genres.txt");
+        std::string line;
+        while (std::getline(in, line)) {
+            std::vector<std::string> f = splitTabs(line);
+            if (f.size() >= 2) genres[f[0]] = f[1];
+        }
+    }
     int complete = 0;
     for (const auto& kv : zips) {
         const std::string& set = kv.first;
@@ -321,12 +331,17 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
             auto e = db.second.find(set);
             if (e != db.second.end() && named && e->second.title != named->title) { g.altTitle = e->second.title; break; }
         }
+        auto gn = genres.find(set);
+        if (gn == genres.end() && named && !named->parent.empty()) gn = genres.find(named->parent);
+        if (gn != genres.end()) g.genre = gn->second;
         if (named) {
             g.title = named->title;
             g.vertical = named->vertical();
             g.tags = named->year + (named->maker.empty() ? "" : "  " + named->maker);
             if (named->flags.find('P') != std::string::npos) g.tags += "  (not working)";
         }
+        g.clone = named && !named->parent.empty() && zips.count(named->parent) && fileOf.count(named->parent);
+        g.broken = !g.problem.empty() || (named && named->flags.find('P') != std::string::npos);
         if (!g.problem.empty()) g.tags = g.problem + (g.tags.empty() ? "" : "  -  " + g.tags);
         else ++complete;
         games.push_back(g);
