@@ -341,6 +341,23 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 | Noto Sans | [Google Fonts](https://fonts.google.com/noto/specimen/Noto+Sans) | SIL OFL 1.1 (`assets/fonts/OFL.txt`) |
 | Bebas Neue | [Dharma Type / Google Fonts](https://fonts.google.com/specimen/Bebas+Neue) | SIL OFL 1.1 (`assets/fonts/BebasNeue-OFL.txt`) |
 
+**Data the tools build from** (generated into the app folder, not stored here)
+
+| Data | Source | Used for |
+|---|---|---|
+| FBNeo ROM list (`dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat`) | [libretro/FBNeo](https://github.com/libretro/FBNeo) | `cores/fbneo_libretro.db`: recognising arcade sets, names, orientation |
+| MAME 2003-Plus ROM list (`metadata/mame2003-plus.xml`) | [libretro/mame2003-plus-libretro](https://github.com/libretro/mame2003-plus-libretro) | `cores/mame2003_plus_libretro.db` |
+| Flycast NAOMI / Atomiswave list (`core/hw/naomi/naomi_roms.cpp`) | [flyinghead/flycast](https://github.com/flyinghead/flycast) | `cores/flycast_libretro.db` |
+| `catver.ini` (via MAME 2003-Plus's `metadata/`) | [Progetto-SNAPS](https://www.progettosnaps.net/catver/), AntoPISA | `cores/arcade-genres.txt`: arcade genres |
+| `hiscore.dat` (via FBNeo's `metadata/`) | The MAME hiscore.dat project (Leezer and contributors) | FBNeo high scores (`system/fbneo/`) |
+
+**Build tools** (used to build the cores, not distributed)
+
+- [Bootlin toolchains](https://toolchains.bootlin.com/) (`aarch64--glibc--bleeding-edge-2017.11-1`: GCC 7.2, glibc 2.26) for Flycast, PPSSPP, Mupen64Plus-Next and YabaSanshiro.
+- [Khronos OpenGL ES / EGL headers](https://github.com/KhronosGroup/OpenGL-Registry) (Apache 2.0 / MIT).
+- [python-build-standalone](https://github.com/astral-sh/python-build-standalone) (Python for PPSSPP's build), [CMake](https://cmake.org/).
+- `tools/compat/filesystem` and `tools/compat/aarch64_atomics.c` are this project's (GPL-3.0), standing in for parts of newer GCC versions.
+
 **Emulator cores** (not in this repository; built from these sources)
 
 | Core | Source | License |
@@ -365,14 +382,16 @@ others) are loaded from the cabinet at run time and are not distributed here.
 
 **Artwork** (downloaded by the tools, not in this repository)
 
-- Box art: [libretro-thumbnails](https://github.com/libretro-thumbnails) (`Named_Boxarts`).
+- Box art and game logos (marquees): [libretro-thumbnails](https://github.com/libretro-thumbnails)
+  (`Named_Boxarts`, `Named_Logos`; arcade logos from its MAME set).
 - Bezels: [The Bezel Project](https://github.com/thebezelproject), fan-made, for personal use.
 - Console photos: Evan Amos, [Wikimedia Commons](https://commons.wikimedia.org/wiki/User:Evan-Amos).
   Public domain, except the SNES, Atari Lynx and Dreamcast photos (CC BY-SA 3.0).
 
 Thanks to the libretro and RetroArch developers, the authors of every core
-listed above, The Bezel Project, and AtGames for opening the cabinets to
-External Applications.
+listed above, the libretro-thumbnails contributors, The Bezel Project, Evan Amos,
+Progetto-SNAPS (catver.ini), the hiscore.dat maintainers, Bootlin, and AtGames
+for opening the cabinets to External Applications.
 
 ## License
 
