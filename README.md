@@ -105,6 +105,15 @@ the cabinet has no right stick). Saturn discs (`.chd`, `.cue`) go in
 `roms/saturn/`; YabaSanshiro has a built-in BIOS replacement, and a real
 `saturn_bios.bin` in `system/` runs more games.
 
+### ColecoVision
+
+Without a BIOS file in `system/`, games run on the cabinet's own ColecoVision
+emulator, which has the BIOS built in. With `colecovision.rom` there, Gearcoleco
+runs them instead. The keypad on the cabinet's own emulator:
+- **Start** presses keypad 1, which starts most games at skill 1.
+- **Rewind** presses keypad \*.
+- **Y** opens an on-screen keypad for the other keys: move with the D-pad, press with B.
+
 ### Marquees (game logos on the DMD)
 
 With `tools/prefill_boxart.py <app> --logos`, libretro's game logos go to

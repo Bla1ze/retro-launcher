@@ -135,6 +135,9 @@ int logFd();  // the log file's descriptor (-1 if none), for signal handlers
 // /tmp/retrofe/cores because the stick is mounted no-exec), then the firmware's
 // own core folders. Returns "" when none is found; `where` describes the pick.
 std::string findCore(const std::string& appDir, const System& sys, std::string& where);
+// colecovision.rom (or another accepted name) in system/: Gearcoleco runs
+// ColecoVision games; without it the firmware's libcv does (built-in BIOS).
+bool hasColecoBios(const std::string& appDir);
 // The same for one named core file (an arcade game's pick).
 std::string findCoreFile(const std::string& appDir, const std::string& coreFile, std::string& where);
 

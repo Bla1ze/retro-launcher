@@ -222,6 +222,9 @@ std::vector<std::pair<int, std::string>> buttonTargets(const std::string& id) {
         return {{kB, "B"}, {kA, "A"}, {kY, "Y"}, {kX, "X"}, {kL, "L"}, {kR, "R"}, {kStart, "Start"}, {kSelect, "Select"}};
     if (id == "atari2600")
         return {{kB, "Fire"}, {kStart, "Reset"}, {kSelect, "Select"}};
+    if (id == "colecovision:libcv")  // the firmware core (no BIOS file); see Player's inputState
+        return {{kA, "Left fire"}, {kB, "Right fire"}, {kStart, "Keypad 1"}, {kSelect, "Keypad *"},
+                {kX, "Keypad (on screen)"}};
     if (id == "colecovision")
         return {{kB, "Left fire"}, {kA, "Right fire"}, {kStart, "Keypad *"}, {kSelect, "Keypad #"}};
     if (id == "gb" || id == "gbc")
@@ -749,17 +752,20 @@ std::string findCoreFile(const std::string& appDir, const std::string& coreFile,
     return findCore(appDir, one, where);
 }
 
+bool hasColecoBios(const std::string& appDir) {
+    for (const char* d : {"/system/", "/system/gearcoleco/"})
+        for (const char* n : {"colecovision.rom", "coleco.rom", "os7.u2"})
+            if (isFile(appDir + d + n)) return true;
+    return false;
+}
+
 std::string findCore(const std::string& appDir, const System& sys, std::string& where) {
     static const char* kDirs[] = {"/upgrade/opt/retroplayer/core", "/upgrade/retroplayer/core",
                                   "/app/retroplayer/core", "/emulator"};
     // ColecoVision: Gearcoleco needs the OS-7 BIOS in system/; without it the
     // firmware's own core (libcv, which has the BIOS built in) runs the game.
     if (sys.id == "colecovision") {
-        bool bios = false;
-        for (const char* d : {"/system/", "/system/gearcoleco/"})
-            for (const char* n : {"colecovision.rom", "coleco.rom", "os7.u2"})
-                bios = bios || isFile(appDir + d + n);
-        if (!bios)
+        if (!hasColecoBios(appDir))
             for (const char* dir : kDirs) {
                 std::string p = std::string(dir) + "/libcv.so";
                 if (::access(p.c_str(), R_OK) == 0) {

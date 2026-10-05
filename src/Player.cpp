@@ -275,6 +275,7 @@ SDL_Texture* makeScanlines(SDL_Renderer* r, int lines, int darkness) {
 std::vector<int16_t> g_audioBatch;
 std::vector<SDL_GameController*> g_pads;
 uint16_t g_buttons = 0;
+bool g_cvKeys = false;  // the core is the firmware's libcv (see inputState)
 int16_t g_analog[2][2] = {};  // [left/right stick][x/y], for cores that read analog (PSP, Dreamcast)
 
 // Watchdog: if a frame takes longer than this, a core has hung; go back to
@@ -847,6 +848,14 @@ void inputPoll() {}
 
 int16_t inputState(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port == 0 && (device & 0xff) == RETRO_DEVICE_ANALOG && index <= 1 && id <= 1) return g_analog[index][id];
+    // The firmware ColecoVision core (libcv) reads keypad digits as keyboard keys
+    // and ignores Start / Select: those press keypad 1 (start, skill 1) and *.
+    // Its X button opens an on-screen keypad for the rest (D-pad, A presses).
+    if (g_cvKeys && port == 0 && (device & 0xff) == RETRO_DEVICE_KEYBOARD) {
+        if (id == '1') return (g_buttons >> RETRO_DEVICE_ID_JOYPAD_START) & 1;
+        if (id == '-') return (g_buttons >> RETRO_DEVICE_ID_JOYPAD_SELECT) & 1;
+        return 0;
+    }
     if (port != 0 || (device & 0xff) != RETRO_DEVICE_JOYPAD) return 0;
     if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)g_buttons;
     return id < 16 ? (int16_t)((g_buttons >> id) & 1) : 0;
@@ -1100,6 +1109,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     if (corePath.empty() && !coreArg.empty()) corePath = Library::findCore(appDir, *sys, where);
     if (corePath.empty()) return fail("No emulator core found for " + sys->name + ".");
     log("core %s (%s)", corePath.c_str(), where.c_str());
+    g_cvKeys = baseName(corePath) == "libcv.so";
     Core core;
     std::string err = loadCore(corePath, core);
     if (!err.empty()) return fail(err);
@@ -1223,7 +1233,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (item.logoPath.empty() && !title.empty()) item.logoPath = findLogo(appDir, sys->id, title + ".x");
         item.title = title;
         item.detail = tags;
-        item.controls = Library::controlHints(sys->id, buttonMap);
+        item.controls = Library::controlHints(g_cvKeys ? "colecovision:libcv" : sys->id, buttonMap);
         item.consolePath = findConsoleArt(appDir, sys->id);
         panels->show(item, 0.0f);
     }

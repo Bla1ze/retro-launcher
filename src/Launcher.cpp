@@ -264,7 +264,11 @@ private:
     std::string ctlFile() const { return m_ctlGameScope ? m_systems[m_ctlSys].games[m_ctlGame].file : ""; }
     Library::ButtonMap ctlMap() const;
     void ctlStore(const Library::ButtonMap& m);
-    int ctlRows() const { return 2 + (int)Library::buttonTargets(m_systems[m_ctlSys].sys->id).size() + 1; }
+    // Button names: ColecoVision's depend on which core will run it.
+    std::string targetsId(const std::string& sys) const {
+        return sys == "colecovision" && !Library::hasColecoBios(m_appDir) ? "colecovision:libcv" : sys;
+    }
+    int ctlRows() const { return 2 + (int)Library::buttonTargets(targetsId(m_systems[m_ctlSys].sys->id)).size() + 1; }
     void handleControls(AtGames::ControlEvent ev);
     void renderControls();
     std::vector<int> popupItems() const;  // PopCore only for arcade games
@@ -1661,7 +1665,7 @@ void Menu::handleControls(AtGames::ControlEvent ev) {
     using CE = AtGames::ControlEvent;
     using Library::Cab;
     const std::string sysId = m_systems[m_ctlSys].sys->id;
-    const auto targets = Library::buttonTargets(sysId);
+    const auto targets = Library::buttonTargets(targetsId(sysId));
     const int rows = ctlRows(), resetRow = rows - 1;
     if (m_ctlCapture) {
         // The next cabinet button pressed goes to this emulated button. Home
@@ -1724,7 +1728,7 @@ void Menu::renderControls() {
     const int w = AppConfig::kLogicalWidth;
     const SystemEntry& se = m_systems[m_ctlSys];
     const Library::Game& g = se.games[m_ctlGame];
-    const auto targets = Library::buttonTargets(se.sys->id);
+    const auto targets = Library::buttonTargets(targetsId(se.sys->id));
     const Library::ButtonMap map = ctlMap();
     auto presets = Library::buttonPresets(se.sys->id);
     std::string preset = "Custom";
