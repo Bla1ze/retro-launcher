@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Builds a release zip of Retro Launcher from a staging app folder:
 #   release/retro-launcher-v<version>.zip  ->  external/retro-launcher/...
-# (unzip to the root of the USB stick).
+# `external/` is the zip's only top-level item, so unzipping (macOS) gives just
+# that folder, ready to copy to the root of the USB stick.
 #
 # Only an allow-list is copied, never the whole folder: the staging copy also
 # holds a tester's games, saves, settings, logs and downloaded artwork, none of
@@ -58,12 +59,16 @@ done
   echo "background removed, cropped and resized. CC BY-SA 3.0: https://creativecommons.org/licenses/by-sa/3.0/"
   cat "$APP"/media/*/console.credit
 } > "$APP/media/CREDITS.txt"
-cat > "$TMP/INSTALL.txt" <<EOF
+cat > "$APP/INSTALL.txt" <<EOF
 Retro Launcher v$VERSION
 
-Copy the "external" folder to the root of your USB stick (merge it with an
-existing one), plug the stick into the cabinet and start Retro Launcher from
-the External Applications menu.
+Copy the "external" folder this file is in to the root of your USB stick
+(merge it with an existing one), plug the stick into the cabinet and start
+Retro Launcher from the External Applications menu. On Windows, "Extract All"
+suggests a folder named after the zip: extract to the stick itself instead, or
+copy the "external" folder from inside it.
+
+Later versions install themselves: Settings > Updates.
 
 Then add your own games to external/retro-launcher/roms/<system>/ (on a
 computer, or with Settings > Network transfer), and fetch box art, logos and
@@ -88,7 +93,7 @@ fi
 mkdir -p "$OUT"
 ZIP="$OUT/retro-launcher-v$VERSION.zip"
 rm -f "$ZIP"
-(cd "$TMP" && zip -r -X -q "$ZIP" INSTALL.txt external)
+(cd "$TMP" && zip -r -X -q "$ZIP" external)
 echo "$ZIP"
 echo "  $(cd "$TMP" && find . -type f | wc -l | tr -d ' ') files, $(du -h "$ZIP" | cut -f1) zipped"
 echo "  cores: $(ls "$APP/cores" | grep -c '\.so$'), console pictures: $(ls "$APP"/media/*/console.* 2>/dev/null | grep -vc credit)"

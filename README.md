@@ -395,8 +395,9 @@ optimization level, so this project forces a Release (`-O3`) build itself.
 tools/make_release.sh /path/to/staging/external/retro-launcher   # -> release/retro-launcher-v<version>.zip
 ```
 
-The zip holds `INSTALL.txt` and `external/retro-launcher/`, ready to unzip to
-the root of a USB stick. The script copies only an allow-list from the staging
+The zip's only top-level item is `external/` (with `INSTALL.txt` inside
+`external/retro-launcher/`), so unzipping it gives a folder ready to copy to the
+root of a USB stick. The script copies only an allow-list from the staging
 folder:
 - the app;
 - the cores with `CORES.txt`;

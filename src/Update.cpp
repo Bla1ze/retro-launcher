@@ -273,11 +273,11 @@ bool Updater::apply(const std::string& zipPath, std::string& why) {
         const uint32_t local = rd32(zip, p + 42);
         const std::string name = zip.substr(p + 46, nlen);
         p += 46 + nlen + xlen + clen;
-        if (name.compare(0, std::strlen(kPrefix), kPrefix) != 0 || name.back() == '/') continue;  // INSTALL.txt, folders
+        if (name.compare(0, std::strlen(kPrefix), kPrefix) != 0 || name.back() == '/') continue;  // outside the app folder, or a folder
         const std::string rel = name.substr(std::strlen(kPrefix));
         // Only what a release ships, and nothing outside the app folder.
         const std::string top = rel.substr(0, rel.find('/'));
-        bool allowed = top == "retro-launcher.elf" || top == "retro-launcher.xml" || top == "retro-launcher.png" ||
+        bool allowed = top == "retro-launcher.elf" || top == "retro-launcher.xml" || top == "retro-launcher.png" || top == "INSTALL.txt" ||
                        top == "cores" || top == "system" || top == "licenses" || top == "media";
         if (!allowed || rel.find("..") != std::string::npos || rel.find('\\') != std::string::npos || rel[0] == '/') {
             log("update: skipped %s", name.c_str());
