@@ -36,6 +36,8 @@ already in the cabinet's firmware, or better ones built for it (see
   picture is centered.
 - **While playing**: a "Now playing" card on the playfield with the cover and the
   game's controls, and a photo of the console on the DMD.
+- **Button layouts** per system and per game: presets or press-to-assign, from
+  Home > Controls.
 - **Pause menu**: hold Start or press Home for Resume, Save state, Load state,
   Reset, Core options and Quit. Core options lists every setting the running
   emulator offers and applies changes straight away. Quitting saves your place, and the next launch offers
@@ -188,7 +190,8 @@ ROM.
 | Lists | Flippers | Previous / next letter in a games list, a page elsewhere |
 | Games list | Second flippers | Previous / next system |
 | Game lists | Rewind (or Y) | Add to / remove from Favorites |
-| Game lists | Home | Game options: Play, Favorite, Screen (default / backglass / playfield), Emulator (arcade), Search |
+| Game lists | Home | Game options: Play, Favorite, Screen (default / backglass / playfield), Emulator (arcade), Controls, Search |
+| Controls | Up / Down, Left / Right, A | Layout for this game or the whole system, a preset, or A on a button then press the cabinet button for it |
 | Consoles | Home or X | Search |
 | Lists | B | Back; on the consoles list, asks before exiting |
 | Settings | Left / Right | Change the highlighted setting |
@@ -198,8 +201,13 @@ ROM.
 | In a game | Hold Start (1 s) or Home | Pause menu |
 | Pause menu | A / B or Start | Select / resume |
 
-Cabinet A/B/X/Y map to libretro B/A/Y/X (SNES layout). The playfield card shows
-each system's mapping while you play.
+Cabinet A/B/X/Y map to libretro B/A/Y/X (SNES layout) by default. **Home >
+Controls** on a game changes it, for that game or its whole system: a preset
+(Default, Swap A and B, Flippers as A and B) or button by button (A on a button,
+then press the cabinet button for it; a button already in use swaps jobs). Saved
+as `controls.<system>` / `controls.<system>/<file>` in `data/settings.cfg`. Menus,
+the pause menu and the directions always use the default layout. The playfield
+card shows the layout in force while you play.
 
 ## Settings
 

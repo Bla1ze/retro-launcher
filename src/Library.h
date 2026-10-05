@@ -79,11 +79,36 @@ public:
     int rotation(ScreenId s, int fallback) const;
     std::string value(const std::string& key, const std::string& fallback) const;
     void set(const std::string& key, const std::string& value);
+    void erase(const std::string& key);
 
 private:
     std::string m_path;
     std::map<std::string, std::string> m_values;
 };
+
+// ---- Button mapping: which cabinet button presses each emulated (libretro
+// RetroPad) button. A system layout ("controls.<system>") and an optional per-game
+// one ("controls.<system>/<file>") in settings.cfg; directions, Home and the
+// menus are never remapped.
+enum class Cab { None, A, B, X, Y, LB, RB, LB2, RB2, Start, Rewind, Rewind2, Count };
+const char* cabLabel(Cab c);  // "A", "LB", "REWIND"...
+struct ButtonMap {
+    Cab src[16];  // by RetroPad id (RETRO_DEVICE_ID_JOYPAD_*); directions unused
+    bool operator==(const ButtonMap& o) const;
+};
+ButtonMap defaultButtonMap();  // A/B/X/Y -> RetroPad B/A/Y/X, flippers L/R, second flippers L2/R2, Rewind Select
+std::string buttonMapToString(const ButtonMap& m);
+bool buttonMapFromString(const std::string& s, ButtonMap& out);
+// The emulated buttons a system uses, by RetroPad id, with what the game calls them.
+std::vector<std::pair<int, std::string>> buttonTargets(const std::string& systemId);
+// The layout in force for a game: its own, else its system's, else the default.
+// `scope` (optional): 2 game, 1 system, 0 default.
+ButtonMap buttonMapFor(const Settings& s, const std::string& systemId, const std::string& file, int* scope = nullptr);
+std::string buttonMapKey(const std::string& systemId, const std::string& file);  // file "" = the system's
+struct ButtonPreset { std::string name; ButtonMap map; };
+std::vector<ButtonPreset> buttonPresets(const std::string& systemId);
+// Playfield-card lines ("A" -> "Jump") for a layout.
+std::vector<std::pair<std::string, std::string>> controlHints(const std::string& systemId, const ButtonMap& m);
 
 // Log to data/launcher.log and stdout (stdout reaches logs/output.txt when the
 // app XML has <logging>true</logging>).

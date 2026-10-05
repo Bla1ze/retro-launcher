@@ -97,7 +97,7 @@ public:
     int run();
 
 private:
-    enum class View { Systems, Games, Search, Recent, Settings };  // Recent also shows Favorites
+    enum class View { Systems, Games, Search, Recent, Settings, Controls };  // Recent also shows Favorites
 
     bool initVideo();
     void shutdown();
@@ -221,7 +221,21 @@ private:
     std::atomic<bool> m_iconsWarm{false};  // the worker has finished everything
     void startConsoleIcons();
     void drawRowIcon(int row, const FRect& slot, bool dim);
-    enum { PopPlay, PopFav, PopScreen, PopCore, PopSearch };
+    enum { PopPlay, PopFav, PopScreen, PopCore, PopControls, PopSearch };
+
+    // Controls screen (Home > Controls on a game): the button layout for this
+    // game or its whole system, a preset, and press-to-assign per button.
+    View m_ctlReturn = View::Systems;
+    int m_ctlSys = 0, m_ctlGame = 0, m_ctlSel = 0;
+    bool m_ctlGameScope = true, m_ctlCapture = false;
+    float m_ctlCaptureTime = 0.0f, m_ctlScroll = 0.0f;
+    void openControls(int sys, int game);
+    std::string ctlFile() const { return m_ctlGameScope ? m_systems[m_ctlSys].games[m_ctlGame].file : ""; }
+    Library::ButtonMap ctlMap() const;
+    void ctlStore(const Library::ButtonMap& m);
+    int ctlRows() const { return 2 + (int)Library::buttonTargets(m_systems[m_ctlSys].sys->id).size() + 1; }
+    void handleControls(AtGames::ControlEvent ev);
+    void renderControls();
     std::vector<int> popupItems() const;  // PopCore only for arcade games
     // Arcade: the core a game plays with (its override, else the detected one),
     // and Auto -> each emulator that can run it, in the Home popup.
@@ -531,6 +545,7 @@ void Menu::cycleGameCore(int sys, int game, int dir) {
 std::vector<int> Menu::popupItems() const {
     std::vector<int> items{PopPlay, PopFav, PopScreen};
     if (m_systems[m_popupSys].games[m_popupGame].arcade) items.push_back(PopCore);
+    items.push_back(PopControls);
     items.push_back(PopSearch);
     return items;
 }
@@ -724,6 +739,7 @@ void Menu::handlePopup(AtGames::ControlEvent ev, bool& running) {
         case PopFav: m_popup = false; handle(CE::Rewind, running); break;
         case PopScreen: cycleGameScreen(m_popupSys, m_popupGame, 1); break;
         case PopCore: cycleGameCore(m_popupSys, m_popupGame, 1); break;
+        case PopControls: m_popup = false; openControls(m_popupSys, m_popupGame); break;
         case PopSearch: m_popup = false; openSearch(); break;
         }
         break;
@@ -741,6 +757,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
     }
     if (m_popup) { handlePopup(ev, running); return; }
     if (m_view == View::Search) { handleSearch(ev); return; }
+    if (m_view == View::Controls) { handleControls(ev); return; }
     int hs = 0, hg = 0;
     bool onGame = highlightedGame(hs, hg);
     switch (ev) {
@@ -1243,7 +1260,8 @@ void Menu::renderPopup() {
     for (int i = 0; i < count; ++i) {
         const int it = items[i];
         std::string label = it == PopPlay ? "Play" : it == PopFav ? (isFav(m_popupSys, m_popupGame) ? "Remove from Favorites" : "Add to Favorites")
-                          : it == PopScreen ? "Screen" : it == PopCore ? "Emulator" : "Search";
+                          : it == PopScreen ? "Screen" : it == PopCore ? "Emulator"
+                          : it == PopControls ? "Controls" : "Search";
         FRect row{px + 40.0f, py + 160.0f + i * (itemH + gap), pw - 80.0f, itemH};
         bool active = i == m_popupSel;
         Theme::rowCard(r, row, active);
@@ -1260,6 +1278,139 @@ void Menu::renderPopup() {
             }
         }
     }
+}
+
+// ----------------------------------------------------------------- controls
+
+void Menu::openControls(int sys, int game) {
+    m_ctlReturn = m_view;
+    m_ctlSys = sys;
+    m_ctlGame = game;
+    int scope = 0;
+    Library::buttonMapFor(m_settings, m_systems[sys].sys->id, m_systems[sys].games[game].file, &scope);
+    m_ctlGameScope = scope == 2;  // start where the layout in force lives (a game's own, else the system's)
+    m_ctlSel = 0;
+    m_ctlCapture = false;
+    m_ctlScroll = 0.0f;
+    m_view = View::Controls;
+}
+
+Library::ButtonMap Menu::ctlMap() const {
+    return Library::buttonMapFor(m_settings, m_systems[m_ctlSys].sys->id, ctlFile());
+}
+
+void Menu::ctlStore(const Library::ButtonMap& m) {
+    m_settings.set(Library::buttonMapKey(m_systems[m_ctlSys].sys->id, ctlFile()), Library::buttonMapToString(m));
+    m_settings.save();
+}
+
+void Menu::handleControls(AtGames::ControlEvent ev) {
+    using CE = AtGames::ControlEvent;
+    using Library::Cab;
+    const std::string sysId = m_systems[m_ctlSys].sys->id;
+    const auto targets = Library::buttonTargets(sysId);
+    const int rows = ctlRows(), resetRow = rows - 1;
+    if (m_ctlCapture) {
+        // The next cabinet button pressed goes to this emulated button. Home
+        // cancels; directions are never remapped.
+        Cab c = ev == CE::A ? Cab::A : ev == CE::B ? Cab::B : ev == CE::X ? Cab::X : ev == CE::Y ? Cab::Y
+              : ev == CE::LeftShoulder ? Cab::LB : ev == CE::RightShoulder ? Cab::RB
+              : ev == CE::LeftTrigger ? Cab::LB2 : ev == CE::RightTrigger ? Cab::RB2
+              : ev == CE::Start ? Cab::Start : ev == CE::Rewind ? Cab::Rewind : ev == CE::Rewind2 ? Cab::Rewind2 : Cab::None;
+        if (ev == CE::Guide) { m_ctlCapture = false; return; }
+        if (c == Cab::None) return;
+        Library::ButtonMap m = ctlMap();
+        int id = targets[m_ctlSel - 2].first;
+        Cab old = m.src[id];
+        for (int i = 0; i < 16; ++i)  // the button's old job moves to whatever had this one (a swap)
+            if (i != id && m.src[i] == c) m.src[i] = old;
+        m.src[id] = c;
+        ctlStore(m);
+        m_ctlCapture = false;
+        return;
+    }
+    auto presetStep = [&](int dir) {
+        auto presets = Library::buttonPresets(sysId);
+        Library::ButtonMap cur = ctlMap();
+        int at = -1;
+        for (int i = 0; i < (int)presets.size(); ++i)
+            if (presets[i].map == cur) at = i;
+        int next = at < 0 ? (dir > 0 ? 0 : (int)presets.size() - 1) : (at + dir + (int)presets.size()) % (int)presets.size();
+        ctlStore(presets[next].map);
+    };
+    switch (ev) {
+    case CE::Up: if (m_ctlSel > 0) --m_ctlSel; else if (!m_repeating) m_ctlSel = rows - 1; break;
+    case CE::Down: if (m_ctlSel < rows - 1) ++m_ctlSel; else if (!m_repeating) m_ctlSel = 0; break;
+    case CE::Left:
+    case CE::Right:
+        if (m_ctlSel == 0) m_ctlGameScope = !m_ctlGameScope;
+        else if (m_ctlSel == 1) presetStep(ev == CE::Left ? -1 : 1);
+        break;
+    case CE::A:
+    case CE::Start:
+        if (m_ctlSel == 0) m_ctlGameScope = !m_ctlGameScope;
+        else if (m_ctlSel == 1) presetStep(1);
+        else if (m_ctlSel == resetRow) {
+            m_settings.erase(Library::buttonMapKey(sysId, ctlFile()));
+            m_settings.save();
+            m_toast = m_ctlGameScope ? "This game now uses the " + m_systems[m_ctlSys].sys->name + " layout"
+                                     : m_systems[m_ctlSys].sys->name + " back to the default layout";
+            m_toastTime = 0.0f;
+        } else {
+            m_ctlCapture = true;
+            m_ctlCaptureTime = 0.0f;
+        }
+        break;
+    case CE::B: case CE::Back: case CE::Guide: m_view = m_ctlReturn; break;
+    default: break;
+    }
+}
+
+void Menu::renderControls() {
+    SDL_Renderer* r = m_renderer;
+    const int w = AppConfig::kLogicalWidth;
+    const SystemEntry& se = m_systems[m_ctlSys];
+    const Library::Game& g = se.games[m_ctlGame];
+    const auto targets = Library::buttonTargets(se.sys->id);
+    const Library::ButtonMap map = ctlMap();
+    auto presets = Library::buttonPresets(se.sys->id);
+    std::string preset = "Custom";
+    for (const auto& p : presets)
+        if (p.map == map) preset = p.name;
+    const int rows = ctlRows();
+    beginListClip(kListTop, kListBottom);
+    for (int i = 0; i < rows; ++i) {
+        float y = kListTop + i * (kRowH + kRowGap) - m_ctlScroll;
+        if (y + kRowH < kListTop || y > kListBottom) continue;
+        bool active = i == m_ctlSel;
+        FRect row{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), kRowH};
+        Theme::rowCard(r, row, active);
+        std::string label, value;
+        bool arrows = false;
+        if (i == 0) { label = "Applies to"; value = m_ctlGameScope ? "This game" : "All " + se.sys->name + " games"; arrows = true; }
+        else if (i == 1) { label = "Preset"; value = preset; arrows = true; }
+        else if (i == rows - 1) { label = m_ctlGameScope ? "Use the " + se.sys->name + " layout" : "Reset to default"; }
+        else {
+            const auto& t = targets[i - 2];
+            label = t.second;
+            value = m_ctlCapture && active ? "Press a button..." : map.src[t.first] == Library::Cab::None ? "-" : Library::cabLabel(map.src[t.first]);
+        }
+        float ty = y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f;
+        AppFont::draw(r, label, row.x + 24.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
+        if (!value.empty()) {
+            float vw = AppFont::measureWidth(r, value, Theme::Type::Body);
+            float vx = row.x + row.w - 24.0f - vw - (active && arrows ? 30.0f : 0.0f);
+            AppFont::draw(r, value, vx, ty, Theme::Type::Body, active ? Theme::accent() : Theme::Muted);
+            if (active && arrows) {
+                Gfx::triangle(r, {vx - 30.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 180.0, Theme::accent());
+                Gfx::triangle(r, {row.x + row.w - 42.0f, y + kRowH * 0.5f - 9.0f, 18.0f, 18.0f}, 0.0, Theme::accent());
+            }
+        }
+    }
+    endListClip();
+    drawHeader(se.sys->name + " controls", m_ctlGameScope ? g.title : "All games", 0, 0);
+    Theme::footerHints(r, w, m_ctlCapture ? "Press the cabinet button to use   HOME Cancel"
+                                          : "A Change   LEFT/RIGHT Choose   B Back", "");
 }
 
 void Menu::renderToast() {
@@ -1299,6 +1450,10 @@ void Menu::render(float dt) {
     if (m_view == View::Games) m_gameScroll = scrollFor(m_gameScroll, m_gameSel, (int)m_systems[sysIndex()].games.size(), dt);
     else if (m_view == View::Systems) m_sysScroll = scrollFor(m_sysScroll, m_sysRow, systemRows(), dt);
     else if (m_view == View::Recent) m_recentScroll = scrollFor(m_recentScroll, m_recentSel, (int)m_recent.size(), dt);
+    else if (m_view == View::Controls) {
+        m_ctlScroll = scrollFor(m_ctlScroll, m_ctlSel, ctlRows(), dt);
+        if (m_ctlCapture && (m_ctlCaptureTime += dt) > 6.0f) m_ctlCapture = false;  // nothing pressed: give up
+    }
     else m_hitScroll = scrollFor(m_hitScroll, m_hitSel, (int)m_hits.size(), dt, kHitsTop, kListBottom, kHitH + kHitGap);
 
     SDL_SetRenderTarget(m_renderer, m_canvas);
@@ -1308,6 +1463,7 @@ void Menu::render(float dt) {
     else if (m_view == View::Search) renderSearch();
     else if (m_view == View::Recent) renderRecent();
     else if (m_view == View::Settings) renderSettings();
+    else if (m_view == View::Controls) renderControls();
     else renderSystems();
     renderJump();
     if (m_popup) renderPopup();

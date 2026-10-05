@@ -155,39 +155,135 @@ const std::vector<System>& systems() {
     return list;
 }
 
-std::vector<std::pair<std::string, std::string>> controlHints(const std::string& id) {
+// ------------------------------------------------------------ buttons
+
+namespace {
+enum Pad { kB = 0, kY = 1, kSelect = 2, kStart = 3, kA = 8, kX = 9, kL = 10, kR = 11, kL2 = 12, kR2 = 13, kL3 = 14, kR3 = 15 };
+const char* const kPadNames[16] = {"B", "Y", "SELECT", "START", "", "", "", "", "A", "X", "L", "R", "L2", "R2", "L3", "R3"};
+const char* const kCabNames[] = {"", "A", "B", "X", "Y", "LB", "RB", "LB2", "RB2", "START", "REWIND", "REWIND2"};
+}
+
+const char* cabLabel(Cab c) { return (int)c < (int)Cab::Count ? kCabNames[(int)c] : ""; }
+
+bool ButtonMap::operator==(const ButtonMap& o) const {
+    for (int i = 0; i < 16; ++i)
+        if (src[i] != o.src[i]) return false;
+    return true;
+}
+
+ButtonMap defaultButtonMap() {
+    ButtonMap m;
+    for (Cab& c : m.src) c = Cab::None;
+    // Cabinet A/B/X/Y -> RetroPad B/A/Y/X (SNES-style; Genesis A/B/X = B/C/A).
+    m.src[kB] = Cab::A; m.src[kA] = Cab::B; m.src[kY] = Cab::X; m.src[kX] = Cab::Y;
+    m.src[kL] = Cab::LB; m.src[kR] = Cab::RB; m.src[kL2] = Cab::LB2; m.src[kR2] = Cab::RB2;
+    m.src[kStart] = Cab::Start; m.src[kSelect] = Cab::Rewind;  // the cabinet has no Select
+    return m;
+}
+
+std::string buttonMapToString(const ButtonMap& m) {
+    std::string out;
+    for (int i = 0; i < 16; ++i)
+        if (kPadNames[i][0] && m.src[i] != Cab::None)
+            out += std::string(out.empty() ? "" : ",") + kPadNames[i] + ":" + cabLabel(m.src[i]);
+    return out;
+}
+
+bool buttonMapFromString(const std::string& str, ButtonMap& out) {
+    if (trim(str).empty()) return false;
+    ButtonMap m;
+    for (Cab& c : m.src) c = Cab::None;
+    std::stringstream ss(str);
+    std::string item;
+    while (std::getline(ss, item, ',')) {
+        size_t colon = item.find(':');
+        if (colon == std::string::npos) continue;
+        std::string pad = trim(item.substr(0, colon)), cab = trim(item.substr(colon + 1));
+        int id = -1;
+        for (int i = 0; i < 16; ++i)
+            if (kPadNames[i][0] && pad == kPadNames[i]) id = i;
+        for (int c = 1; c < (int)Cab::Count; ++c)
+            if (id >= 0 && cab == kCabNames[c]) m.src[id] = (Cab)c;
+    }
+    out = m;
+    return true;
+}
+
+std::vector<std::pair<int, std::string>> buttonTargets(const std::string& id) {
     if (id == "genesis")
-        return {{"A", "B"}, {"B", "C"}, {"X", "A"}, {"START", "Start"}};
+        return {{kY, "A"}, {kB, "B"}, {kA, "C"}, {kL, "X"}, {kX, "Y"}, {kR, "Z"}, {kStart, "Start"}, {kSelect, "Mode"}};
     if (id == "mastersystem" || id == "gamegear")
-        return {{"A", "Button 1"}, {"B", "Button 2"}, {"START", id == "gamegear" ? "Start" : "Pause"}};
+        return {{kB, "Button 1"}, {kA, "Button 2"}, {kStart, id == "gamegear" ? "Start" : "Pause"}};
     if (id == "nes")
-        return {{"A", "B"}, {"B", "A"}, {"START", "Start"}, {"REWIND", "Select"}};
+        return {{kB, "B"}, {kA, "A"}, {kStart, "Start"}, {kSelect, "Select"}};
     if (id == "snes")
-        return {{"A", "B"}, {"B", "A"}, {"X", "Y"}, {"Y", "X"}, {"LB / RB", "L / R"}, {"START", "Start"}};
+        return {{kB, "B"}, {kA, "A"}, {kY, "Y"}, {kX, "X"}, {kL, "L"}, {kR, "R"}, {kStart, "Start"}, {kSelect, "Select"}};
     if (id == "atari2600")
-        return {{"A", "Fire"}, {"START", "Reset"}, {"REWIND", "Select"}};
+        return {{kB, "Fire"}, {kStart, "Reset"}, {kSelect, "Select"}};
     if (id == "colecovision")
-        return {{"A", "Left fire"}, {"B", "Right fire"}, {"START", "Keypad *"}};
+        return {{kB, "Left fire"}, {kA, "Right fire"}, {kStart, "Keypad *"}, {kSelect, "Keypad #"}};
     if (id == "gb" || id == "gbc")
-        return {{"A", "B"}, {"B", "A"}, {"START", "Start"}, {"REWIND", "Select"}};
+        return {{kB, "B"}, {kA, "A"}, {kStart, "Start"}, {kSelect, "Select"}};
     if (id == "gba")
-        return {{"A", "B"}, {"B", "A"}, {"LB / RB", "L / R"}, {"START", "Start"}, {"REWIND", "Select"}};
+        return {{kB, "B"}, {kA, "A"}, {kL, "L"}, {kR, "R"}, {kStart, "Start"}, {kSelect, "Select"}};
     if (id == "pce")
-        return {{"A", "II"}, {"B", "I"}, {"START", "Run"}, {"REWIND", "Select"}};
-    if (id == "psp")
-        return {{"A", "Cross"}, {"B", "Circle"}, {"X", "Square"}, {"Y", "Triangle"}, {"LB / RB", "L / R"},
-                {"STICK", "Analog nub"}, {"START", "Start"}, {"REWIND", "Select"}};
-    if (id == "dreamcast")
-        return {{"A", "A"}, {"B", "B"}, {"X", "X"}, {"Y", "Y"}, {"LB2 / RB2", "L / R triggers"}, {"START", "Start"}};
-    if (id == "psx")
-        return {{"A", "Cross"}, {"B", "Circle"}, {"X", "Square"}, {"Y", "Triangle"}, {"LB / RB", "L1 / R1"},
-                {"LB2 / RB2", "L2 / R2"}, {"START", "Start"}, {"REWIND", "Select"}};
-    if (id == "arcade" || id == "naomi" || id == "atomiswave")
-        return {{"A", "Button 1"}, {"B", "Button 2"}, {"X", "Button 3"}, {"Y", "Button 4"},
-                {"LB / RB", "Button 5 / 6"}, {"REWIND", "Coin"}, {"START", "Start"}};
+        return {{kB, "II"}, {kA, "I"}, {kStart, "Run"}, {kSelect, "Select"}};
     if (id == "lynx")
-        return {{"A", "B"}, {"B", "A"}, {"LB / RB", "Option 1 / 2"}, {"START", "Pause"}};
-    return {};
+        return {{kB, "B"}, {kA, "A"}, {kL, "Option 1"}, {kR, "Option 2"}, {kStart, "Pause"}};
+    if (id == "psx")
+        return {{kB, "Cross"}, {kA, "Circle"}, {kY, "Square"}, {kX, "Triangle"}, {kL, "L1"}, {kR, "R1"},
+                {kL2, "L2"}, {kR2, "R2"}, {kStart, "Start"}, {kSelect, "Select"}};
+    if (id == "psp")
+        return {{kB, "Cross"}, {kA, "Circle"}, {kY, "Square"}, {kX, "Triangle"}, {kL, "L"}, {kR, "R"},
+                {kStart, "Start"}, {kSelect, "Select"}};
+    if (id == "dreamcast")
+        return {{kB, "A"}, {kA, "B"}, {kY, "X"}, {kX, "Y"}, {kL2, "L trigger"}, {kR2, "R trigger"}, {kStart, "Start"}};
+    if (id == "arcade" || id == "naomi" || id == "atomiswave")
+        return {{kB, "Button 1"}, {kA, "Button 2"}, {kY, "Button 3"}, {kX, "Button 4"}, {kL, "Button 5"},
+                {kR, "Button 6"}, {kSelect, "Coin"}, {kStart, "Start"}};
+    return {{kB, "B"}, {kA, "A"}, {kStart, "Start"}, {kSelect, "Select"}};
+}
+
+std::string buttonMapKey(const std::string& sys, const std::string& file) {
+    return "controls." + sys + (file.empty() ? "" : "/" + file);
+}
+
+ButtonMap buttonMapFor(const Settings& s, const std::string& sys, const std::string& file, int* scope) {
+    ButtonMap m;
+    if (!file.empty() && buttonMapFromString(s.value(buttonMapKey(sys, file), ""), m)) { if (scope) *scope = 2; return m; }
+    if (buttonMapFromString(s.value(buttonMapKey(sys, ""), ""), m)) { if (scope) *scope = 1; return m; }
+    if (scope) *scope = 0;
+    return defaultButtonMap();
+}
+
+std::vector<ButtonPreset> buttonPresets(const std::string& sys) {
+    (void)sys;
+    ButtonMap def = defaultButtonMap();
+    auto remap = [&def](std::initializer_list<std::pair<Cab, Cab>> moves) {
+        ButtonMap m = def;
+        for (Cab& c : m.src)
+            for (const auto& mv : moves)
+                if (c == mv.first) { c = mv.second; break; }
+        return m;
+    };
+    return {
+        {"Default", def},
+        {"Swap A and B", remap({{Cab::A, Cab::B}, {Cab::B, Cab::A}})},
+        // A pinball cabinet's flippers are its best buttons: the two main
+        // actions there (fire / jump), A and B taking over the flippers' jobs.
+        {"Flippers as A and B", remap({{Cab::A, Cab::LB}, {Cab::B, Cab::RB}, {Cab::LB, Cab::A}, {Cab::RB, Cab::B}})},
+    };
+}
+
+std::vector<std::pair<std::string, std::string>> controlHints(const std::string& id, const ButtonMap& m) {
+    std::vector<std::pair<std::string, std::string>> out;
+    for (const auto& t : buttonTargets(id))
+        if (m.src[t.first] != Cab::None) out.push_back({cabLabel(m.src[t.first]), t.second});
+    return out;
+}
+
+std::vector<std::pair<std::string, std::string>> controlHints(const std::string& id) {
+    return controlHints(id, defaultButtonMap());
 }
 
 const System* findSystem(const std::string& id) {
@@ -470,6 +566,7 @@ ScreenId Settings::screenFor(const std::string& sys, const std::string& file) co
 }
 
 void Settings::set(const std::string& key, const std::string& value) { m_values[key] = value; }
+void Settings::erase(const std::string& key) { m_values.erase(key); }
 
 std::string Settings::value(const std::string& key, const std::string& fallback) const {
     auto it = m_values.find(key);

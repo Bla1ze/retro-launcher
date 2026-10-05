@@ -871,24 +871,33 @@ int padAxis(SDL_GameControllerAxis a) {
     return best;
 }
 
-uint16_t readButtons() {
+// What each cabinet button is doing right now.
+bool cabDown(Library::Cab c) {
+    const int dz = 16000;
+    switch (c) {
+    case Library::Cab::A: return padButton(SDL_CONTROLLER_BUTTON_A);
+    case Library::Cab::B: return padButton(SDL_CONTROLLER_BUTTON_B);
+    case Library::Cab::X: return padButton(SDL_CONTROLLER_BUTTON_X);
+    case Library::Cab::Y: return padButton(SDL_CONTROLLER_BUTTON_Y);
+    case Library::Cab::LB: return padButton(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
+    case Library::Cab::RB: return padButton(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
+    case Library::Cab::LB2: return padAxis(SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dz;
+    case Library::Cab::RB2: return padAxis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dz;
+    case Library::Cab::Start: return padButton(SDL_CONTROLLER_BUTTON_START);
+    // SDL's Back never fires on the cabinet, but count it where it exists.
+    case Library::Cab::Rewind: return padButton(SDL_CONTROLLER_BUTTON_LEFTSTICK) || padButton(SDL_CONTROLLER_BUTTON_BACK);
+    case Library::Cab::Rewind2: return padButton(SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+    default: return false;
+    }
+}
+
+// RetroPad buttons for a layout (the game's own, or the default for menus).
+uint16_t readButtons(const Library::ButtonMap& map) {
     const int dz = 16000;
     uint16_t b = 0;
     auto set = [&b](int id, bool on) { if (on) b |= (uint16_t)(1u << id); };
-    // Cabinet A/B/X/Y -> libretro B/A/Y/X (the usual SNES-style layout; on
-    // Genesis Plus GX that makes A/B/X = Genesis B/C/A, confirmed on hardware).
-    set(RETRO_DEVICE_ID_JOYPAD_B, padButton(SDL_CONTROLLER_BUTTON_A));
-    set(RETRO_DEVICE_ID_JOYPAD_A, padButton(SDL_CONTROLLER_BUTTON_B));
-    set(RETRO_DEVICE_ID_JOYPAD_Y, padButton(SDL_CONTROLLER_BUTTON_X));
-    set(RETRO_DEVICE_ID_JOYPAD_X, padButton(SDL_CONTROLLER_BUTTON_Y));
-    set(RETRO_DEVICE_ID_JOYPAD_START, padButton(SDL_CONTROLLER_BUTTON_START));
-    // The cabinet has no Select button (SDL's Back never fires there): Rewind is
-    // Select, which arcade cores use as Coin.
-    set(RETRO_DEVICE_ID_JOYPAD_SELECT, padButton(SDL_CONTROLLER_BUTTON_BACK) || padButton(SDL_CONTROLLER_BUTTON_LEFTSTICK));
-    set(RETRO_DEVICE_ID_JOYPAD_L, padButton(SDL_CONTROLLER_BUTTON_LEFTSHOULDER));
-    set(RETRO_DEVICE_ID_JOYPAD_R, padButton(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER));
-    set(RETRO_DEVICE_ID_JOYPAD_L2, padAxis(SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dz);
-    set(RETRO_DEVICE_ID_JOYPAD_R2, padAxis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dz);
+    for (int id = 0; id < 16; ++id)
+        if (map.src[id] != Library::Cab::None && cabDown(map.src[id])) set(id, true);
     int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY);
     set(RETRO_DEVICE_ID_JOYPAD_UP, padButton(SDL_CONTROLLER_BUTTON_DPAD_UP) || ly < -dz);
     set(RETRO_DEVICE_ID_JOYPAD_DOWN, padButton(SDL_CONTROLLER_BUTTON_DPAD_DOWN) || ly > dz);
@@ -1067,6 +1076,16 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     // A game in a folder of its own ("Dolphin Blue/disc.gdi") is named after the
     // folder: for its title, art and bezel, and above all its saves, or every
     // disc.gdi game would share one set.
+    // This game's button layout (its own, else its system's, else the default).
+    std::string fileKey = romPath;
+    {
+        const std::string prefix = appDir + "/roms/" + sys->id + "/";
+        if (fileKey.compare(0, prefix.size(), prefix) == 0) fileKey = fileKey.substr(prefix.size());
+    }
+    int mapScope = 0;
+    const Library::ButtonMap buttonMap = Library::buttonMapFor(settings, sys->id, fileKey, &mapScope);
+    log("buttons (%s): %s", mapScope == 2 ? "this game" : mapScope == 1 ? "system" : "default",
+        Library::buttonMapToString(buttonMap).c_str());
     std::string gameFile = romName;
     {
         size_t slash = romPath.find_last_of('/');
@@ -1152,7 +1171,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     item.artPath = findArt(appDir, sys->id, ae.title + ".zip");
         item.title = title;
         item.detail = tags;
-        item.controls = Library::controlHints(sys->id);
+        item.controls = Library::controlHints(sys->id, buttonMap);
         item.consolePath = findConsoleArt(appDir, sys->id);
         panels->show(item, 0.0f);
     }
@@ -1357,7 +1376,10 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             if (e.type == SDL_QUIT) reason = "quit";
             if (e.type == SDL_CONTROLLERDEVICEADDED || e.type == SDL_CONTROLLERDEVICEREMOVED) openPads();
         }
-        uint16_t raw = readButtons();
+        // Menus (and hold-Start for the pause menu) always use the default
+        // layout, so a remap can't lock anyone out; the game gets its own.
+        uint16_t raw = readButtons(Library::defaultButtonMap());
+        uint16_t gameRaw = readButtons(buttonMap);
         uint16_t down = raw & ~prevButtons;
         prevButtons = raw;
         bool guide = padButton(SDL_CONTROLLER_BUTTON_GUIDE), guideDown = guide && !prevGuide;
@@ -1378,7 +1400,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (menu == Menu::None) {
             // While the game runs: Home, or Start held a second, opens the menu.
             if (suppressInput && raw == 0) suppressInput = false;
-            g_buttons = suppressInput ? 0 : raw;
+            g_buttons = suppressInput ? 0 : gameRaw;
             // Analog: the stick if it's pushed, else the D-pad at full tilt (the
             // cabinet's joystick may report as a D-pad; PSP games often read only
             // the analog nub).
