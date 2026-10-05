@@ -1147,9 +1147,9 @@ void Menu::renderSearch() {
     }
 
     // Results heading (match count).
-    Theme::tracked(r, m_query.empty() ? "RESULTS" : (std::to_string(m_hits.size()) + (m_hits.size() >= 500 ? "+" : "") +
-                                                     (m_hits.size() == 1 ? " MATCH" : " MATCHES")),
-                   Theme::kMargin, kHitsTop - 34.0f, Theme::Type::Caption, Theme::accent());
+    Theme::trackedCentered(r, m_query.empty() ? "RESULTS" : (std::to_string(m_hits.size()) + (m_hits.size() >= 500 ? "+" : "") +
+                                                             (m_hits.size() == 1 ? " MATCH" : " MATCHES")),
+                           w * 0.5f, kHitsTop - 34.0f, Theme::Type::Caption, Theme::accent());
     if (m_hits.empty() && !m_query.empty())
         AppFont::drawCentered(r, "No games match", w * 0.5f, kHitsTop + 30.0f, Theme::Type::Small, Theme::Muted);
 
