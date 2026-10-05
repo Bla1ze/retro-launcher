@@ -844,6 +844,10 @@ std::string niceTitle(const std::string& appDir, const std::string& system, cons
     return t;
 }
 
+// The DMD row icons (defined with the drawing helpers below).
+void rowIcon(std::vector<uint8_t>& c, int W, int H, const std::string& kind, float x, float y, float s);
+const std::vector<uint8_t>& iconMask(const std::string& kind, int s);
+
 GamePanels::~GamePanels() {
     // Stop the worker before releasing the buffers it draws into (and before
     // SDL closes the fd they live on; Menu::shutdown destroys us first).
@@ -1016,6 +1020,10 @@ void GamePanels::show(const Item& item, float dt) {
 }
 
 void GamePanels::worker() {
+    // The DMD's row icons, ready before the menu first lands on one.
+    for (const Panel& p : m_panels)
+        if (p.role == Panel::Role::Dmd && m_mode == Mode::Browse)
+            for (const char* k : {"search", "recent", "favorites", "settings"}) iconMask(k, (int)(p.vh * 0.74f));
     for (;;) {
         Item job;
         {
@@ -1100,8 +1108,6 @@ void GamePanels::composeBackglass(Panel& p, const Item& item, const std::vector<
     text(c, W, H, item.detail, W * 0.5f, H * 0.62f, H * 0.055f, kGold, PanelFont::Face::Body, W * 0.8f);
 }
 
-void rowIcon(std::vector<uint8_t>& c, int W, int H, const std::string& kind, float x, float y, float s);
-
 void GamePanels::composeDmd(Panel& p, const Item& item, const std::vector<uint8_t>& console, int cw, int ch,
                             const std::vector<uint8_t>& logo, int lw, int lh) {
     const int W = p.vw, H = p.vh;
@@ -1149,64 +1155,75 @@ void GamePanels::composeDmd(Panel& p, const Item& item, const std::vector<uint8_
     text(c, W, H, item.detail, W * 0.5f, H * 0.76f, H * 0.09f, kTeal, PanelFont::Face::Body, W * 0.9f);
 }
 
-// Fills, 4x4 supersampled, the pixels of the box for which inside(x, y) holds.
-template <class F>
-void fillShape(std::vector<uint8_t>& c, int W, int H, int x0, int y0, int x1, int y1, const uint8_t col[3], F inside) {
-    for (int y = std::max(0, y0); y < std::min(H, y1); ++y)
-        for (int x = std::max(0, x0); x < std::min(W, x1); ++x) {
-            int n = 0;
-            for (int sy = 0; sy < 4; ++sy)
-                for (int sx = 0; sx < 4; ++sx) n += inside(x + (sx + 0.5f) / 4, y + (sy + 0.5f) / 4);
-            if (!n) continue;
-            uint8_t* p = &c[((size_t)y * W + x) * 4];
-            for (int k = 0; k < 3; ++k) p[k] = (uint8_t)(p[k] + (col[k] - p[k]) * n / 16);
-        }
-}
-
 float segDist(float px, float py, float ax, float ay, float bx, float by) {
     float dx = bx - ax, dy = by - ay;
     float t = std::max(0.0f, std::min(1.0f, ((px - ax) * dx + (py - ay) * dy) / (dx * dx + dy * dy)));
     return std::hypot(px - ax - t * dx, py - ay - t * dy);
 }
 
-// The menu's row icons (Theme::icon: Search, Clock, Heart, Gear), drawn in an
-// s-pixel square at (x, y).
+// Coverage of a pixel whose centre is `d` pixels outside a shape's edge (negative: inside).
+inline float cover(float d) { return std::max(0.0f, std::min(1.0f, 0.5f - d)); }
+
+// The menu's row icons (Theme::icon: Search, Clock, Heart, Gear) as an s x s
+// coverage mask, built once per icon and size: one distance test per pixel
+// (the heart, which has no distance, 2x2 samples).
+const std::vector<uint8_t>& iconMask(const std::string& kind, int s) {
+    static std::map<std::string, std::vector<uint8_t>> cache;
+    const std::string key = kind + "/" + std::to_string(s);
+    auto hit = cache.find(key);
+    if (hit != cache.end()) return hit->second;
+    std::vector<uint8_t> m((size_t)s * s, 0);
+    const float t = s * 0.085f, c = s * 0.5f;
+    for (int y = 0; y < s; ++y)
+        for (int x = 0; x < s; ++x) {
+            const float px = x + 0.5f, py = y + 0.5f;
+            float v = 0.0f;
+            if (kind == "search") {
+                v = std::max(cover(std::fabs(std::hypot(px - s * 0.43f, py - s * 0.43f) - s * 0.27f) - t * 0.5f),
+                             cover(segDist(px, py, s * 0.64f, s * 0.64f, s * 0.86f, s * 0.86f) - t * 0.58f));
+            } else if (kind == "recent") {
+                v = std::max(cover(std::fabs(std::hypot(px - c, py - c) - s * 0.38f) - t * 0.5f),
+                             std::max(cover(segDist(px, py, c, c, c, c - s * 0.24f) - t * 0.5f),
+                                      cover(segDist(px, py, c, c, c + s * 0.17f, c + s * 0.08f) - t * 0.5f)));
+            } else if (kind == "settings") {
+                const float d = std::hypot(px - c, py - c);
+                v = cover(d - s * 0.30f);
+                if (d > s * 0.25f && d < s * 0.52f)  // the teeth
+                    for (int k = 0; k < 8 && v < 1.0f; ++k) {
+                        const float a = k * 3.14159265f * 0.25f;
+                        v = std::max(v, cover(segDist(px, py, c + std::cos(a) * s * 0.26f, c + std::sin(a) * s * 0.26f,
+                                                      c + std::cos(a) * s * 0.42f, c + std::sin(a) * s * 0.42f) - s * 0.075f));
+                    }
+                v *= 1.0f - cover(d - s * 0.12f);  // the hole
+            } else if (kind == "favorites") {
+                const float h = s * 0.43f;
+                int n = 0;
+                for (int k = 0; k < 4; ++k) {
+                    float u = (x + 0.25f + 0.5f * (k & 1) - c) / h * 1.14f, w = -(y + 0.25f + 0.5f * (k >> 1) - c) / h * 1.14f + 0.12f;
+                    float a = u * u + w * w - 1.0f;
+                    n += a * a * a - u * u * w * w * w <= 0.0f;
+                }
+                v = n / 4.0f;
+            }
+            m[(size_t)y * s + x] = (uint8_t)std::lround(v * 255.0f);
+        }
+    return cache.emplace(key, std::move(m)).first->second;
+}
+
+// A row icon in its menu color, s pixels square at (x, y).
 void rowIcon(std::vector<uint8_t>& c, int W, int H, const std::string& kind, float x, float y, float s) {
     static const uint8_t rose[3] = {239, 92, 120}, steel[3] = {150, 160, 185};
-    const float t = s * 0.085f, cx = x + s * 0.5f, cy = y + s * 0.5f;
-    const int X0 = (int)x, Y0 = (int)y, X1 = (int)(x + s) + 1, Y1 = (int)(y + s) + 1;
-    if (kind == "search") {
-        const float rx = x + s * 0.43f, ry = y + s * 0.43f, r = s * 0.27f;
-        fillShape(c, W, H, X0, Y0, X1, Y1, kTeal, [&](float px, float py) {
-            return std::fabs(std::hypot(px - rx, py - ry) - r) <= t * 0.5f ||
-                   segDist(px, py, x + s * 0.64f, y + s * 0.64f, x + s * 0.86f, y + s * 0.86f) <= t * 0.58f;
-        });
-    } else if (kind == "recent") {
-        fillShape(c, W, H, X0, Y0, X1, Y1, kViolet, [&](float px, float py) {
-            return std::fabs(std::hypot(px - cx, py - cy) - s * 0.38f) <= t * 0.5f ||
-                   segDist(px, py, cx, cy, cx, cy - s * 0.24f) <= t * 0.5f ||
-                   segDist(px, py, cx, cy, cx + s * 0.17f, cy + s * 0.08f) <= t * 0.5f;
-        });
-    } else if (kind == "favorites") {
-        const float h = s * 0.43f;
-        fillShape(c, W, H, X0, Y0, X1, Y1, rose, [&](float px, float py) {
-            float u = (px - cx) / h * 1.14f, v = -(py - cy) / h * 1.14f + 0.12f;
-            float a = u * u + v * v - 1.0f;
-            return a * a * a - u * u * v * v * v <= 0.0f;
-        });
-    } else if (kind == "settings") {
-        fillShape(c, W, H, X0, Y0, X1, Y1, steel, [&](float px, float py) {
-            float d = std::hypot(px - cx, py - cy);
-            if (d <= s * 0.12f) return false;  // the hole
-            if (d <= s * 0.30f) return true;
-            for (int k = 0; k < 8; ++k) {
-                const float a = k * 3.14159265f * 0.25f;
-                if (segDist(px, py, cx + std::cos(a) * s * 0.26f, cy + std::sin(a) * s * 0.26f,
-                            cx + std::cos(a) * s * 0.42f, cy + std::sin(a) * s * 0.42f) <= s * 0.075f)
-                    return true;
-            }
-            return false;
-        });
+    const uint8_t* col = kind == "search" ? kTeal : kind == "recent" ? kViolet : kind == "favorites" ? rose : steel;
+    const int n = (int)s, x0 = (int)x, y0 = (int)y;
+    const std::vector<uint8_t>& m = iconMask(kind, n);
+    for (int j = 0; j < n; ++j) {
+        if (y0 + j < 0 || y0 + j >= H) continue;
+        for (int i = 0; i < n; ++i) {
+            const int a = m[(size_t)j * n + i];
+            if (!a || x0 + i < 0 || x0 + i >= W) continue;
+            uint8_t* p = &c[((size_t)(y0 + j) * W + x0 + i) * 4];
+            for (int k = 0; k < 3; ++k) p[k] = (uint8_t)(p[k] + (col[k] - p[k]) * a / 255);
+        }
     }
 }
 
