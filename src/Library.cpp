@@ -204,10 +204,12 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
     std::string dir = appDir + "/roms/" + sys.id;
     DIR* d = ::opendir(dir.c_str());
     if (!d) return games;
+    std::vector<std::string> subdirs;
     while (struct dirent* e = ::readdir(d)) {
         std::string name = e->d_name;
         if (name.empty() || name[0] == '.') continue;
         std::string full = dir + "/" + name;
+        if (isDir(full)) { subdirs.push_back(name); continue; }
         if (!isFile(full)) continue;
         std::string ext = extOf(name);
         if (ext != "zip" && std::find(sys.extensions.begin(), sys.extensions.end(), ext) == sys.extensions.end())
@@ -219,6 +221,33 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
         games.push_back(g);
     }
     ::closedir(d);
+    // A game in a folder of its own ("Dolphin Blue/disc.gdi", how Dreamcast sets
+    // usually come) is listed under the folder's name: its playlist or disc
+    // sheet, else its only game file. A folder of many ROMs (Hacks/) is not one
+    // game and is skipped.
+    for (const std::string& sub : subdirs) {
+        DIR* sd = ::opendir((dir + "/" + sub).c_str());
+        if (!sd) continue;
+        std::vector<std::string> files, sheets, lists;
+        while (struct dirent* e = ::readdir(sd)) {
+            std::string name = e->d_name;
+            if (name.empty() || name[0] == '.' || !isFile(dir + "/" + sub + "/" + name)) continue;
+            std::string ext = extOf(name);
+            if (std::find(sys.extensions.begin(), sys.extensions.end(), ext) == sys.extensions.end()) continue;
+            if (ext == "m3u") lists.push_back(name);
+            else if (ext == "gdi" || ext == "cue") sheets.push_back(name);
+            else files.push_back(name);
+        }
+        ::closedir(sd);
+        std::string pick = lists.size() == 1 ? lists[0] : lists.empty() && sheets.size() == 1 ? sheets[0]
+                         : lists.empty() && sheets.empty() && files.size() == 1 ? files[0] : "";
+        if (pick.empty()) continue;
+        Game g;
+        g.file = sub + "/" + pick;
+        g.path = dir + "/" + g.file;
+        splitTitle(sub, g.title, g.tags);
+        games.push_back(g);
+    }
     // A .cue's / .gdi's track files and an .m3u's discs are parts of one game:
     // list only the .cue / .gdi / .m3u.
     std::set<std::string> parts;

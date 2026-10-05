@@ -499,7 +499,10 @@ ScreenId Menu::gameScreen(int sys, int game) const {
 }
 
 std::string Menu::artFor(int sys, const Library::Game& g) const {
-    std::string p = findArt(m_appDir, m_systems[sys].sys->id, g.file);
+    // A game in its own folder ("Dolphin Blue/disc.gdi") goes by the folder's name.
+    size_t slash = g.file.find('/');
+    std::string file = slash == std::string::npos ? g.file : g.file.substr(0, slash) + g.file.substr(g.file.find_last_of('.'));
+    std::string p = findArt(m_appDir, m_systems[sys].sys->id, file);
     if (p.empty() && g.arcade) p = findArt(m_appDir, m_systems[sys].sys->id, g.title + ".zip");
     if (p.empty() && !g.altTitle.empty()) p = findArt(m_appDir, m_systems[sys].sys->id, g.altTitle + ".zip");
     return p;

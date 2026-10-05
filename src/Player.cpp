@@ -1064,6 +1064,18 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     std::vector<uint8_t> romData;
     if (!direct && !readFile(romPath, romData)) return fail("Could not read the ROM file.");
     std::string romName = baseName(romPath);
+    // A game in a folder of its own ("Dolphin Blue/disc.gdi") is named after the
+    // folder: for its title, art and bezel, and above all its saves, or every
+    // disc.gdi game would share one set.
+    std::string gameFile = romName;
+    {
+        size_t slash = romPath.find_last_of('/');
+        std::string parent = slash == std::string::npos ? "" : romPath.substr(0, slash);
+        if (!parent.empty() && parent != appDir + "/roms/" + sys->id) {
+            size_t dot = romName.find_last_of('.');
+            gameFile = baseName(parent) + (dot == std::string::npos ? "" : romName.substr(dot));
+        }
+    }
     if (zipToCore) {
         if (!info.need_fullpath) return fail("This core wants the game in memory, not a zip.");
     } else if (hasExt(romPath, "zip")) {
@@ -1123,7 +1135,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         GamePanels::Item item;
         item.key = "play";
         item.system = sys->name;
-        std::string file = baseName(romPath), title = stem(file), tags;
+        std::string file = gameFile, title = stem(file), tags;
         size_t cut = title.find_first_of("([");
         if (cut != std::string::npos && cut > 0) { tags = title.substr(cut); title = title.substr(0, cut); }
         while (!title.empty() && title.back() == ' ') title.pop_back();
@@ -1151,7 +1163,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     if (sides.empty())
         sides = settings.value("bezels", "on") == "off" ? (settings.value("bars", "ambient") == "black" ? "black" : "glow")
                                                         : "bezel";
-    if (sides == "bezel" && rotate == 0) bezel = loadBezel(appDir, sys->id, baseName(romPath));
+    if (sides == "bezel" && rotate == 0) bezel = loadBezel(appDir, sys->id, gameFile);
     std::string bars = sides == "black" ? "black" : "ambient";
     g_ambient.init(g_renderer, bars == "black" ? Ambient::Style::Black : Ambient::Style::Ambient);
     const std::string scaling = settings.value("scaling", "smooth");  // smooth | sharp | integer
@@ -1189,7 +1201,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     log("loaded: %ux%u (max %ux%u), %.3f fps, %.0f Hz audio", g_av.geometry.base_width, g_av.geometry.base_height,
         g_av.geometry.max_width, g_av.geometry.max_height, g_av.timing.fps, g_av.timing.sample_rate);
 
-    std::string srm = g_saveDir + "/" + stem(romName) + ".srm";
+    const std::string saveStem = gameFile != baseName(romPath) ? stem(gameFile) : stem(romName);
+    std::string srm = g_saveDir + "/" + saveStem + ".srm";
     if (size_t n = core.get_memory_size(RETRO_MEMORY_SAVE_RAM)) {
         std::vector<uint8_t> sav;
         if (readFile(srm, sav) && sav.size() == n) {
@@ -1255,8 +1268,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
 
     // Pause menu / save states. One manual slot plus an automatic one written
     // when you quit, offered back the next time the game starts.
-    const std::string statePath = g_saveDir + "/" + stem(romName) + ".state";
-    const std::string autoPath = g_saveDir + "/" + stem(romName) + ".auto.state";
+    const std::string statePath = g_saveDir + "/" + saveStem + ".state";
+    const std::string autoPath = g_saveDir + "/" + saveStem + ".auto.state";
     bool canState = false;
     { CoreGL glScope; canState = core.serialize_size && core.serialize && core.unserialize && core.serialize_size() > 0; }
     enum class Menu { None, Pause, Continue, Options } menu = Menu::None;
