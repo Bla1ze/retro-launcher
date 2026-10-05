@@ -305,8 +305,9 @@ static const char* biosNote(const std::string& id) {
     if (id == "pce") return "None for HuCard games (CD games are not supported).";
     if (id == "psp") return "None. PPSSPP's own files (fonts, shaders) go in system/PPSSPP/ - they come with Retro Launcher.";
     if (id == "dreamcast")
-        return "Optional: dc/dc_boot.bin and dc/dc_flash.bin (in a dc folder inside system/). Flycast has a "
-               "built-in BIOS replacement that runs most games.";
+        return "dc/dc_boot.bin and dc/dc_flash.bin (in a dc folder inside system/). Official discs run on "
+               "Flycast's built-in BIOS replacement; homebrew and conversions (e.g. the Atomiswave ports) need "
+               "the real BIOS.";
     if (id == "psx")
         return "Optional: scph5501.bin (USA), scph5500.bin (Japan), scph5502.bin (Europe). PCSX ReARMed has a "
                "built-in BIOS; a real one runs more games.";

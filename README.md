@@ -82,8 +82,10 @@ BIOS; a real one (`scph5501.bin` for USA games) in `system/` runs more games.
 Put games in `roms/dreamcast/` as `.chd` (recommended), `.gdi` with its track
 files beside it, or `.cdi`. Flycast draws with the GPU (OpenGL ES 3): it gets its
 own GL context and each frame is read back into the normal picture path. Its
-built-in BIOS replacement runs most games; a real `dc_boot.bin` / `dc_flash.bin`
-goes in `system/dc/`.
+built-in BIOS replacement runs official discs; homebrew and conversions (such as
+the Atomiswave ports of Dolphin Blue and Metal Slug 6) hang on it and need a real
+`dc_boot.bin` / `dc_flash.bin` in `system/dc/`. A game in its own folder
+(`Game/disc.gdi`) is listed under the folder's name.
 
 ### PSP
 
