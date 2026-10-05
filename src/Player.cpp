@@ -1815,10 +1815,14 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         g_crashArgv[5] = &g_crashArgs[5][0];
     }
     {
+        // Each step logged: PPSSPP crashes in one of them (after its shader cache is saved).
         CoreGL glScope;
+        log("shutdown: unload_game");
         core.unload_game();
-        if (g_coreCtx && g_hw.context_destroy) g_hw.context_destroy();
+        if (g_coreCtx && g_hw.context_destroy) { log("shutdown: context_destroy"); g_hw.context_destroy(); }
+        log("shutdown: deinit");
         core.deinit();
+        log("shutdown: core done");
     }
     if (g_readbacks) log("gpu: %lu frames read back, %.2f ms each", g_readbacks, g_readbackMs / g_readbacks);
     if (audio) SDL_CloseAudioDevice(audio);
