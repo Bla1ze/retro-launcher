@@ -114,6 +114,14 @@ runs them instead. The keypad on the cabinet's own emulator:
 - **Rewind** presses keypad \*.
 - **Y** opens an on-screen keypad for the other keys: move with the D-pad, press with B.
 
+**Auto-start** skips the "select game" screen. After the BIOS title, the player
+presses a keypad key for you. It waits for the title, then the select screen,
+and stops once the game is moving. Pressing any button, or 45 seconds passing,
+also stops it.
+- The key is keypad 1 unless you change it.
+- Change it per game with **Home > Start with**: Off, or 1 to 8. In most games,
+  1 to 4 are the skill levels for one player and 5 to 8 for two.
+
 ### Marquees (game logos on the DMD)
 
 With `tools/prefill_boxart.py <app> --logos`, libretro's game logos go to

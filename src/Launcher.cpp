@@ -252,7 +252,13 @@ private:
     std::atomic<bool> m_iconsWarm{false};  // the worker has finished everything
     void startConsoleIcons();
     void drawRowIcon(int row, const FRect& slot, bool dim);
-    enum { PopPlay, PopFav, PopScreen, PopCore, PopControls, PopSearch, PopRemove };
+    enum { PopPlay, PopFav, PopScreen, PopCore, PopCvStart, PopControls, PopSearch, PopRemove };
+    // ColecoVision on the firmware core: the keypad key tapped for you at the
+    // "select game" screen (Player's auto-start), per game. "1" unless set.
+    std::string cvStartKey(int sys, int game) const {
+        return "cvstart." + m_systems[sys].sys->id + "/" + m_systems[sys].games[game].file;
+    }
+    void cycleCvStart(int sys, int game, int dir);
 
     // Controls screen (Home > Controls on a game): the button layout for this
     // game or its whole system, a preset, and press-to-assign per button.
@@ -626,9 +632,21 @@ void Menu::cycleGameCore(int sys, int game, int dir) {
     m_settings.save();
 }
 
+void Menu::cycleCvStart(int sys, int game, int dir) {
+    static const std::vector<std::string> choices{"off", "1", "2", "3", "4", "5", "6", "7", "8"};
+    std::string cur = m_settings.value(cvStartKey(sys, game), "1");
+    int i = 1;
+    for (int k = 0; k < (int)choices.size(); ++k)
+        if (choices[k] == cur) i = k;
+    i = (i + dir + (int)choices.size()) % (int)choices.size();
+    m_settings.set(cvStartKey(sys, game), choices[i]);
+    m_settings.save();
+}
+
 std::vector<int> Menu::popupItems() const {
     std::vector<int> items{PopPlay, PopFav, PopScreen};
     if (m_systems[m_popupSys].games[m_popupGame].arcade) items.push_back(PopCore);
+    if (targetsId(m_systems[m_popupSys].sys->id) == "colecovision:libcv") items.push_back(PopCvStart);
     items.push_back(PopControls);
     items.push_back(PopSearch);
     items.push_back(PopRemove);
@@ -825,6 +843,7 @@ void Menu::handlePopup(AtGames::ControlEvent ev, bool& running) {
     case CE::Right:
         if (item == PopScreen) cycleGameScreen(m_popupSys, m_popupGame, ev == CE::Left ? -1 : 1);
         if (item == PopCore) cycleGameCore(m_popupSys, m_popupGame, ev == CE::Left ? -1 : 1);
+        if (item == PopCvStart) cycleCvStart(m_popupSys, m_popupGame, ev == CE::Left ? -1 : 1);
         break;
     case CE::B: case CE::Back: case CE::Guide: m_popup = false; break;
     case CE::Rewind: case CE::Rewind2: case CE::Y:
@@ -838,6 +857,7 @@ void Menu::handlePopup(AtGames::ControlEvent ev, bool& running) {
         case PopFav: m_popup = false; handle(CE::Rewind, running); break;
         case PopScreen: cycleGameScreen(m_popupSys, m_popupGame, 1); break;
         case PopCore: cycleGameCore(m_popupSys, m_popupGame, 1); break;
+        case PopCvStart: cycleCvStart(m_popupSys, m_popupGame, 1); break;
         case PopControls: m_popup = false; openControls(m_popupSys, m_popupGame); break;
         case PopRemove:
             m_popup = false;
@@ -1617,15 +1637,17 @@ void Menu::renderPopup() {
     for (int i = 0; i < count; ++i) {
         const int it = items[i];
         std::string label = it == PopPlay ? "Play" : it == PopFav ? (isFav(m_popupSys, m_popupGame) ? "Remove from Favorites" : "Add to Favorites")
-                          : it == PopScreen ? "Screen" : it == PopCore ? "Emulator"
+                          : it == PopScreen ? "Screen" : it == PopCore ? "Emulator" : it == PopCvStart ? "Start with"
                           : it == PopControls ? "Controls" : it == PopRemove ? "Remove game" : "Search";
         FRect row{px + 40.0f, py + 160.0f + i * (itemH + gap), pw - 80.0f, itemH};
         bool active = i == m_popupSel;
         Theme::rowCard(r, row, active);
         float ty = row.y + (itemH - Theme::Type::Body) * 0.5f - 4.0f;
         AppFont::draw(r, label, row.x + 28.0f, ty, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
-        if (it == PopScreen || it == PopCore) {
-            const std::string& value = it == PopScreen ? screen : core;
+        if (it == PopScreen || it == PopCore || it == PopCvStart) {
+            const std::string cv = m_settings.value(cvStartKey(m_popupSys, m_popupGame), "1");
+            const std::string value = it == PopScreen ? screen : it == PopCore ? core
+                                    : cv == "off" ? std::string("Off") : "Keypad " + cv;
             float vw = AppFont::measureWidth(r, value, Theme::Type::Body);
             float vx = row.x + row.w - 28.0f - vw - (active ? 30.0f : 0.0f);
             AppFont::draw(r, value, vx, ty, Theme::Type::Body, active ? Theme::accent() : Theme::Muted);

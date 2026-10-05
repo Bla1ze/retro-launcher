@@ -276,6 +276,49 @@ std::vector<int16_t> g_audioBatch;
 std::vector<SDL_GameController*> g_pads;
 uint16_t g_buttons = 0;
 bool g_cvKeys = false;  // the core is the firmware's libcv (see inputState)
+
+// ColecoVision auto-start (firmware core): games open on a "select game 1-8"
+// screen after the BIOS's title. While the picture holds still (title, then
+// that screen), the chosen keypad key is tapped every second or so; once the
+// picture keeps moving the game is running and it stops. Any button press,
+// or 45 seconds, ends it too.
+struct CvAuto {
+    int key = 0;              // '1'..'8'; 0 = off or done
+    Uint32 until = 0;
+    unsigned long seen = 0;   // g_frames when last looked at
+    uint32_t hash = 0;
+    int still = 0, moving = 0, press = 0, rest = 0;
+    bool tapped = false;
+} g_cvAuto;
+bool g_cvAutoDown = false;   // the key is held this frame
+uint32_t g_frameHash = 0;    // a sample of the last frame's pixels, while g_cvAuto runs
+
+void cvAutoArm(int key) {
+    g_cvAuto = CvAuto();
+    g_cvAuto.key = key;
+    g_cvAuto.until = SDL_GetTicks() + 45000;
+    g_cvAutoDown = false;
+    if (key) log("auto-start: keypad %c", key);
+}
+
+void cvAutoStep() {
+    CvAuto& a = g_cvAuto;
+    g_cvAutoDown = false;
+    if (!a.key) return;
+    if (g_buttons || SDL_GetTicks() > a.until) {
+        log("auto-start: %s", g_buttons ? "a button was pressed, stopped" : "gave up");
+        a.key = 0;
+        return;
+    }
+    if (g_frames == a.seen) { g_cvAutoDown = a.press > 0; return; }
+    a.seen = g_frames;
+    if (g_frameHash == a.hash) { ++a.still; a.moving = 0; }
+    else { a.hash = g_frameHash; a.still = 0; ++a.moving; }
+    if (a.press > 0) { --a.press; g_cvAutoDown = true; return; }
+    if (a.rest > 0) --a.rest;
+    else if (a.still >= 30) { a.press = 6; a.rest = 45; a.tapped = true; g_cvAutoDown = true; return; }
+    if (a.tapped && a.moving >= 90) { log("auto-start: game running"); a.key = 0; }
+}
 int16_t g_analog[2][2] = {};  // [left/right stick][x/y], for cores that read analog (PSP, Dreamcast)
 
 // Watchdog: if a frame takes longer than this, a core has hung; go back to
@@ -833,6 +876,15 @@ void videoRefresh(const void* data, unsigned w, unsigned h, size_t pitch) {
     SDL_UpdateTexture(g_texture, &r, data, (int)pitch);
     g_frameW = (int)w; g_frameH = (int)h;
     g_ambient.sample(data, w, h, pitch, (int)g_pixelFormat);
+    if (g_cvAuto.key) {
+        const size_t rowBytes = (size_t)w * (g_pixelFormat == RETRO_PIXEL_FORMAT_XRGB8888 ? 4 : 2);
+        uint32_t hsh = 2166136261u;
+        for (unsigned y = 0; y < h; y += std::max(1u, h / 32)) {
+            const uint8_t* row = (const uint8_t*)data + (size_t)y * pitch;
+            for (size_t x = 0; x < rowBytes; x += std::max<size_t>(1, rowBytes / 64)) hsh = (hsh ^ row[x]) * 16777619u;
+        }
+        g_frameHash = hsh;
+    }
     if (!g_noCrop) detectBlankEdges(data, w, h, pitch);
     g_newFrame = true;
     ++g_frames;
@@ -852,6 +904,7 @@ int16_t inputState(unsigned port, unsigned device, unsigned index, unsigned id) 
     // and ignores Start / Select: those press keypad 1 (start, skill 1) and *.
     // Its X button opens an on-screen keypad for the rest (D-pad, A presses).
     if (g_cvKeys && port == 0 && (device & 0xff) == RETRO_DEVICE_KEYBOARD) {
+        if (g_cvAutoDown && (int)id == g_cvAuto.key) return 1;
         if (id == '1') return (g_buttons >> RETRO_DEVICE_ID_JOYPAD_START) & 1;
         if (id == '-') return (g_buttons >> RETRO_DEVICE_ID_JOYPAD_SELECT) & 1;
         return 0;
@@ -1283,6 +1336,14 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         g_av.geometry.max_width, g_av.geometry.max_height, g_av.timing.fps, g_av.timing.sample_rate);
 
     const std::string saveStem = gameFile != baseName(romPath) ? stem(gameFile) : stem(romName);
+
+    // ColecoVision auto-start: Home > Start with on the game (keypad 1 unless set; "off").
+    int cvKey = 0;
+    if (g_cvKeys) {
+        std::string v = settings.value("cvstart." + sys->id + "/" + gameFile, "1");
+        if (v.size() == 1 && v[0] >= '1' && v[0] <= '8') cvKey = v[0];
+    }
+    cvAutoArm(cvKey);
     std::string srm = g_saveDir + "/" + saveStem + ".srm";
     if (size_t n = core.get_memory_size(RETRO_MEMORY_SAVE_RAM)) {
         std::vector<uint8_t> sav;
@@ -1490,6 +1551,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             // While the game runs: Home, or Start held a second, opens the menu.
             if (suppressInput && raw == 0) suppressInput = false;
             g_buttons = suppressInput ? 0 : gameRaw;
+            cvAutoStep();
             // Analog: the stick if it's pushed, else the D-pad at full tilt (the
             // cabinet's joystick may report as a D-pad; PSP games often read only
             // the analog nub).
@@ -1552,7 +1614,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                                                 : "No saved state yet";
                 toastAt = t;
             } else if (confirm && menu == Menu::Continue) {
-                if (menuSel == 0) loadState(autoPath);
+                if (menuSel == 0) { loadState(autoPath); cvAutoArm(0); }  // past the select screen already
                 else { ::unlink(autoPath.c_str()); if (core.reset) { CoreGL glScope; core.reset(); } }
                 closeMenu();
             } else if (confirm) {
@@ -1563,7 +1625,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     if (loadState(statePath)) closeMenu();
                     else { toast = "Could not load the state"; toastAt = t; }
                     break;
-                case PauseReset: { CoreGL glScope; core.reset(); } closeMenu(); break;
+                case PauseReset: { CoreGL glScope; core.reset(); } cvAutoArm(cvKey); closeMenu(); break;
                 case PauseOptions: menu = Menu::Options; optSel = optTop = 0; break;
                 case PauseDisc: {
                     // Open the tray, put the next disc in, close it.
