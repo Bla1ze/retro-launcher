@@ -81,6 +81,18 @@ code { background: #12163a; border: 1px solid var(--line); border-radius: 6px; p
 footer { border-top: 1px solid var(--line); padding: 36px 0 50px; color: var(--dim); font-size: 14px; }
 footer a { color: var(--dim); }
 
+/* FAQ: plain <details> accordions. */
+.faq h3 { font-family: "Press Start 2P", monospace; font-size: 12px; color: var(--gold); margin: 30px 0 12px; }
+.faq details { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; margin-bottom: 10px; }
+.faq summary { cursor: pointer; padding: 16px 48px 16px 18px; font-weight: 600; list-style: none; position: relative; }
+.faq summary::-webkit-details-marker { display: none; }
+.faq summary::after { content: "+"; position: absolute; right: 18px; top: 12px; font-size: 24px; color: var(--cyan); }
+.faq details[open] summary::after { content: "\2212"; }
+.faq details[open] summary { color: var(--cyan); }
+.faq .a { padding: 0 18px 16px; color: var(--dim); }
+.faq .a p { margin: 0 0 8px; }
+.faq .a ul { margin: 0 0 8px; padding-left: 20px; }
+
 @media (max-width: 820px) {
   .hero .wrap { grid-template-columns: 1fr; }
   .art { order: -1; }
@@ -185,6 +197,34 @@ footer a { color: var(--dim); }
     </ol>
     <p class="note" style="margin-top:22px">Retro Launcher ships no games, no BIOS files and no copyrighted artwork. Use it with games you own.
       Settings &gt; BIOS check tells you which BIOS files your systems can use and where to put your own.</p>
+  </div>
+</section>
+
+<section id="faq" class="faq">
+  <div class="wrap">
+    <h2>Questions &amp; <span>help</span></h2>
+    <p class="intro">The basics. The <a href="https://github.com/Bla1ze/retro-launcher#readme">README</a> has the full details.</p>
+
+    <h3>GETTING STARTED</h3>
+    <details open><summary>Which cabinets does it work on?</summary><div class="a"><p>AtGames Legends Pinball <b>4KP</b> and <b>HDP</b>.</p></div></details>
+    <details><summary>Do I have to modify my cabinet?</summary><div class="a"><p>No. Retro Launcher is an External Application that runs from the USB stick: no firmware changes, no root. Take the stick out and the cabinet is exactly as it was.</p></div></details>
+    <details><summary>Where do my games go?</summary><div class="a"><p>In <code>external/retro-launcher/roms/&lt;system&gt;/</code> on the USB stick.</p><ul><li>Zips are fine for most systems. Arcade zips go in as they are (don&#39;t unzip them).</li><li>Disc games work best as <code>.chd</code>. A <code>.cue</code> with its tracks, or one folder per game, works too.</li><li>Each system&#39;s folder has a README listing the file types it takes.</li></ul></div></details>
+    <details><summary>Does it come with games or BIOS files?</summary><div class="a"><p>No, never. Settings &gt; <b>BIOS check</b> lists the BIOS files your systems can use, whether each is required or good to have, and the folder to put your own copy in.</p></div></details>
+    <details><summary>How do I get box art, logos and bezels?</summary><div class="a"><p>Settings &gt; <b>Download artwork</b>, with the cabinet connected to the internet. It only fetches artwork for the games you have.</p></div></details>
+    <details><summary>Can I add games without taking out the USB stick?</summary><div class="a"><p>Yes: Settings &gt; <b>Network transfer</b>. The cabinet shows an address and a PIN. Open the address in a browser on any computer or phone on your network and drop your games in.</p></div></details>
+
+    <h3>PLAYING</h3>
+    <details><summary>How do I pause, save or quit a game?</summary><div class="a"><p>Hold <b>Start</b> for a second, or press <b>Home</b>, for the pause menu: save and load state, reset, core options, change disc and quit. Quitting also saves a resume point, offered the next time you start the game.</p></div></details>
+    <details><summary>Can I play on the playfield instead of the backglass?</summary><div class="a"><p>Yes. For one game, press Home on it and change <b>Screen</b>. For everything, use Settings &gt; <b>Default game screen</b>. Vertical arcade games go to the playfield by themselves.</p></div></details>
+    <details><summary>How do I change the buttons?</summary><div class="a"><p>Press Home on a game and choose <b>Controls</b>. Pick a preset, or select a button and press the cabinet button you want for it, for that game or the whole system.</p></div></details>
+    <details><summary>ColecoVision asks me to pick a game number.</summary><div class="a"><p>Auto-start picks it for you: keypad 1, unless you change it with Home &gt; <b>Start with</b>. In a game, Start is keypad 1, Rewind is *, and Y opens the on-screen keypad for the rest.</p></div></details>
+    <details><summary>Where are my saves?</summary><div class="a"><p>In <code>external/retro-launcher/saves/&lt;system&gt;/</code>, together with the save states.</p></div></details>
+
+    <h3>TROUBLESHOOTING</h3>
+    <details><summary>An arcade game is dimmed or won&#39;t start.</summary><div class="a"><p>The note under the game says why. Usually it&#39;s a missing BIOS or parent zip (such as <code>neogeo.zip</code>), or ROMs from a different version:</p><ul><li><b>FBNeo</b> wants current FBNeo sets.</li><li><b>MAME 2003-Plus</b> wants MAME 0.78 sets.</li></ul><p>Settings &gt; BIOS check lists every zip your arcade games are missing.</p></div></details>
+    <details><summary>A game runs slowly or the sound crackles.</summary><div class="a"><p>Lower the resolution in the pause menu&#39;s <b>Core options</b>. PSP, Dreamcast and N64 render above their original resolution by default. Saturn already skips a frame when it falls behind, instead of cutting the sound.</p></div></details>
+    <details><summary>How do I update?</summary><div class="a"><p>Settings &gt; <b>Updates</b>. Retro Launcher also checks once a day by itself and tells you when a new version is out. Updating never touches your games, saves, settings or artwork.</p></div></details>
+    <details><summary>Something&#39;s wrong. How do I report it?</summary><div class="a"><p>Open an <a href="https://github.com/Bla1ze/retro-launcher/issues">issue on GitHub</a> and attach <code>external/retro-launcher/data/launcher.log</code> from the USB stick. It records what happened.</p></div></details>
   </div>
 </section>
 
