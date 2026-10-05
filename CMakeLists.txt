@@ -64,4 +64,9 @@ set(METADATA_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/metadata")
 set_target_properties(${ATGAMES_APP_NAME} PROPERTIES RUNTIME_OUTPUT_DIRECTORY "${DIST_APP_DIR}" SUFFIX ".elf")
 add_custom_command(TARGET ${ATGAMES_APP_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${METADATA_ASSET_DIR}/${ATGAMES_APP_NAME}.png" "${DIST_APP_DIR}/${ATGAMES_APP_NAME}.png"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${METADATA_ASSET_DIR}/${ATGAMES_APP_NAME}.xml" "${DIST_APP_DIR}/${ATGAMES_APP_NAME}.xml")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${METADATA_ASSET_DIR}/${ATGAMES_APP_NAME}.xml" "${DIST_APP_DIR}/${ATGAMES_APP_NAME}.xml"
+    # License texts that must travel with the binary: the app's GPL and the built-in fonts' OFL.
+    COMMAND ${CMAKE_COMMAND} -E make_directory "${DIST_APP_DIR}/licenses"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${DIST_APP_DIR}/licenses/Retro-Launcher-GPL-3.0.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/OFL.txt" "${DIST_APP_DIR}/licenses/NotoSans-OFL.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BebasNeue-OFL.txt" "${DIST_APP_DIR}/licenses/BebasNeue-OFL.txt")

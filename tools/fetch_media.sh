@@ -88,6 +88,7 @@ photo psp Psp-1000.jpg   # no Bezel Project set for PSP; its 16:9 picture fills 
 # Credits, rebuilt from every photo's own record.
 {
   echo "Bezels: The Bezel Project, https://github.com/thebezelproject (personal use)."
-  echo "Console pictures (photos from Wikimedia Commons):"
+  echo "Console pictures (photos from Wikimedia Commons; shown with the white background removed, cropped"
+  echo "and resized. CC BY-SA 3.0: https://creativecommons.org/licenses/by-sa/3.0/):"
   cat "$D"/*/console.credit 2>/dev/null
 } > "$D/CREDITS.txt"

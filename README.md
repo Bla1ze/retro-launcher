@@ -423,6 +423,10 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 | `drm_mode.h` | Linux kernel DRM UAPI | MIT |
 | Noto Sans | [Google Fonts](https://fonts.google.com/noto/specimen/Noto+Sans) | SIL OFL 1.1 (`assets/fonts/OFL.txt`) |
 | Bebas Neue | [Dharma Type / Google Fonts](https://fonts.google.com/specimen/Bebas+Neue) | SIL OFL 1.1 (`assets/fonts/BebasNeue-OFL.txt`) |
+| Root certificates ISRG Root X1, USERTrust ECC and RSA (in `src/ArtDownload.cpp`) | [Internet Security Research Group](https://letsencrypt.org/certificates/) / [Sectigo](https://www.sectigo.com/) | Public trust anchors, added to the firmware's CA bundle for the artwork servers |
+
+Both fonts are built into the app. Their license texts, and this project's GPL,
+are copied into the app folder's `licenses/` with every build.
 
 **Data the tools build from** (generated into the app folder, not stored here)
 
@@ -460,8 +464,9 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 | FBNeo | [libretro/FBNeo](https://github.com/libretro/FBNeo) | FBNeo license (non-commercial) |
 | MAME 2003-Plus | [libretro/mame2003-plus-libretro](https://github.com/libretro/mame2003-plus-libretro) | MAME license (non-commercial) |
 
-The firmware's own cores (Genesis Plus GX, QuickNES, SNES Faust, Stella and
-others) are loaded from the cabinet at run time and are not distributed here.
+The firmware's own cores (Genesis Plus GX, QuickNES, SNES Faust, Stella, and
+its ColecoVision core `libcv`, listed as "Marat CV" in the firmware) are loaded
+from the cabinet at run time and are not distributed here.
 
 **Artwork** (downloaded by Settings > Download artwork or the tools, not in this repository)
 
@@ -469,7 +474,10 @@ others) are loaded from the cabinet at run time and are not distributed here.
   (`Named_Boxarts`, `Named_Logos`; arcade logos from its MAME set).
 - Bezels: [The Bezel Project](https://github.com/thebezelproject), fan-made, for personal use.
 - Console photos: Evan Amos, [Wikimedia Commons](https://commons.wikimedia.org/wiki/User:Evan-Amos).
-  Public domain, except the SNES, Atari Lynx, Dreamcast and Neo Geo photos (CC BY-SA 3.0).
+  Public domain, except the SNES, Atari Lynx, Dreamcast and Neo Geo photos, which are
+  [CC BY-SA 3.0](https://creativecommons.org/licenses/by-sa/3.0/). The app changes them on
+  screen (white background removed, cropped and resized). Each photo's file name, author
+  and license are in `media/<system>/console.credit` and `media/CREDITS.txt`.
 - Arcade cabinet, NAOMI board and Atomiswave board: drawn for Retro Launcher (`tools/draw_consoles.py`,
   `assets/consoles/`), under this repository's license.
 
