@@ -6,7 +6,8 @@ The launcher finds a ROM's cover there by its No-Intro name, and otherwise by
 title (tags, case and punctuation ignored, region from the ROM's tags), so games
 you add later get art without running anything.
 
-Usage:  prefill_boxart.py <app folder> [system ...]
+Usage:  prefill_boxart.py <app folder> [system ...] [--logos]
+        --logos fetches game logos (for the DMD) into media/<system>/Named_Logos/ instead.
 Needs macOS `sips` and network access. Safe to stop and rerun: covers already
 downloaded are skipped. About 46,000 covers, ~20 GB to download, ~7 GB stored.
 """
@@ -59,10 +60,16 @@ def get(url, timeout=120):
             time.sleep(2 + attempt * 3)
 
 
-def covers(app, repo):
-    """[(name, is_link)] from the repo's Named_Boxarts tree, cached a week (the
-    GitHub API allows 60 unauthenticated calls an hour)."""
-    cache = os.path.join(app, "media", ".boxart-trees", repo + ".json")
+# --logos: game logos (Named_Logos) for the DMD instead of covers. Arcade, NAOMI
+# and Atomiswave share the MAME set (the launcher looks in media/arcade/ for them).
+LOGO_REPOS = dict(REPOS, arcade=["MAME"], naomi=[], atomiswave=[])
+
+
+def covers(app, repo, folder="Named_Boxarts"):
+    """[(name, branch)] from the repo's Named_Boxarts (or Named_Logos) tree,
+    cached a week (the GitHub API allows 60 unauthenticated calls an hour)."""
+    suffix = "" if folder == "Named_Boxarts" else "-" + folder
+    cache = os.path.join(app, "media", ".boxart-trees", repo + suffix + ".json")
     if not (os.path.exists(cache) and time.time() - os.path.getmtime(cache) < 7 * 86400):
         root, branch = None, None
         for branch in ("master", "main"):  # most sets use master, a few (NAOMI) main
@@ -71,7 +78,9 @@ def covers(app, repo):
                 break
             except urllib.error.HTTPError:
                 continue
-        sha = next(t["sha"] for t in root["tree"] if t["path"] == "Named_Boxarts")
+        sha = next((t["sha"] for t in root["tree"] if t["path"] == folder), None)
+        if sha is None:  # this set has no logos
+            return []
         tree = json.loads(get(f"https://api.github.com/repos/libretro-thumbnails/{repo}/git/trees/{sha}"))
         tree["branch"] = branch
         os.makedirs(os.path.dirname(cache), exist_ok=True)
@@ -89,24 +98,28 @@ def main():
         print(__doc__)
         return 2
     app, only = args[0], args[1:]
+    logos = "--logos" in sys.argv
+    folder = "Named_Logos" if logos else "Named_Boxarts"
     jobs = []  # (url, dest)
-    for sys_id, repos in REPOS.items():
+    for sys_id, repos in (LOGO_REPOS if logos else REPOS).items():
         if only and sys_id not in only:
             continue
-        out = os.path.join(app, "media", sys_id, "Named_Boxarts")
+        if not repos:
+            continue
+        out = os.path.join(app, "media", sys_id, folder)
         os.makedirs(out, exist_ok=True)
         have = set(os.listdir(out))
         todo = 0
         for repo in repos:
-            for name, branch in covers(app, repo):
-                dest = name[:-4] + ".jpg"
+            for name, branch in covers(app, repo, folder):
+                dest = name[:-4] + (".png" if logos else ".jpg")  # logos keep their transparency
                 if dest in have:
                     continue
                 have.add(dest)
-                url = f"https://raw.githubusercontent.com/libretro-thumbnails/{repo}/{branch}/Named_Boxarts/{urllib.parse.quote(name)}"
+                url = f"https://raw.githubusercontent.com/libretro-thumbnails/{repo}/{branch}/{folder}/{urllib.parse.quote(name)}"
                 jobs.append((url, os.path.join(out, dest)))
                 todo += 1
-        print(f"{sys_id}: {len(have)} covers, {todo} to download", flush=True)
+        print(f"{sys_id}: {len(have)} {'logos' if logos else 'covers'}, {todo} to download", flush=True)
 
     done, failed, lock, t0 = [0], [], threading.Lock(), time.time()
 
@@ -122,8 +135,11 @@ def main():
                 url = url.rsplit("/", 1)[0] + "/" + urllib.parse.quote(data.decode("utf-8").strip())
             with open(tmp, "wb") as f:
                 f.write(data)
-            subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "85", "-Z", "720", tmp, "--out", dest],
-                           check=True, capture_output=True)
+            if dest.endswith(".png"):  # a logo: PNG (alpha), at most 640 px
+                subprocess.run(["sips", "-s", "format", "png", "-Z", "640", tmp, "--out", dest], check=True, capture_output=True)
+            else:
+                subprocess.run(["sips", "-s", "format", "jpeg", "-s", "formatOptions", "85", "-Z", "720", tmp, "--out", dest],
+                               check=True, capture_output=True)
         except Exception as e:  # noqa: BLE001
             with lock:
                 failed.append(f"{os.path.basename(dest)}: {e}")

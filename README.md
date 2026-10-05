@@ -105,6 +105,14 @@ the cabinet has no right stick). Saturn discs (`.chd`, `.cue`) go in
 `roms/saturn/`; YabaSanshiro has a built-in BIOS replacement, and a real
 `saturn_bios.bin` in `system/` runs more games.
 
+### Marquees (game logos on the DMD)
+
+With `tools/prefill_boxart.py <app> --logos`, libretro's game logos go to
+`media/<system>/Named_Logos/` (PNG, transparent). The DMD then shows the
+highlighted game's logo while browsing and while playing, like a marquee, with
+the system's name under it. Arcade, NAOMI and Atomiswave use the MAME set;
+systems without logos (Game Boy Color, Lynx, PSP) keep the title / console photo.
+
 ### GPU picture quality
 
 GPU systems render above their original resolution by default: Dreamcast,

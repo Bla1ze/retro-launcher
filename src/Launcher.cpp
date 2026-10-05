@@ -263,6 +263,7 @@ private:
     // and Auto -> each emulator that can run it, in the Home popup.
     std::string gameCore(int sys, int game) const;
     std::string artFor(int sys, const Library::Game& g) const;  // cover; arcade also by title
+    std::string logoFor(int sys, const Library::Game& g) const;  // logo for the DMD, the same way
     void cycleGameCore(int sys, int game, int dir);
 };
 
@@ -554,6 +555,16 @@ std::string Menu::artFor(int sys, const Library::Game& g) const {
     std::string p = findArt(m_appDir, m_systems[sys].sys->id, file);
     if (p.empty() && g.arcade) p = findArt(m_appDir, m_systems[sys].sys->id, g.title + ".zip");
     if (p.empty() && !g.altTitle.empty()) p = findArt(m_appDir, m_systems[sys].sys->id, g.altTitle + ".zip");
+    return p;
+}
+
+std::string Menu::logoFor(int sys, const Library::Game& g) const {
+    const std::string& id = m_systems[sys].sys->id;
+    size_t slash = g.file.find('/');
+    std::string file = slash == std::string::npos ? g.file : g.file.substr(0, slash) + g.file.substr(g.file.find_last_of('.'));
+    std::string p = findLogo(m_appDir, id, file);
+    if (p.empty() && (g.arcade || slash != std::string::npos || !g.title.empty())) p = findLogo(m_appDir, id, g.title + ".zip");
+    if (p.empty() && !g.altTitle.empty()) p = findLogo(m_appDir, id, g.altTitle + ".zip");
     return p;
 }
 
@@ -956,6 +967,7 @@ void Menu::updatePanels(float dt) {
         if (key != m_panelKey) {
             m_panelItem = {key, m_systems[sys].sys->name, g.title, g.tags,
                            artFor(sys, g)};
+            m_panelItem.logoPath = logoFor(sys, g);
         }
     } else if (m_view == View::Search) {
         key = "search:" + std::to_string(m_hits.size());

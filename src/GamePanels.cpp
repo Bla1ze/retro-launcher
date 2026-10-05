@@ -664,9 +664,33 @@ const std::vector<std::string>* coversFor(const std::string& dir, const std::str
 
 void warmArtIndex(const std::string& appDir, const std::string& system) {
     coversFor(appDir + "/media/" + system + "/Named_Boxarts", "");
+    coversFor(appDir + "/media/" + system + "/Named_Logos", "");
 }
 
-std::string matchCover(const std::string& base, const std::string& stem);
+std::string matchCover(const std::string& base, const std::string& stem, const char* folder);
+
+// A game's logo (media/<system>/Named_Logos, from prefill_boxart.py --logos), by
+// file name or title like the covers. NAOMI / Atomiswave use the arcade (MAME) set.
+std::string findLogo(const std::string& appDir, const std::string& system, const std::string& romFile) {
+    std::string stem = romFile.substr(0, romFile.find_last_of('.'));
+    std::string safe = stem;
+    for (char& ch : safe)
+        if (std::strchr("&*/:`<>?\\|\"", ch)) ch = '_';
+    std::vector<std::string> systems{system};
+    if (system == "naomi" || system == "atomiswave") systems.push_back("arcade");
+    for (const std::string& sys : systems) {
+        std::string base = appDir + "/media/" + sys + "/";
+        for (const std::string* name : {&stem, &safe}) {
+            std::string p = base + "Named_Logos/" + *name + ".png";
+            if (isFile(p)) return p;
+        }
+        std::string match = matchCover(base, stem, "Named_Logos");
+        if (!match.empty()) return base + "Named_Logos/" + match;
+    }
+    return "";
+}
+
+std::string matchCover(const std::string& base, const std::string& stem, const char* folder = "Named_Boxarts");
 
 // Holds findArt's filtered loose matches (best points into it until it returns).
 static std::vector<std::string>& looseKeep() {
@@ -696,10 +720,10 @@ std::string findArt(const std::string& appDir, const std::string& system, const 
 
 // The prefilled cover (file name in media/<system>/Named_Boxarts) whose title
 // matches the ROM's, or "".
-std::string matchCover(const std::string& base, const std::string& stem) {
+std::string matchCover(const std::string& base, const std::string& stem, const char* folder) {
     std::string title = titleOf(stem), key = titleKey(title);
     if (key.empty()) return "";
-    const std::string dir = base + "Named_Boxarts";
+    const std::string dir = base + folder;
     const std::vector<std::string>* c = coversFor(dir, key);
     if (!c && key.compare(0, 3, "the") == 0) c = coversFor(dir, key.substr(3));
     std::string region = regionOf(tagsOf(stem));
@@ -993,8 +1017,12 @@ void GamePanels::compose(const Item& item) {
         if (loadImage(item.consolePath, console, cw, ch)) keyOutWhite(console, cw, ch);
         else log("panels: could not decode %s", item.consolePath.c_str());
     }
+    std::vector<uint8_t> logo;
+    int lw = 0, lh = 0;
+    if (!item.logoPath.empty() && !loadImage(item.logoPath, logo, lw, lh))
+        log("panels: could not decode %s", item.logoPath.c_str());
     for (Panel& p : m_panels) {
-        if (p.role == Panel::Role::Dmd) composeDmd(p, item, console, cw, ch);
+        if (p.role == Panel::Role::Dmd) composeDmd(p, item, console, cw, ch, logo, lw, lh);
         else if (p.role == Panel::Role::Playfield) composePlayfield(p, item, art, aw, ah);
         else composeBackglass(p, item, art, aw, ah);
         present(p);
@@ -1023,11 +1051,19 @@ void GamePanels::composeBackglass(Panel& p, const Item& item, const std::vector<
     text(c, W, H, item.detail, W * 0.5f, H * 0.62f, H * 0.055f, kGold, PanelFont::Face::Body, W * 0.8f);
 }
 
-void GamePanels::composeDmd(Panel& p, const Item& item, const std::vector<uint8_t>& console, int cw, int ch) {
+void GamePanels::composeDmd(Panel& p, const Item& item, const std::vector<uint8_t>& console, int cw, int ch,
+                            const std::vector<uint8_t>& logo, int lw, int lh) {
     const int W = p.vw, H = p.vh;
     std::vector<uint8_t>& c = p.canvas;
     gradient(c, W, H, kGradTop, kGradBot);
     glow(c, W, H, W * 0.5f, H * 0.5f, W * 0.5f, kTeal, 0.18f);
+    // The game's logo, like a marquee, browsing or playing; the system's name under it.
+    if (!logo.empty()) {
+        glow(c, W, H, W * 0.5f, H * 0.42f, W * 0.45f, kWhite, 0.08f);
+        blitFit(c, W, H, logo, lw, lh, (int)(W * 0.06f), (int)(H * 0.08f), (int)(W * 0.88f), (int)(H * 0.68f));
+        text(c, W, H, item.system, W * 0.5f, H * 0.84f, H * 0.09f, kGold, PanelFont::Face::Display, W * 0.9f);
+        return;
+    }
     if (m_mode == Mode::Playing) {
         // The playfield card already names the game: show the console itself.
         if (!console.empty()) {

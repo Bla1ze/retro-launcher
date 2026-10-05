@@ -33,6 +33,7 @@ public:
         std::string artPath;  // image file, or empty
         std::vector<std::pair<std::string, std::string>> controls;  // Playing: "A" -> "B button"
         std::string consolePath;  // Playing: photo of the console for the DMD, or empty
+        std::string logoPath;     // the game's logo for the DMD (marquee), or empty
     };
     enum class Mode { Browse, Playing };
 
@@ -61,7 +62,8 @@ private:
                       uint32_t mainConnector);
     void compose(const Item& item);
     void composeBackglass(Panel& p, const Item& item, const std::vector<uint8_t>& art, int aw, int ah);
-    void composeDmd(Panel& p, const Item& item, const std::vector<uint8_t>& console, int cw, int ch);
+    void composeDmd(Panel& p, const Item& item, const std::vector<uint8_t>& console, int cw, int ch,
+                    const std::vector<uint8_t>& logo, int lw, int lh);
     void composePlayfield(Panel& p, const Item& item, const std::vector<uint8_t>& art, int aw, int ah);
     void present(Panel& p);
 
@@ -84,6 +86,8 @@ private:
 // title screens, in our folder names or libretro-thumbnails' (Named_Boxarts...),
 // as .png or .jpg, by the ROM's file name or its libretro-sanitized form.
 std::string findArt(const std::string& appDir, const std::string& system, const std::string& romFile);
+// The game's logo (media/<system>/Named_Logos), matched like the covers; "" if none.
+std::string findLogo(const std::string& appDir, const std::string& system, const std::string& romFile);
 // A readable name for a ROM whose file name is squashed into one lowercase word
 // ("supermarioworld" -> "Super Mario World"), from the prefilled cover it
 // matches; "" when the name isn't squashed or nothing matches.

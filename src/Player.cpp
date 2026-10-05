@@ -1208,16 +1208,19 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (cut != std::string::npos && cut > 0) { tags = title.substr(cut); title = title.substr(0, cut); }
         while (!title.empty() && title.back() == ' ') title.pop_back();
         item.artPath = findArt(appDir, sys->id, file);
+        item.logoPath = findLogo(appDir, sys->id, file);
         Arcade::Entry ae;
         if (Library::isArcadeSystem(sys->id) && Arcade::lookup(appDir, baseName(corePath), lower(stem(file)), ae)) {
             title = ae.title;
             tags = ae.year + (ae.maker.empty() ? "" : "  " + ae.maker);
             if (item.artPath.empty()) item.artPath = findArt(appDir, sys->id, ae.title + ".zip");
+            if (item.logoPath.empty()) item.logoPath = findLogo(appDir, sys->id, ae.title + ".zip");
         }
         if (Library::isArcadeSystem(sys->id) && item.artPath.empty())  // the other emulator's name for it
             for (const std::string& c : sys->cores)
                 if (Arcade::lookup(appDir, c, lower(stem(file)), ae) && item.artPath.empty())
                     item.artPath = findArt(appDir, sys->id, ae.title + ".zip");
+        if (item.logoPath.empty() && !title.empty()) item.logoPath = findLogo(appDir, sys->id, title + ".x");
         item.title = title;
         item.detail = tags;
         item.controls = Library::controlHints(sys->id, buttonMap);
