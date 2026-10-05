@@ -31,6 +31,7 @@ namespace {
 const char* kUserAgent = "retro-launcher (https://github.com/Bla1ze/retro-launcher)";
 const long kListingMaxAge = 7 * 24 * 3600;  // a week, like tools/prefill_boxart.py
 const int kParallel = 4;
+const int kBroken = -3;  // fetch's rc for a file that downloaded but is incomplete at its source
 
 // The public root certificates behind the artwork servers (Let's Encrypt's ISRG
 // Root X1: thumbnails.libretro.com and raw.githubusercontent.com; USERTrust:
@@ -431,7 +432,14 @@ bool ArtDownload::fetch(const std::string& url, const std::string& dest, int max
         std::string head = readFile(part);
         bool png = head.size() > 8 && std::memcmp(head.data(), "\x89PNG", 4) == 0;
         bool jpg = head.size() > 3 && (unsigned char)head[0] == 0xFF && (unsigned char)head[1] == 0xD8;
-        if (png || jpg) return ::rename(part.c_str(), dest.c_str()) == 0;
+        if (png || jpg) {
+            // Some source files are cut short (no PNG IEND / JPEG end marker): they
+            // don't decode, so they're dropped and remembered as broken.
+            const std::string end = head.substr(head.size() > 32 ? head.size() - 32 : 0);
+            bool whole = png ? end.find("IEND") != std::string::npos : end.find("\xFF\xD9") != std::string::npos;
+            if (!whole) { ::unlink(part.c_str()); rc = kBroken; return false; }
+            return ::rename(part.c_str(), dest.c_str()) == 0;
+        }
         ::unlink(part.c_str());
         if (head.size() > 512 || head.find('\n') != std::string::npos) return false;
         u = u.substr(0, u.find_last_of('/') + 1) + urlEncode(head);  // symlink target
@@ -596,11 +604,32 @@ void ArtDownload::run() {
     log("art: %d game(s) without a cover, %d without a logo", coverNeeds, logoNeeds);
 
     struct Job { std::vector<std::string> urls; std::string dest; bool logo; };  // urls: tried in order
+    // Source files known to be broken (incomplete upstream), skipped so the next
+    // best match is used instead.
+    const std::string brokenPath = m_appDir + "/media/.art-index/broken.txt";
+    std::set<std::string> broken;
+    {
+        std::ifstream in(brokenPath);
+        std::string line;
+        while (std::getline(in, line))
+            if (!line.empty()) broken.insert(line);
+    }
     std::vector<Job> jobs;
     std::set<std::string> queued;
     std::set<std::string> touched;  // systems whose media folders change
     std::vector<std::string> notFound;
     int already = 0;
+    std::atomic<int> covers{0}, logos{0}, failed{0}, netFails{0};
+    std::atomic<bool> newBroken{false};
+
+    // Twice at most: a file found broken at its source is skipped on the second
+    // pass, which takes the next-best match for those games.
+    for (int pass = 0; pass < 2 && !m_stop && !m_netDown; ++pass) {
+    jobs.clear();
+    queued.clear();
+    notFound.clear();
+    already = 0;
+    newBroken = false;
 
     // 2. Match each against its set's list.
     for (size_t s = 0; s < m_work.size() && !m_stop && !m_netDown; ++s) {
@@ -630,7 +659,9 @@ void ArtDownload::run() {
                 Listing l;
                 if (!listing(repo, folder, l)) continue;
                 for (const std::string& n : l.names)
-                    if (owner.emplace(n, std::make_pair(std::string(repo), l.origin)).second) all.push_back(n);
+                    if (!broken.count(std::string(folder) + "/" + n) &&
+                        owner.emplace(n, std::make_pair(std::string(repo), l.origin)).second)
+                        all.push_back(n);
             }
             if (all.empty()) continue;
             setArtIndex(key + "/" + folder, all);
@@ -677,7 +708,7 @@ void ArtDownload::run() {
 
     // 3. Download, a few at a time.
     std::atomic<size_t> next{0};
-    std::atomic<int> done{0}, covers{0}, logos{0}, failed{0}, netFails{0};
+    std::atomic<int> done{0};
     const size_t total = jobs.size();
     if (total) setStatus("0 / " + std::to_string(total));
     log("art: %zu file(s) to download, %d already here", total, already);
@@ -689,14 +720,23 @@ void ArtDownload::run() {
             // The other server when one fails; a network error counts only when
             // every source failed with one.
             int rc = 0;
-            bool ok = false, allNet = true;
+            bool ok = false, allNet = true, isBroken = false;
             for (size_t u = 0; u < j.urls.size() && !ok && !m_stop; ++u) {
                 ok = fetch(j.urls[u], j.dest, 60, rc);
                 if (!ok && !isNetworkError(rc)) allNet = false;
+                if (rc == kBroken) isBroken = true;
             }
             if (ok) {
                 (j.logo ? logos : covers)++;
                 netFails = 0;
+            } else if (isBroken) {
+                const std::string name = j.dest.substr(j.dest.find_last_of('/') + 1);
+                const std::string folder = j.logo ? "Named_Logos" : "Named_Boxarts";
+                log("art: broken at the source, skipped from now on: %s/%s", folder.c_str(), name.c_str());
+                std::lock_guard<std::mutex> lock(m_mu);
+                std::ofstream(brokenPath, std::ios::app) << folder << "/" << name << "\n";
+                broken.insert(folder + "/" + name);
+                newBroken = true;
             } else if (!m_stop) {
                 ++failed;
                 log("art: failed (curl %d): %s", rc, j.urls[0].c_str());
@@ -710,6 +750,9 @@ void ArtDownload::run() {
     std::vector<std::thread> pool;
     for (int t = 0; t < kParallel && t < (int)total; ++t) pool.emplace_back(worker);
     for (std::thread& t : pool) t.join();
+    if (!newBroken) break;
+    log("art: looking again for the games whose file was broken");
+    }
 
     // 4. The menu sees the new files (not when it is closing: it rereads them).
     if (!m_quitting)

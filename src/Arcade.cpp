@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cerrno>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -76,37 +77,63 @@ uint32_t rd32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((u
 uint16_t rd16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
 
 // The CRC of every file in a zip, from its central directory only.
-bool zipCrcs(const std::string& path, std::vector<uint32_t>& out) {
+uint64_t rd64(const uint8_t* p) { return rd32(p) | ((uint64_t)rd32(p + 4) << 32); }
+
+// The CRC of every file in a zip, from its central directory (no unpacking).
+// Zip64 archives too (some tools write them even for small sets). On failure,
+// `why` says what was wrong.
+bool zipCrcs(const std::string& path, std::vector<uint32_t>& out, std::string& why) {
     FILE* f = std::fopen(path.c_str(), "rb");
-    if (!f) return false;
+    if (!f) { why = std::strerror(errno); return false; }
     std::fseek(f, 0, SEEK_END);
-    long size = std::ftell(f);
-    long tail = std::min(size, 65536L + 22);
+    const long long size = std::ftell(f);
+    uint8_t magic[4] = {0, 0, 0, 0};
+    std::fseek(f, 0, SEEK_SET);
+    size_t got = std::fread(magic, 1, 4, f);
+    long long tail = std::min(size, 65536LL + 22);
     std::vector<uint8_t> buf((size_t)tail);
-    std::fseek(f, size - tail, SEEK_SET);
+    std::fseek(f, (long)(size - tail), SEEK_SET);
     bool ok = std::fread(buf.data(), 1, buf.size(), f) == buf.size();
-    long eocd = -1;
-    for (long i = tail - 22; ok && i >= 0; --i)
+    long long eocd = -1;
+    for (long long i = tail - 22; ok && i >= 0; --i)
         if (rd32(&buf[(size_t)i]) == 0x06054b50) { eocd = i; break; }
-    if (eocd < 0) { std::fclose(f); return false; }
-    uint32_t cdSize = rd32(&buf[(size_t)eocd + 12]), cdOff = rd32(&buf[(size_t)eocd + 16]);
-    if ((long)cdOff + (long)cdSize > size) { std::fclose(f); return false; }
-    std::vector<uint8_t> cd(cdSize);
-    std::fseek(f, cdOff, SEEK_SET);
+    if (eocd < 0) {
+        std::fclose(f);
+        if (got == 4 && std::memcmp(magic, "7z\xBC\xAF", 4) == 0) why = "a 7-Zip archive named .zip";
+        else if (got == 4 && std::memcmp(magic, "Rar!", 4) == 0) why = "a RAR archive named .zip";
+        else if (got == 4 && rd32(magic) == 0x04034b50) why = "cut short (no zip directory at the end)";
+        else why = "not a zip file";
+        return false;
+    }
+    uint64_t cdSize = rd32(&buf[(size_t)eocd + 12]), cdOff = rd32(&buf[(size_t)eocd + 16]);
+    // Zip64: the real offsets are in the zip64 end record its locator points to.
+    if ((cdOff == 0xFFFFFFFFu || cdSize == 0xFFFFFFFFu) && eocd >= 20 && rd32(&buf[(size_t)eocd - 20]) == 0x07064b50) {
+        uint64_t at = rd64(&buf[(size_t)eocd - 20 + 8]);
+        uint8_t rec[56];
+        std::fseek(f, (long)at, SEEK_SET);
+        if (at + 56 <= (uint64_t)size && std::fread(rec, 1, 56, f) == 56 && rd32(rec) == 0x06064b50) {
+            cdSize = rd64(rec + 40);
+            cdOff = rd64(rec + 48);
+        }
+    }
+    if (cdOff + cdSize > (uint64_t)size || cdSize > (64u << 20)) { std::fclose(f); why = "damaged zip directory"; return false; }
+    std::vector<uint8_t> cd((size_t)cdSize);
+    std::fseek(f, (long)cdOff, SEEK_SET);
     ok = std::fread(cd.data(), 1, cd.size(), f) == cd.size();
     std::fclose(f);
-    if (!ok) return false;
+    if (!ok) { why = "could not read its directory"; return false; }
     out.clear();
     for (size_t p = 0; p + 46 <= cd.size() && rd32(&cd[p]) == 0x02014b50;) {
-        if (rd32(&cd[p + 24]) > 0) out.push_back(rd32(&cd[p + 16]));  // skip folders / empty files
+        if (rd32(&cd[p + 24]) > 0) out.push_back(rd32(&cd[p + 16]));  // skip folders / empty files (zip64 sizes read as 0xFFFFFFFF)
         p += 46 + rd16(&cd[p + 28]) + rd16(&cd[p + 30]) + rd16(&cd[p + 32]);
     }
+    if (out.empty()) { why = "empty zip"; return false; }
     return true;
 }
 
 // data/arcade-zips.txt: "<file>\t<size>\t<mtime>\t<crc crc ...>" so a rescan only
 // opens zips that are new or changed.
-struct ZipInfo { long long size = 0, mtime = 0; std::vector<uint32_t> crcs; };
+struct ZipInfo { long long size = 0, mtime = 0; std::vector<uint32_t> crcs; bool bad = false; };  // bad: unreadable, not retried until it changes
 
 std::map<std::string, ZipInfo> loadZipCache(const std::string& path) {
     std::map<std::string, ZipInfo> cache;
@@ -120,7 +147,10 @@ std::map<std::string, ZipInfo> loadZipCache(const std::string& path) {
         z.mtime = std::atoll(f[2].c_str());
         std::istringstream crcs(f[3]);
         std::string c;
-        while (crcs >> c) z.crcs.push_back((uint32_t)std::strtoul(c.c_str(), nullptr, 16));
+        while (crcs >> c) {
+            if (c == "bad") { z.bad = true; break; }
+            z.crcs.push_back((uint32_t)std::strtoul(c.c_str(), nullptr, 16));
+        }
         cache[f[0]] = z;
     }
     return cache;
@@ -131,6 +161,7 @@ void saveZipCache(const std::string& path, const std::map<std::string, ZipInfo>&
     char hex[12];
     for (const auto& kv : cache) {
         out << kv.first << '\t' << kv.second.size << '\t' << kv.second.mtime << '\t';
+        if (kv.second.bad) { out << "bad\n"; continue; }
         for (size_t i = 0; i < kv.second.crcs.size(); ++i) {
             std::snprintf(hex, sizeof(hex), "%s%08x", i ? " " : "", kv.second.crcs[i]);
             out << hex;
@@ -241,10 +272,12 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
             struct stat st;
             if (::stat((dir + "/" + file).c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
             ZipInfo& z = cache[file];
-            if (z.size != (long long)st.st_size || z.mtime != (long long)st.st_mtime || z.crcs.empty()) {
+            if (z.size != (long long)st.st_size || z.mtime != (long long)st.st_mtime || (z.crcs.empty() && !z.bad)) {
                 z.size = st.st_size;
                 z.mtime = st.st_mtime;
-                if (!zipCrcs(dir + "/" + file, z.crcs)) log("arcade: could not read %s", file.c_str());
+                std::string why;
+                z.bad = !zipCrcs(dir + "/" + file, z.crcs, why);
+                if (z.bad) { z.crcs.clear(); log("%s: could not read %s: %s", sys.id.c_str(), file.c_str(), why.c_str()); }
                 changed = true;
                 ++opened;
             }
@@ -285,7 +318,8 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
                 std::string set = lowerStr(file.substr(0, file.size() - 4));
                 if (zips.count(set)) continue;
                 ZipInfo z;
-                if (zipCrcs(bdir + "/" + file, z.crcs)) zips[set] = z;  // not listed: BIOS sets are skipped below
+                std::string why;
+                if (zipCrcs(bdir + "/" + file, z.crcs, why)) zips[set] = z;  // not listed: BIOS sets are skipped below
             }
             ::closedir(d);
         }
@@ -358,6 +392,7 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         if (g.cores.empty() && !bestCore.empty()) g.cores.push_back(bestCore);
         g.core = bestCore;
         g.problem = bestProblem;
+        if (kv.second.bad) g.problem = "The zip can't be read (damaged, or not a zip) - copy it again";
         for (const auto& db : dbs) {
             auto e = db.second.find(set);
             if (e != db.second.end() && named && e->second.title != named->title) { g.altTitle = e->second.title; break; }
