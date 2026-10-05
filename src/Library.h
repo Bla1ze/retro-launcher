@@ -162,6 +162,9 @@ const std::string& selfPath();
 // Replace this process (same PID, which the firmware's launcher waits on).
 // Never returns on success.
 void execMenu(const std::string& appDir, const std::string& sys, int index, const std::string& message);
+// After Settings > Updates replaced the app: start the menu from the updated
+// file in the app folder (not this process's own image).
+void execUpdated(const std::string& appDir, const std::string& message);
 // `returnTo` is the menu place to come back to ("" = the game's system list,
 // "@recent" = Recently played); `index` is the row there.
 // `core` names the core file to use ("" = the system's first available).

@@ -77,7 +77,7 @@ void splitTitle(const std::string& stem, std::string& title, std::string& tags) 
     if (title.empty()) { title = stem; tags.clear(); }
 }
 
-void exec(const std::vector<std::string>& args) {
+void exec(const std::vector<std::string>& args, const std::string& program = "") {
     // A pending alarm() survives exec and would kill the next mode with the
     // player's watchdog signal; clear it at every hand-off.
     ::alarm(0);
@@ -86,8 +86,9 @@ void exec(const std::vector<std::string>& args) {
     std::vector<char*> argv;
     for (const std::string& a : args) argv.push_back(const_cast<char*>(a.c_str()));
     argv.push_back(nullptr);
-    ::execv(selfPath().c_str(), argv.data());
-    log("execv failed: %s", std::strerror(errno));
+    const std::string& path = program.empty() ? selfPath() : program;
+    ::execv(path.c_str(), argv.data());
+    log("execv %s failed: %s", path.c_str(), std::strerror(errno));
 }
 
 } // namespace
@@ -98,7 +99,12 @@ const std::string& selfPath() {
         ssize_t n = ::readlink("/proc/self/exe", buf, sizeof(buf) - 1);
         if (n <= 0) return std::string("/proc/self/exe");
         buf[n] = 0;
-        return std::string(buf);
+        // Once the file has been replaced (Settings > Updates), the kernel adds
+        // " (deleted)" to the old one's name; the path itself is still right.
+        std::string p(buf);
+        const std::string gone = " (deleted)";
+        if (p.size() > gone.size() && p.compare(p.size() - gone.size(), gone.size(), gone) == 0) p.resize(p.size() - gone.size());
+        return p;
     }();
     return path;
 }
@@ -874,6 +880,7 @@ void openLog(const std::string& appDir, const char* mode) {
     bool big = ::stat(path.c_str(), &st) == 0 && st.st_size > 512 * 1024;
     g_log = std::fopen(path.c_str(), big ? "w" : "a");
     log("==== retro-launcher %s mode, pid %d", mode, (int)::getpid());
+    log("running %s", selfPath().c_str());  // also fixes the path before an update can replace the file
 }
 
 int logFd() { return g_log ? fileno(g_log) : -1; }
@@ -950,6 +957,13 @@ std::string findCore(const std::string& appDir, const System& sys, std::string& 
 void execMenu(const std::string& appDir, const std::string& sys, int index, const std::string& message) {
     log("-> menu (%s #%d) %s", sys.c_str(), index, message.c_str());
     exec({"retro-launcher", "--menu", appDir, sys, std::to_string(index), message});
+}
+
+void execUpdated(const std::string& appDir, const std::string& message) {
+    // The new version's file, wherever this process was started from.
+    const std::string program = appDir + "/retro-launcher.elf";
+    log("-> menu, restarting %s (%s)", program.c_str(), message.c_str());
+    exec({"retro-launcher", "--menu", appDir, "", "0", message}, program);
 }
 
 void execPlay(const std::string& appDir, const std::string& sys, const std::string& romPath, ScreenId screen,

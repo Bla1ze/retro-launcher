@@ -2313,7 +2313,7 @@ int Menu::run() {
             render(0.0f);
             present();
             shutdown();
-            Library::execMenu(m_appDir, "", 0, msg);
+            Library::execUpdated(m_appDir, msg);
             return 1;  // only if exec failed
         }
         std::string art;
