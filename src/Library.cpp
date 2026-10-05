@@ -528,7 +528,8 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
 // BIOS files a system's cores look for in system/ ("" = none needed).
 static const char* biosNote(const std::string& id) {
     if (id == "colecovision")
-        return "Required by Gearcoleco: colecovision.rom (8 KB; coleco.rom and os7.u2 also accepted).";
+        return "Optional: colecovision.rom (8 KB; coleco.rom and os7.u2 also accepted) for Gearcoleco. "
+               "Without it the cabinet's own ColecoVision emulator (built-in BIOS) is used.";
     if (id == "gb") return "Optional: gb_bios.bin (boot logo only).";
     if (id == "gbc") return "Optional: gbc_bios.bin (boot logo only).";
     if (id == "gba")
@@ -749,6 +750,24 @@ std::string findCoreFile(const std::string& appDir, const std::string& coreFile,
 }
 
 std::string findCore(const std::string& appDir, const System& sys, std::string& where) {
+    static const char* kDirs[] = {"/upgrade/opt/retroplayer/core", "/upgrade/retroplayer/core",
+                                  "/app/retroplayer/core", "/emulator"};
+    // ColecoVision: Gearcoleco needs the OS-7 BIOS in system/; without it the
+    // firmware's own core (libcv, which has the BIOS built in) runs the game.
+    if (sys.id == "colecovision") {
+        bool bios = false;
+        for (const char* d : {"/system/", "/system/gearcoleco/"})
+            for (const char* n : {"colecovision.rom", "coleco.rom", "os7.u2"})
+                bios = bios || isFile(appDir + d + n);
+        if (!bios)
+            for (const char* dir : kDirs) {
+                std::string p = std::string(dir) + "/libcv.so";
+                if (::access(p.c_str(), R_OK) == 0) {
+                    where = std::string("firmware ") + dir + " (no ColecoVision BIOS in system/ for Gearcoleco)";
+                    return p;
+                }
+            }
+    }
     // 1. Our own cores (copied off the no-exec stick before loading).
     for (const std::string& c : sys.cores) {
         std::string src = appDir + "/cores/" + c;
@@ -764,8 +783,6 @@ std::string findCore(const std::string& appDir, const System& sys, std::string& 
         log("could not copy %s to %s: %s", src.c_str(), dst.c_str(), std::strerror(errno));
     }
     // 2. The firmware's core folders, in the order tableDB_retroplayer.sh uses.
-    static const char* kDirs[] = {"/upgrade/opt/retroplayer/core", "/upgrade/retroplayer/core",
-                                  "/app/retroplayer/core", "/emulator"};
     for (const char* dir : kDirs) {
         if (!isDir(dir)) continue;
         for (const std::string& c : sys.cores) {

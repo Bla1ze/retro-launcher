@@ -56,7 +56,7 @@ already in the cabinet's firmware, or better ones built for it (see
 | NES | `roms/nes` | FCEUmm (else QuickNES) | `cores/` (else firmware) |
 | Super Nintendo | `roms/snes` | Snes9x (else SNES Faust) | `cores/` (else firmware) |
 | Atari 2600 | `roms/atari2600` | Stella | firmware |
-| ColecoVision | `roms/colecovision` | Gearcoleco (else firmware) | `cores/` |
+| ColecoVision | `roms/colecovision` | Gearcoleco with a BIOS in `system/`, else the firmware's (built-in BIOS) | `cores/` |
 | Game Boy | `roms/gb` | Gambatte | `cores/` |
 | Game Boy Color | `roms/gbc` | Gambatte | `cores/` |
 | Game Boy Advance | `roms/gba` | gpSP | `cores/` |
