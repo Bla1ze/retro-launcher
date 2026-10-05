@@ -2,9 +2,11 @@
 # Downloads per-system artwork into <app>/media/<system>/:
 #   bezel.png    - system bezel from The Bezel Project (https://github.com/thebezelproject),
 #                  fan-made artwork for personal use; it is not part of this repository.
-#   console.*    - console photo by Evan Amos from Wikimedia Commons (public domain,
-#                  except SNES and Lynx: CC BY-SA 3.0). Each photo's credit is kept in
-#                  console.credit beside it; media/CREDITS.txt is rebuilt from those.
+#   console.*    - console photo from Wikimedia Commons (mostly Evan Amos), each
+#                  photo's author and license kept in console.credit beside it;
+#                  media/CREDITS.txt is rebuilt from those. Arcade and NAOMI have
+#                  no usable photo: they get the drawings in assets/consoles/
+#                  (tools/draw_consoles.py, part of this repository).
 # Systems that already have a bezel / photo are skipped; --force fetches again.
 # Usage: tools/fetch_media.sh <app folder> [--force]
 set -u
@@ -24,6 +26,12 @@ print(p[0] if p else '')")
   mkdir -p "$D/$sys"
   [ -n "$url" ] && curl -sSfL -o "$D/$sys/bezel.png" "$url" && echo "$sys: bezel" || echo "$sys: no bezel"
 }
+drawing() { # system: our own picture from assets/consoles/
+  local sys=$1 src; src="$(dirname "$0")/../assets/consoles/$1.png"
+  [ $FORCE = 0 ] && { [ -f "$D/$sys/console.png" ] || [ -f "$D/$sys/console.jpg" ]; } && return
+  mkdir -p "$D/$sys"; rm -f "$D/$sys/console.jpg"
+  cp "$src" "$D/$sys/console.png" && echo "  $sys/console.png: drawn for Retro Launcher (tools/draw_consoles.py)" > "$D/$sys/console.credit" && echo "$sys: drawing"
+}
 photo() { # system commons-file...
   local sys=$1 f info u lic t e try; shift
   [ $FORCE = 0 ] && { [ -f "$D/$sys/console.png" ] || [ -f "$D/$sys/console.jpg" ]; } && return
@@ -39,14 +47,18 @@ try: pages=json.load(sys.stdin)['query']['pages'].values()
 except Exception: sys.exit(1)
 for p in pages:
     ii=p.get('imageinfo')
-    if ii: print((ii[0].get('thumburl') or ii[0]['url']) + ' ' + ii[0].get('extmetadata',{}).get('LicenseShortName',{}).get('value','').replace(' ','_'))" 2>/dev/null) && break
+    if not ii: continue
+    m=ii[0].get('extmetadata',{})
+    import re
+    who=re.sub('<[^>]+>','',m.get('Artist',{}).get('value','')).strip() or 'unknown'
+    print((ii[0].get('thumburl') or ii[0]['url']) + ' ' + m.get('LicenseShortName',{}).get('value','').replace(' ','_') + '|' + who.replace(' ','_'))" 2>/dev/null) && break
     done
     [ -z "$info" ] && continue
-    u=${info% *}; lic=${info##* }
+    u=${info% *}; lic=${info##* }; who=${lic#*|}; lic=${lic%%|*}
     curl -sSfL -A "$UA" -o "$D/$sys/console.tmp" "$u" || continue
     t=$(file -b "$D/$sys/console.tmp" | cut -d' ' -f1); e=jpg; [ "$t" = PNG ] && e=png
     rm -f "$D/$sys"/console.png "$D/$sys"/console.jpg; mv "$D/$sys/console.tmp" "$D/$sys/console.$e"
-    echo "  $sys/console.$e: \"$f\", ${lic//_/ }" > "$D/$sys/console.credit"; echo "$sys: photo ($f)"; return
+    echo "  $sys/console.$e: \"$f\" by ${who//_/ }, ${lic//_/ }" > "$D/$sys/console.credit"; echo "$sys: photo ($f)"; return
   done
   echo "$sys: no photo"
 }
@@ -67,14 +79,15 @@ bezel psx bezelproject-PSX;                     photo psx PSX-Console-wControlle
 bezel dreamcast bezelproject-Dreamcast;         photo dreamcast Dreamcast-Console-Set.png
 bezel n64 bezelproject-N64;                     photo n64 N64-Console-Set.png
 bezel saturn bezelproject-Saturn;               photo saturn Sega-Saturn-Console-Set-Mk1.png
-bezel naomi bezelproject-Naomi
-bezel atomiswave bezelproject-Atomiswave
+bezel naomi bezelproject-Naomi;                 drawing naomi
+bezel atomiswave bezelproject-Atomiswave;       photo atomiswave Atomiswave.jpg
+drawing arcade
 photo neogeo Neo-Geo-AES-Console-Set.png   # no Bezel Project set for Neo Geo
 photo psp Psp-1000.jpg   # no Bezel Project set for PSP; its 16:9 picture fills the backglass
 
 # Credits, rebuilt from every photo's own record.
 {
   echo "Bezels: The Bezel Project, https://github.com/thebezelproject (personal use)."
-  echo "Console photos: Evan Amos, Wikimedia Commons:"
+  echo "Console pictures (photos from Wikimedia Commons):"
   cat "$D"/*/console.credit 2>/dev/null
 } > "$D/CREDITS.txt"
