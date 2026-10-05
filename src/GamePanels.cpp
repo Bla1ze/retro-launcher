@@ -1069,27 +1069,46 @@ void GamePanels::composePlayfield(Panel& p, const Item& item, const std::vector<
     glow(c, W, H, W * 0.15f, H * 0.08f, W * 0.9f, kTeal, 0.10f);
     glow(c, W, H, W * 0.9f, H * 0.95f, W * 1.0f, kViolet, 0.14f);
 
+    // Fit the controls card above the footer line: a long list (8-10 buttons on
+    // arcade, PlayStation, N64) first takes room from the cover, then tightens
+    // its rows.
+    const int rows = (int)item.controls.size();
+    const float footerY = H - 74 * u, footerGap = 28 * u;
+    float rowH = 46 * u, scale = 1.0f;
+    const float cardTop0 = 850 * u;
+    auto cardHeight = [&](float rh) { return rows ? 64 * u + rows * rh : 0.0f; };
+    float lift = 0.0f;  // how far the cover shrinks (and everything below it moves up)
+    float over = cardTop0 + cardHeight(rowH) - (footerY - footerGap);
+    if (over > 0) {
+        lift = std::min(over, 260 * u);
+        over -= lift;
+    }
+    if (over > 0 && rows) {
+        rowH = std::max(rowH * 0.7f, (footerY - footerGap - (cardTop0 - lift) - 64 * u) / rows);
+        scale = rowH / (46 * u);
+    }
+
     text(c, W, H, "NOW PLAYING", W * 0.5f, 64 * u, 30 * u, kTeal, PanelFont::Face::Display, W * 0.8f);
     if (!art.empty())
-        blitFit(c, W, H, art, aw, ah, (int)(130 * u), (int)(120 * u), (int)(460 * u), (int)(560 * u));
-    text(c, W, H, item.title, W * 0.5f, 712 * u, 64 * u, kInk, PanelFont::Face::Display, W * 0.88f);
+        blitFit(c, W, H, art, aw, ah, (int)(130 * u), (int)(120 * u), (int)(460 * u), (int)(560 * u - lift));
+    text(c, W, H, item.title, W * 0.5f, 712 * u - lift, 64 * u, kInk, PanelFont::Face::Display, W * 0.88f);
     std::string sub = item.detail.empty() ? item.system : item.system + "   " + item.detail;
-    text(c, W, H, sub, W * 0.5f, 790 * u, 26 * u, kGold, PanelFont::Face::Body, W * 0.86f);
+    text(c, W, H, sub, W * 0.5f, 790 * u - lift, 26 * u, kGold, PanelFont::Face::Body, W * 0.86f);
 
     // Controls card.
-    if (!item.controls.empty()) {
-        int rows = (int)item.controls.size();
-        int cardY = (int)(850 * u), rowH = (int)(46 * u), cardH = (int)(64 * u) + rows * rowH;
+    if (rows) {
+        int cardY = (int)(cardTop0 - lift), cardH = (int)cardHeight(rowH);
         card(c, W, H, (int)(48 * u), cardY, W - (int)(96 * u), cardH, 0.45f);
         text(c, W, H, "CONTROLS", W * 0.5f, cardY + 16 * u, 22 * u, kTeal, PanelFont::Face::Display, W * 0.6f);
+        const float keySize = 30 * u * scale, labelSize = 28 * u * scale;
         for (int i = 0; i < rows; ++i) {
             float y = cardY + 56 * u + i * rowH;
             const std::string& key = item.controls[i].first;
-            float kw = PanelFont::measure(key, 30 * u, PanelFont::Face::Display);
-            PanelFont::draw(c.data(), W, H, key, W * 0.40f - kw, y, 30 * u, kGold[0], kGold[1], kGold[2],
+            float kw = PanelFont::measure(key, keySize, PanelFont::Face::Display);
+            PanelFont::draw(c.data(), W, H, key, W * 0.40f - kw, y, keySize, kGold[0], kGold[1], kGold[2],
                             PanelFont::Face::Display);
-            PanelFont::draw(c.data(), W, H, item.controls[i].second, W * 0.46f, y + 2 * u, 28 * u, kInk[0], kInk[1],
-                            kInk[2], PanelFont::Face::Body);
+            PanelFont::draw(c.data(), W, H, item.controls[i].second, W * 0.46f, y + 2 * u * scale, labelSize, kInk[0],
+                            kInk[1], kInk[2], PanelFont::Face::Body);
         }
     }
     text(c, W, H, "Hold START or press HOME for the pause menu", W * 0.5f, H - 74 * u, 24 * u, kInk,
