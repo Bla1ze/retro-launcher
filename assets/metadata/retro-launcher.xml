@@ -4,6 +4,6 @@
     <category>Emulation</category>
     <year>2026</year>
     <copyright>Bla1ze</copyright>
-    <description>A neon front-end for 21 retro systems: arcade (FBNeo, MAME, Neo Geo, NAOMI, Atomiswave), NES to N64, Genesis to Dreamcast, PlayStation, PSP, Game Boy and more. Browse on the playfield with box art on the backglass and game logos on the DMD; games play on the backglass, vertical arcade games on the playfield. Add your own games to roms/&lt;system&gt;/ and download artwork from Settings. In a game, hold Start or press Home for save states and options.</description>
+    <description>A neon front-end for retro systems: Arcade (FBNeo, MAME, Neo Geo, NAOMI, Atomiswave), NES to N64, Genesis to Dreamcast, PlayStation, PSP, Game Boy and more. With Retro Launcher, you can choose to play games on the Backglass or Playfield.</description>
     <logging>true</logging>
 </root>
