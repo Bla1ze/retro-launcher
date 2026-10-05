@@ -29,7 +29,8 @@ public:
 
     ~ArtDownload() { stop(); }
     void start(const std::string& appDir, std::vector<System> work);
-    void stop();  // cancels and waits (curl processes are killed)
+    void cancel();  // stops soon, without waiting (running() until it has)
+    void stop();    // cancels and waits (curl processes are killed); for shutdown
     bool running() const { return m_running.load(); }
     std::string status() const;           // "Covers 34 / 210" while running
     bool takeResult(std::string& message);  // once, when a run has ended
@@ -38,7 +39,8 @@ private:
     void run();
     struct Listing { std::string origin; std::vector<std::string> names; };  // origin "libretro" / "github:<branch>"
     bool listing(const std::string& repo, const char* folder, Listing& out);
-    int curl(std::vector<std::string> args);
+    void setup();
+    int curl(std::vector<std::string> args, const std::string& stdoutTo = "");
     bool fetch(const std::string& url, const std::string& dest, int maxTime, int& rc);
     void setStatus(const std::string& s);
 
@@ -46,7 +48,8 @@ private:
     std::vector<System> m_work;
     std::thread m_thread;
     std::atomic<bool> m_running{false}, m_stop{false};
-    std::atomic<bool> m_netDown{false};
+    std::atomic<bool> m_netDown{false}, m_quitting{false};
+    std::string m_caBundle;  // data/ca-bundle.pem
     bool m_compressed = true;  // drop --compressed if this curl lacks zlib
 
     mutable std::mutex m_mu;

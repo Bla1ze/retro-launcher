@@ -588,7 +588,7 @@ void Menu::startArtDownload() {
     }
     if (work.empty()) { m_toast = "Add some games first"; m_toastTime = 0.0f; return; }
     m_art.start(m_appDir, std::move(work));
-    m_toast = "Downloading artwork - you can keep playing in the menu";
+    m_toast = "Downloading artwork - keep browsing; starting a game stops it";
     m_toastTime = 0.0f;
 }
 
@@ -859,7 +859,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             if (m_confirmSel == 1) {
                 if (what == Confirm::Exit) running = false;
                 else if (what == Confirm::Remove) removeGame(m_removeSys, m_removeGame);
-                else if (what == Confirm::StopArt) m_art.stop();
+                else if (what == Confirm::StopArt) m_art.cancel();
                 else if (what == Confirm::EmptyTrash) {
                     m_toast = Library::emptyTrash(m_appDir) ? "Trash emptied" : "Some files could not be removed";
                     m_toastTime = 0.0f;

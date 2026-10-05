@@ -25,9 +25,101 @@ using Library::log;
 
 namespace {
 
+#ifndef ART_LIBRETRO_HOST
+#define ART_LIBRETRO_HOST "https://thumbnails.libretro.com"  // a harness can point it elsewhere
+#endif
 const char* kUserAgent = "retro-launcher (https://github.com/Bla1ze/retro-launcher)";
 const long kListingMaxAge = 7 * 24 * 3600;  // a week, like tools/prefill_boxart.py
 const int kParallel = 4;
+
+// The public root certificates behind the artwork servers (Let's Encrypt's ISRG
+// Root X1: thumbnails.libretro.com and raw.githubusercontent.com; USERTrust:
+// api.github.com), added to the firmware's CA bundle in case it predates them.
+const char* kRoots =
+    "# ISRG Root X1\n"
+    "-----BEGIN CERTIFICATE-----\n"
+    "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\n"
+    "-----END CERTIFICATE-----\n"
+    "# USERTrust ECC Certification Authority\n"
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIICjzCCAhWgAwIBAgIQXIuZxVqUxdJxVt7NiYDMJjAKBggqhkjOPQQDAzCBiDEL\n"
+    "MAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNl\n"
+    "eSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMT\n"
+    "JVVTRVJUcnVzdCBFQ0MgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMTAwMjAx\n"
+    "MDAwMDAwWhcNMzgwMTE4MjM1OTU5WjCBiDELMAkGA1UEBhMCVVMxEzARBgNVBAgT\n"
+    "Ck5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVUaGUg\n"
+    "VVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBFQ0MgQ2VydGlm\n"
+    "aWNhdGlvbiBBdXRob3JpdHkwdjAQBgcqhkjOPQIBBgUrgQQAIgNiAAQarFRaqflo\n"
+    "I+d61SRvU8Za2EurxtW20eZzca7dnNYMYf3boIkDuAUU7FfO7l0/4iGzzvfUinng\n"
+    "o4N+LZfQYcTxmdwlkWOrfzCjtHDix6EznPO/LlxTsV+zfTJ/ijTjeXmjQjBAMB0G\n"
+    "A1UdDgQWBBQ64QmG1M8ZwpZ2dEl23OA1xmNjmjAOBgNVHQ8BAf8EBAMCAQYwDwYD\n"
+    "VR0TAQH/BAUwAwEB/zAKBggqhkjOPQQDAwNoADBlAjA2Z6EWCNzklwBBHU6+4WMB\n"
+    "zzuqQhFkoJ2UOQIReVx7Hfpkue4WQrO/isIJxOzksU0CMQDpKmFHjFJKS04YcPbW\n"
+    "RNZu9YO6bVi9JNlWSOrvxKJGgYhqOkbRqZtNyWHa0V1Xahg=\n"
+    "-----END CERTIFICATE-----\n"
+    "# USERTrust RSA Certification Authority\n"
+    "-----BEGIN CERTIFICATE-----\n"
+    "MIIF3jCCA8agAwIBAgIQAf1tMPyjylGoG7xkDjUDLTANBgkqhkiG9w0BAQwFADCB\n"
+    "iDELMAkGA1UEBhMCVVMxEzARBgNVBAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0pl\n"
+    "cnNleSBDaXR5MR4wHAYDVQQKExVUaGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNV\n"
+    "BAMTJVVTRVJUcnVzdCBSU0EgQ2VydGlmaWNhdGlvbiBBdXRob3JpdHkwHhcNMTAw\n"
+    "MjAxMDAwMDAwWhcNMzgwMTE4MjM1OTU5WjCBiDELMAkGA1UEBhMCVVMxEzARBgNV\n"
+    "BAgTCk5ldyBKZXJzZXkxFDASBgNVBAcTC0plcnNleSBDaXR5MR4wHAYDVQQKExVU\n"
+    "aGUgVVNFUlRSVVNUIE5ldHdvcmsxLjAsBgNVBAMTJVVTRVJUcnVzdCBSU0EgQ2Vy\n"
+    "dGlmaWNhdGlvbiBBdXRob3JpdHkwggIiMA0GCSqGSIb3DQEBAQUAA4ICDwAwggIK\n"
+    "AoICAQCAEmUXNg7D2wiz0KxXDXbtzSfTTK1Qg2HiqiBNCS1kCdzOiZ/MPans9s/B\n"
+    "3PHTsdZ7NygRK0faOca8Ohm0X6a9fZ2jY0K2dvKpOyuR+OJv0OwWIJAJPuLodMkY\n"
+    "tJHUYmTbf6MG8YgYapAiPLz+E/CHFHv25B+O1ORRxhFnRghRy4YUVD+8M/5+bJz/\n"
+    "Fp0YvVGONaanZshyZ9shZrHUm3gDwFA66Mzw3LyeTP6vBZY1H1dat//O+T23LLb2\n"
+    "VN3I5xI6Ta5MirdcmrS3ID3KfyI0rn47aGYBROcBTkZTmzNg95S+UzeQc0PzMsNT\n"
+    "79uq/nROacdrjGCT3sTHDN/hMq7MkztReJVni+49Vv4M0GkPGw/zJSZrM233bkf6\n"
+    "c0Plfg6lZrEpfDKEY1WJxA3Bk1QwGROs0303p+tdOmw1XNtB1xLaqUkL39iAigmT\n"
+    "Yo61Zs8liM2EuLE/pDkP2QKe6xJMlXzzawWpXhaDzLhn4ugTncxbgtNMs+1b/97l\n"
+    "c6wjOy0AvzVVdAlJ2ElYGn+SNuZRkg7zJn0cTRe8yexDJtC/QV9AqURE9JnnV4ee\n"
+    "UB9XVKg+/XRjL7FQZQnmWEIuQxpMtPAlR1n6BB6T1CZGSlCBst6+eLf8ZxXhyVeE\n"
+    "Hg9j1uliutZfVS7qXMYoCAQlObgOK6nyTJccBz8NUvXt7y+CDwIDAQABo0IwQDAd\n"
+    "BgNVHQ4EFgQUU3m/WqorSs9UgOHYm8Cd8rIDZsswDgYDVR0PAQH/BAQDAgEGMA8G\n"
+    "A1UdEwEB/wQFMAMBAf8wDQYJKoZIhvcNAQEMBQADggIBAFzUfA3P9wF9QZllDHPF\n"
+    "Up/L+M+ZBn8b2kMVn54CVVeWFPFSPCeHlCjtHzoBN6J2/FNQwISbxmtOuowhT6KO\n"
+    "VWKR82kV2LyI48SqC/3vqOlLVSoGIG1VeCkZ7l8wXEskEVX/JJpuXior7gtNn3/3\n"
+    "ATiUFJVDBwn7YKnuHKsSjKCaXqeYalltiz8I+8jRRa8YFWSQEg9zKC7F4iRO/Fjs\n"
+    "8PRF/iKz6y+O0tlFYQXBl2+odnKPi4w2r78NBc5xjeambx9spnFixdjQg3IM8WcR\n"
+    "iQycE0xyNN+81XHfqnHd4blsjDwSXWXavVcStkNr/+XeTWYRUc+ZruwXtuhxkYze\n"
+    "Sf7dNXGiFSeUHM9h4ya7b6NnJSFd5t0dCy5oGzuCr+yDZ4XUmFF0sbmZgIn/f3gZ\n"
+    "XHlKYC6SQK5MNyosycdiyA5d9zZbyuAlJQG03RoHnHcAP9Dc1ew91Pq7P8yF1m9/\n"
+    "qS3fuQL39ZeatTXaw2ewh0qpKJ4jjv9cJ2vhsE/zB+4ALtRZh8tSQZXq9EfX7mRB\n"
+    "VXyNWQKV3WKdwrnuWih0hKWbt5DHDAff9Yk2dDLWKMGwsAvgnEzDHNb842m1R0aB\n"
+    "L6KCq9NjRHDEjf8tM7qtj3u1cIiuPhnPQCjY/MiQu12ZIvVS5ljFH4gxQ+6IHdfG\n"
+    "jjxDah2nGN59PRbxYvnKkKj9\n"
+    "-----END CERTIFICATE-----\n";
 
 // libretro-thumbnails sets per system (as tools/prefill_boxart.py). Logos for
 // NAOMI and Atomiswave are MAME's and go in media/arcade/, where findLogo looks.
@@ -192,7 +284,7 @@ std::string netMessage(int rc) {
 std::string libretroUrl(const std::string& repo, const std::string& folder, const std::string& name) {
     std::string spaced = repo;
     std::replace(spaced.begin(), spaced.end(), '_', ' ');
-    return "https://thumbnails.libretro.com/" + urlEncode(spaced) + "/" + folder + "/" + urlEncode(name);
+    return ART_LIBRETRO_HOST "/" + urlEncode(spaced) + "/" + folder + "/" + urlEncode(name);
 }
 
 std::string githubUrl(const std::string& repo, const std::string& branch, const std::string& folder,
@@ -210,6 +302,7 @@ void ArtDownload::start(const std::string& appDir, std::vector<System> work) {
     m_appDir = appDir;
     m_work = std::move(work);
     m_stop = false;
+    m_quitting = false;
     m_netDown = false;
     {
         std::lock_guard<std::mutex> lock(m_mu);
@@ -221,7 +314,16 @@ void ArtDownload::start(const std::string& appDir, std::vector<System> work) {
     m_thread = std::thread([this]() { run(); });
 }
 
+void ArtDownload::cancel() {
+    if (!m_running) return;
+    m_stop = true;
+    setStatus("Stopping");
+    std::lock_guard<std::mutex> lock(m_mu);
+    for (pid_t p : m_children) ::kill(p, SIGTERM);
+}
+
 void ArtDownload::stop() {
+    m_quitting = true;
     m_stop = true;
     {
         std::lock_guard<std::mutex> lock(m_mu);
@@ -253,15 +355,14 @@ void ArtDownload::setStatus(const std::string& s) {
 // Runs curl with `args`; its exit code, or -1 when it can't be started. The
 // menu may run with signals blocked or ignored (the watchdog), so the child
 // gets a clean signal mask and default handlers.
-int ArtDownload::curl(std::vector<std::string> args) {
-    static const char* path = []() -> const char* {
+int ArtDownload::curl(std::vector<std::string> args, const std::string& stdoutTo) {
+    static const char* path = []() -> const char* {  // also in setup()
         for (const char* p : {"/usr/bin/curl", "/bin/curl", "/usr/local/bin/curl"})
             if (::access(p, X_OK) == 0) return p;
         return nullptr;
     }();
-    static const bool haveCa = ::access("/etc/ssl/certs/ca-certificates.crt", R_OK) == 0;
     std::vector<std::string> full = {"curl", "-sfL", "--connect-timeout", "15", "--retry", "2", "-A", kUserAgent};
-    if (haveCa) { full.push_back("--cacert"); full.push_back("/etc/ssl/certs/ca-certificates.crt"); }
+    if (!m_caBundle.empty()) { full.push_back("--cacert"); full.push_back(m_caBundle); }
     full.insert(full.end(), args.begin(), args.end());
     std::vector<char*> argv;
     for (std::string& a : full) argv.push_back(&a[0]);
@@ -280,7 +381,8 @@ int ArtDownload::curl(std::vector<std::string> args) {
     posix_spawn_file_actions_t fa;
     posix_spawn_file_actions_init(&fa);
     posix_spawn_file_actions_addopen(&fa, 0, "/dev/null", O_RDONLY, 0);
-    posix_spawn_file_actions_addopen(&fa, 1, "/dev/null", O_WRONLY, 0);
+    posix_spawn_file_actions_addopen(&fa, 1, stdoutTo.empty() ? "/dev/null" : stdoutTo.c_str(),
+                                     O_WRONLY | O_CREAT | O_TRUNC, 0644);
     posix_spawn_file_actions_addopen(&fa, 2, "/dev/null", O_WRONLY, 0);
 
     pid_t pid = -1;
@@ -337,6 +439,28 @@ bool ArtDownload::fetch(const std::string& url, const std::string& dest, int max
     return false;
 }
 
+// The CA bundle curl is given (the firmware's plus kRoots), and a log line of
+// what this cabinet's curl is, so a failure on it can be read from one log.
+void ArtDownload::setup() {
+    std::string bundle = readFile("/etc/ssl/certs/ca-certificates.crt");
+    log("art: firmware CA bundle %s (%zu bytes)", bundle.empty() ? "missing" : "found", bundle.size());
+    ::mkdir((m_appDir + "/data").c_str(), 0755);
+    m_caBundle = m_appDir + "/data/ca-bundle.pem";
+    {
+        std::ofstream f(m_caBundle + ".tmp", std::ios::binary);
+        f << bundle << "\n" << kRoots;
+    }
+    if (::rename((m_caBundle + ".tmp").c_str(), m_caBundle.c_str()) != 0) m_caBundle.clear();
+    const char* found = nullptr;
+    for (const char* p : {"/usr/bin/curl", "/bin/curl", "/usr/local/bin/curl"})
+        if (!found && ::access(p, X_OK) == 0) found = p;
+    std::string out = m_appDir + "/data/.curl-version";
+    int rc = curl({"--version"}, out);
+    std::string v = readFile(out);
+    ::unlink(out.c_str());
+    log("art: curl %s, exit %d: %s", found ? found : "(PATH)", rc, v.substr(0, v.find('\n')).c_str());
+}
+
 // ---------------------------------------------------------------- lists
 
 // The cover (or logo) file names of one libretro-thumbnails set, from
@@ -384,8 +508,8 @@ bool ArtDownload::listing(const std::string& repo, const char* folder, Listing& 
         return rc;
     };
     auto fail = [&](int rc) {
-        if (isNetworkError(rc)) m_netDown = true;
         if (cached && load()) return true;  // a stale list beats none
+        if (isNetworkError(rc)) m_netDown = true;
         log("art: no %s list for %s (curl %d)", folder, repo.c_str(), rc);
         return false;
     };
@@ -394,7 +518,7 @@ bool ArtDownload::listing(const std::string& repo, const char* folder, Listing& 
     std::string spaced = repo;
     std::replace(spaced.begin(), spaced.end(), '_', ' ');
     std::string body;
-    int rc = get("https://thumbnails.libretro.com/" + urlEncode(spaced) + "/" + folder + "/", body);
+    int rc = get(ART_LIBRETRO_HOST "/" + urlEncode(spaced) + "/" + folder + "/", body);
     if (rc == 0) {
         out = Listing();
         out.origin = "libretro";
@@ -405,16 +529,17 @@ bool ArtDownload::listing(const std::string& repo, const char* folder, Listing& 
             return true;
         }
     } else if (rc != 22) {
-        return fail(rc);
+        log("art: thumbnails.libretro.com failed (curl %d), trying GitHub", rc);
     }
 
-    // Not on that server: the GitHub repository, two API calls (the API allows
-    // 60 an hour without an account; the week's cache keeps us far below).
+    // Not on that server (or it can't be reached): the GitHub repository, two
+    // API calls (the API allows 60 an hour without an account; the week's
+    // cache keeps us far below).
     std::string branch;
     for (const char* b : {"master", "main"}) {
         rc = get("https://api.github.com/repos/libretro-thumbnails/" + repo + "/git/trees/" + b, body);
         if (rc == 0) { branch = b; break; }
-        if (rc != 22) return fail(rc);
+        if (rc != 22) break;
     }
     if (branch.empty()) return fail(rc);
     std::string sha;
@@ -440,15 +565,19 @@ void ArtDownload::run() {
     std::memset(&sa, 0, sizeof(sa));
     sa.sa_handler = SIG_DFL;
     ::sigaction(SIGCHLD, &sa, nullptr);  // so waitpid reports curl's exit code
+    setup();
 
     // 1. Which games have no cover / no logo yet (nothing is fetched for the rest).
     setStatus("Checking your games");
     struct Need { size_t game; bool cover, logo; };
     std::vector<std::vector<Need>> needs(m_work.size());
     int coverNeeds = 0, logoNeeds = 0;
+    size_t checked = 0, games = 0;
+    for (const System& s : m_work) games += s.games.size();
     for (size_t s = 0; s < m_work.size() && !m_stop; ++s) {
         const std::string& id = m_work[s].id;
         for (size_t g = 0; g < m_work[s].games.size() && !m_stop; ++g) {
+            if (checked++ % 50 == 0) setStatus("Checking " + std::to_string(checked) + " / " + std::to_string(games));
             const std::vector<std::string>& names = m_work[s].games[g].names;
             bool cover = true, logo = true;
             for (const std::string& n : names) {
@@ -465,7 +594,7 @@ void ArtDownload::run() {
     }
     log("art: %d game(s) without a cover, %d without a logo", coverNeeds, logoNeeds);
 
-    struct Job { std::string url, fallback, dest; bool logo; };
+    struct Job { std::vector<std::string> urls; std::string dest; bool logo; };  // urls: tried in order
     std::vector<Job> jobs;
     std::set<std::string> queued;
     std::set<std::string> touched;  // systems whose media folders change
@@ -533,10 +662,10 @@ void ArtDownload::run() {
                 j.dest = dest;
                 j.logo = logo;
                 if (own.second == "libretro") {
-                    j.url = libretroUrl(own.first, folder, hit);
-                    j.fallback = githubUrl(own.first, "master", folder, hit);
+                    j.urls = {libretroUrl(own.first, folder, hit), githubUrl(own.first, "master", folder, hit),
+                              githubUrl(own.first, "main", folder, hit)};
                 } else {
-                    j.url = githubUrl(own.first, own.second.substr(7), folder, hit);
+                    j.urls = {githubUrl(own.first, own.second.substr(7), folder, hit)};
                 }
                 jobs.push_back(j);
                 touched.insert(destSys);
@@ -556,17 +685,22 @@ void ArtDownload::run() {
             size_t i = next++;
             if (i >= total) break;
             const Job& j = jobs[i];
-            int rc = 0, rc2 = 0;
-            bool ok = fetch(j.url, j.dest, 60, rc);
-            if (!ok && !m_stop && !j.fallback.empty() && !isNetworkError(rc)) ok = fetch(j.fallback, j.dest, 60, rc2);
+            // The other server when one fails; a network error counts only when
+            // every source failed with one.
+            int rc = 0;
+            bool ok = false, allNet = true;
+            for (size_t u = 0; u < j.urls.size() && !ok && !m_stop; ++u) {
+                ok = fetch(j.urls[u], j.dest, 60, rc);
+                if (!ok && !isNetworkError(rc)) allNet = false;
+            }
             if (ok) {
                 (j.logo ? logos : covers)++;
                 netFails = 0;
             } else if (!m_stop) {
                 ++failed;
-                log("art: failed (curl %d): %s", rc, j.url.c_str());
+                log("art: failed (curl %d): %s", rc, j.urls[0].c_str());
                 // Many network errors in a row with nothing working: the connection is gone.
-                if (isNetworkError(rc) && ++netFails >= 8) { m_lastExit = rc; m_netDown = true; }
+                if (allNet && ++netFails >= 8) { m_lastExit = rc; m_netDown = true; }
             }
             int d = ++done;
             setStatus(std::to_string(d) + " / " + std::to_string(total));
@@ -576,11 +710,12 @@ void ArtDownload::run() {
     for (int t = 0; t < kParallel && t < (int)total; ++t) pool.emplace_back(worker);
     for (std::thread& t : pool) t.join();
 
-    // 4. The menu sees the new files.
-    for (const std::string& sys : touched) refreshArtIndex(m_appDir, sys);
+    // 4. The menu sees the new files (not when it is closing: it rereads them).
+    if (!m_quitting)
+        for (const std::string& sys : touched) refreshArtIndex(m_appDir, sys);
 
-    // Games no set has a cover for, for anyone wondering (rewritten each run).
-    {
+    // Games no set has a cover for, for anyone wondering (rewritten after a full run).
+    if (!m_stop) {
         std::ofstream f(m_appDir + "/media/art-not-found.txt");
         f << "# Games Settings > Download artwork found no cover for (system, ROM).\n";
         for (const std::string& n : notFound) f << n << "\n";
