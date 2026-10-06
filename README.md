@@ -163,7 +163,10 @@ Arkanoid.
 - **MAME 2003-Plus:** gets the trackball as its mouse.
 - **FBNeo:** switches to the trackball for the games MAME 2003-Plus's list marks
   as trackball, dial or paddle (flag `T` in the arcade databases).
-- **Speed:** Settings > Trackball speed (Normal, Slow, Fast).
+- **Menus:** rolling the trackball up or down scrolls any list, stopping at the
+  ends (not while Home > Controls waits for a button).
+- **Speed:** Settings > Trackball speed (Normal, Slow, Fast), for games and for
+  scrolling.
 
 The log lists every input device at startup (`input:` lines) and the trackball
 it found (`trackball:`).

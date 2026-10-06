@@ -4,6 +4,7 @@
 #include "AppFont.h"
 #include "ArtDownload.h"
 #include "Transfer.h"
+#include "Trackball.h"
 #include "Update.h"
 #include "Arcade.h"
 #include "DisplayProfile.h"
@@ -250,6 +251,12 @@ private:
     int biosRow() const { return (int)settingDefs().size() + 2; }
     int updateRow() const { return (int)settingDefs().size() + 3; }
     int trashRow() const { return (int)settingDefs().size() + 4; }
+
+    // The Arcade Control Panel's trackball (Trackball.h) scrolls the lists:
+    // rolling it moves the selection a row per step, stopping at the ends.
+    Trackball m_trackball;
+    float m_trackballAcc = 0.0f;
+    void trackballScroll(bool& running);
 
     // Settings > Updates (Update.h); checked by itself once a day at startup.
     Updater m_update;
@@ -512,6 +519,24 @@ void Menu::scan() {
 }
 
 // ----------------------------------------------------------------- input
+
+void Menu::trackballScroll(bool& running) {
+    if (m_trackball.fd < 0) return;
+    m_trackball.frame(true);
+    // Not while Controls waits for a button to assign, or a roll would be taken for one.
+    if (m_ctlCapture && m_view == View::Controls) { m_trackballAcc = 0.0f; return; }
+    const std::string speed = m_settings.value("trackball.speed", "normal");
+    const float perRow = speed == "slow" ? 48.0f : speed == "fast" ? 12.0f : 24.0f;  // trackball counts per row
+    m_trackballAcc += m_trackball.dy;
+    int steps = (int)(m_trackballAcc / perRow);
+    m_trackballAcc -= steps * perRow;
+    steps = std::max(-12, std::min(12, steps));  // a hard spin moves at most 12 rows a frame
+    if (!steps) return;
+    m_repeating = true;  // like a held direction: stop at the ends instead of wrapping
+    for (int i = 0; i < std::abs(steps); ++i)
+        handle(steps > 0 ? AtGames::ControlEvent::Down : AtGames::ControlEvent::Up, running);
+    m_repeating = false;
+}
 
 void Menu::move(int delta) {
     // A single press wraps around; held repeats and flipper jumps stop at the ends.
@@ -2266,6 +2291,7 @@ int Menu::run() {
         log("menu resumes at %s #%d, message '%s'", m_startSys.c_str(), m_startIndex, m_toast.c_str());
     if (!initVideo()) return 1;
     startConsoleIcons();
+    m_trackball.open();  // scrolls the lists, if there is one
     if (Updater::dailyCheckDue(m_appDir)) m_update.check(m_appDir, true);  // quietly, in the background
     for (auto& f : Library::loadFavorites(m_appDir)) m_favs.insert(f);
     if (m_startSys == "@recent" || m_startSys == "@favorites") {
@@ -2298,6 +2324,7 @@ int Menu::run() {
             handle(ce, running);
         }
         pollDirections(running);
+        trackballScroll(running);
         Uint32 now = SDL_GetTicks();
         float dt = std::min((now - last) / 1000.0f, 0.033f);
         last = now;
