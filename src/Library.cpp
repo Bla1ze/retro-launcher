@@ -455,10 +455,96 @@ bool isArcadeSystem(const std::string& id) {
     return id == "arcade" || id == "naomi" || id == "atomiswave" || id == "neogeo";
 }
 
+// The disc number in a name like "Final Fantasy VII (USA) (Disc 2)" or
+// "(Disc 2 of 3)" / "(CD2)", and the name without it; 0 if there is none.
+int discNumber(const std::string& stem, std::string& base) {
+    const std::string l = lower(stem);
+    for (const char* tag : {"(disc ", "(disk ", "(cd"}) {
+        size_t at = l.find(tag);
+        if (at == std::string::npos) continue;
+        size_t p = at + std::strlen(tag);
+        while (p < l.size() && l[p] == ' ') ++p;
+        if (p >= l.size() || !std::isdigit((unsigned char)l[p])) continue;
+        int n = std::atoi(l.c_str() + p);
+        size_t close = l.find(')', p);
+        if (close == std::string::npos) continue;
+        base = stem.substr(0, at) + stem.substr(close + 1);
+        // Tidy the spaces left where the tag was.
+        std::string tidy;
+        for (char c : base)
+            if (!(c == ' ' && (tidy.empty() || tidy.back() == ' '))) tidy += c;
+        while (!tidy.empty() && tidy.back() == ' ') tidy.pop_back();
+        base = tidy;
+        return n;
+    }
+    return 0;
+}
+
+// Multi-disc games: discs named "... (Disc 1)", "(Disc 2)"... in one folder
+// with no playlist get one (<game>.m3u beside them), so the menu lists one game
+// with disc swapping (pause menu > Change disc) and one memory card. The newest
+// per-disc save becomes the game's, if it has none yet. `folderName`: a game in
+// a folder of its own, whose playlist is named after the folder.
+void makeDiscPlaylists(const std::string& appDir, const System& sys, const std::string& dir, const std::string& folderName) {
+    static const std::set<std::string> discExts = {"chd", "cue", "pbp", "iso", "cdi", "gdi", "ccd", "img"};
+    std::map<std::string, std::map<int, std::string>> groups;  // base name -> disc -> file
+    bool hasPlaylist = false;
+    if (DIR* d = ::opendir(dir.c_str())) {
+        while (struct dirent* e = ::readdir(d)) {
+            std::string name = e->d_name;
+            if (name.empty() || name[0] == '.') continue;
+            std::string ext = extOf(name);
+            if (ext == "m3u") hasPlaylist = true;
+            if (!discExts.count(ext) || std::find(sys.extensions.begin(), sys.extensions.end(), ext) == sys.extensions.end())
+                continue;
+            std::string base;
+            int n = discNumber(name.substr(0, name.size() - ext.size() - 1), base);
+            if (n > 0) groups[folderName.empty() ? base : folderName][n] = name;
+        }
+        ::closedir(d);
+    }
+    if (!folderName.empty() && hasPlaylist) return;  // the folder already has its playlist
+    for (const auto& g : groups) {
+        if (g.second.size() < 2) continue;
+        const std::string m3u = dir + "/" + g.first + ".m3u";
+        if (isFile(m3u)) continue;
+        std::ofstream out(m3u);
+        for (const auto& disc : g.second) out << disc.second << "\n";
+        out.close();
+        if (!out) { log("%s: could not write %s", sys.id.c_str(), m3u.c_str()); continue; }
+        log("%s: made %s.m3u for %zu discs", sys.id.c_str(), g.first.c_str(), g.second.size());
+        // Carry the newest per-disc save over to the game's (the player names
+        // saves after the playlist from now on).
+        const std::string saves = appDir + "/saves/" + sys.id + "/";
+        const std::string target = saves + g.first + ".srm";
+        if (isFile(target)) continue;
+        std::string newest;
+        time_t newestTime = 0;
+        for (const auto& disc : g.second) {
+            std::string srm = saves + disc.second.substr(0, disc.second.find_last_of('.')) + ".srm";
+            struct stat st;
+            if (::stat(srm.c_str(), &st) == 0 && st.st_mtime >= newestTime) { newest = srm; newestTime = st.st_mtime; }
+        }
+        if (!newest.empty() && copyFile(newest, target)) log("%s: save %s carried over", sys.id.c_str(), newest.substr(newest.find_last_of('/') + 1).c_str());
+    }
+}
+
 std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
     if (isArcadeSystem(sys.id)) return Arcade::scan(appDir, sys);
     std::vector<Game> games;
     std::string dir = appDir + "/roms/" + sys.id;
+    if (std::find(sys.extensions.begin(), sys.extensions.end(), "m3u") != sys.extensions.end()) {
+        makeDiscPlaylists(appDir, sys, dir, "");
+        if (DIR* d = ::opendir(dir.c_str())) {  // and in games' own folders
+            std::vector<std::string> subs;
+            while (struct dirent* e = ::readdir(d)) {
+                std::string n = e->d_name;
+                if (!n.empty() && n[0] != '.' && isDir(dir + "/" + n)) subs.push_back(n);
+            }
+            ::closedir(d);
+            for (const std::string& sub : subs) makeDiscPlaylists(appDir, sys, dir + "/" + sub, sub);
+        }
+    }
     DIR* d = ::opendir(dir.c_str());
     if (!d) return games;
     std::vector<std::string> subdirs;
