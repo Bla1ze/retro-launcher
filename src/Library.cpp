@@ -486,13 +486,28 @@ void carryDiscSave(const std::string& appDir, const System& sys, const std::stri
     const std::string saves = appDir + "/saves/" + sys.id + "/";
     const std::string target = saves + game + ".srm";
     if (isFile(target)) return;
-    std::string newest;
-    time_t newestTime = 0;
+    // A PlayStation memory card that holds saves: its directory (frames 1-15
+    // of block 0, 128 bytes each) has a block in use (0x51). Starting another
+    // disc on its own writes a blank card, which must not win over real saves.
+    auto hasSaves = [&](const std::string& path) {
+        if (sys.id != "psx") return true;
+        std::ifstream in(path, std::ios::binary);
+        std::vector<char> head(0x800);
+        if (!in.read(head.data(), (std::streamsize)head.size())) return false;
+        for (int frame = 1; frame <= 15; ++frame)
+            if ((unsigned char)head[frame * 0x80] == 0x51) return true;
+        return false;
+    };
+    std::string newest, newestAny;
+    time_t newestTime = 0, newestAnyTime = 0;
     for (const std::string& stem : discStems) {
         std::string srm = saves + stem + ".srm";
         struct stat st;
-        if (::stat(srm.c_str(), &st) == 0 && st.st_mtime >= newestTime) { newest = srm; newestTime = st.st_mtime; }
+        if (::stat(srm.c_str(), &st) != 0) continue;
+        if (st.st_mtime >= newestAnyTime) { newestAny = srm; newestAnyTime = st.st_mtime; }
+        if (st.st_mtime >= newestTime && hasSaves(srm)) { newest = srm; newestTime = st.st_mtime; }
     }
+    if (newest.empty()) newest = newestAny;  // only blank cards: any of them
     if (!newest.empty() && copyFile(newest, target)) log("%s: save %s carried over", sys.id.c_str(), newest.substr(newest.find_last_of('/') + 1).c_str());
 }
 
