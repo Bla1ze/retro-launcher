@@ -1,0 +1,56 @@
+<!-- title: Troubleshooting -->
+<!-- lede: The usual problems and their fixes, and how to send a useful bug report. -->
+<!-- order: 6 -->
+<h2>A game won't start</h2>
+<p>When a game can't start, Retro Launcher goes back to the menu and says why. The common causes:</p>
+<ul>
+  <li><b>A BIOS is missing.</b> NAOMI, Atomiswave and Neo Geo always need theirs. Open Settings &gt; <b>BIOS check</b>: it lists what's missing and where it goes.</li>
+  <li><b>The wrong romset</b> (arcade). A dimmed arcade game says why; see the <a href="arcade.html#why-a-game-is-dimmed">Arcade guide</a>.</li>
+  <li><b>A disc game is missing its tracks.</b> A <code>.cue</code> or <code>.gdi</code> needs every track file next to it, with the names it lists. Converting to <code>.chd</code> avoids this.</li>
+  <li><b>A zipped disc or PSP game.</b> Unzip it; disc images aren't played from zips.</li>
+  <li><b>A damaged file.</b> Copy it again.</li>
+</ul>
+
+<h2>I don't see my games, or a folder is missing</h2>
+<ul>
+  <li>The folders are made on Retro Launcher's <b>first run</b>; start it once, then add games.</li>
+  <li>Check the folder name and the file type for the system in <a href="systems.html">Systems</a>: a game in the wrong folder, or with a type that system doesn't use, isn't listed.</li>
+  <li>Games added while Retro Launcher is open appear the next time it starts (or right away with Network transfer).</li>
+  <li>If Settings &gt; <b>Hide consoles with no games</b> is on, empty systems aren't shown.</li>
+</ul>
+
+<h2>Slow games or crackling sound</h2>
+<ul>
+  <li><b>PSP, Dreamcast, N64:</b> they draw above their original resolution by default. If a game struggles, lower the resolution option in the pause menu&#39;s <b>Core options</b>. It&#39;s remembered, and applies to every game on that emulator.</li>
+  <li><b>Saturn</b> is the heaviest system. It already skips a drawn frame when it falls behind, to keep the sound going.</li>
+  <li>A few stutters while a game is loading are normal.</li>
+</ul>
+
+<h2>The game is on the wrong screen or sideways</h2>
+<ul>
+  <li>For one game: Home on it &gt; <b>Screen</b>. For all games: Settings &gt; <b>Default game screen</b>.</li>
+  <li>Upside down on the playfield? Change Settings &gt; <b>Playfield game rotation</b>.</li>
+</ul>
+
+<h2>Artwork is missing</h2>
+<ul>
+  <li>Run Settings &gt; <b>Download artwork</b> with the cabinet online.</li>
+  <li>Games it found no cover for are listed in <code>media/art-not-found.txt</code>. Usually their file names are too far from the official title; renaming the file to its No-Intro name helps. Or add the cover yourself (<a href="adding-games.html#artwork">how</a>).</li>
+  <li>PSP, Game Boy Color and Lynx have no game logos online, so their DMD shows the console instead.</li>
+</ul>
+
+<h2>Network transfer won't connect</h2>
+<ul>
+  <li>The computer or phone must be on the <b>same network</b> as the cabinet.</li>
+  <li>Type the address exactly as the cabinet shows it, <b>including the port</b> (for example <code>:8081</code>).</li>
+  <li>If the screen says there's no network connection, connect the cabinet by cable or Wi-Fi first.</li>
+</ul>
+
+<h2>Reporting a problem</h2>
+<p>Open an <a href="https://github.com/Bla1ze/retro-launcher/issues">issue on GitHub</a> with:</p>
+<ol>
+  <li>What you did and what happened.</li>
+  <li>The game and system.</li>
+  <li><code>external/retro-launcher/data/launcher.log</code> from the USB stick, attached. It records what Retro Launcher and the emulator did.</li>
+</ol>
+<p>Lines worth knowing in the log: <code>FAILED:</code> and <code>core error:</code> (why a game didn't start), <code>stats:</code> (frames per second and sound while playing), <code>art:</code>, <code>transfer:</code> and <code>update:</code> (those features).</p>

@@ -1,0 +1,50 @@
+<!-- title: Installing &amp; updating -->
+<!-- lede: From the download to the first game, and how Retro Launcher keeps itself up to date. -->
+<!-- order: 1 -->
+<h2>What you need</h2>
+<ul>
+  <li>An AtGames Legends Pinball <b>4KP</b> or <b>HDP</b>.</li>
+  <li>A USB stick for the cabinet (the one you use for External Applications).</li>
+  <li>Your own games. Retro Launcher comes with none.</li>
+  <li>An internet connection on the cabinet, for artwork and updates (optional).</li>
+</ul>
+
+<h2>Install</h2>
+<ol>
+  <li><b>Download</b> the latest <a href="https://github.com/Bla1ze/retro-launcher/releases/latest">release zip</a> (<code>retro-launcher-v&lt;version&gt;.zip</code>).</li>
+  <li><b>Unzip it.</b> You get a single <code>external</code> folder.
+    <ul>
+      <li><b>Mac:</b> double-click the zip; the <code>external</code> folder appears next to it.</li>
+      <li><b>Windows:</b> right-click &gt; Extract All. Windows suggests a folder named after the zip; either extract straight to the USB stick, or open that folder and copy the <code>external</code> folder out of it.</li>
+    </ul></li>
+  <li><b>Copy</b> <code>external</code> to the root of the USB stick. If the stick already has an <code>external</code> folder, merge them.</li>
+  <li><b>Start it.</b> Plug the stick into the cabinet and open <b>Retro Launcher</b> from the External Applications menu.</li>
+</ol>
+<div class="callout"><p>Nothing on the cabinet is changed: no firmware changes, no root. Take the stick out and the cabinet is exactly as it was.</p></div>
+
+<h2>The first run</h2>
+<p>The first time it starts, Retro Launcher makes its folders on the stick: one in <code>roms/</code> for every system, plus <code>saves/</code>, <code>system/</code> and <code>data/</code>. Each system's folder gets a <code>README.txt</code> listing the file types it takes and any BIOS it can use.</p>
+<p>So the easiest way to start: run it once, put the stick back in your computer, and fill the folders it made. (You can also make a folder yourself, with the system's exact folder name from the <a href="systems.html">Systems</a> guide.)</p>
+
+<h2>The folder layout</h2>
+<pre><code>external/retro-launcher/
+  retro-launcher.elf / .png / .xml   the app
+  roms/&lt;system&gt;/                    your games
+  saves/&lt;system&gt;/                   in-game saves and save states
+  system/                           BIOS files (see Systems), PPSSPP's files
+  cores/                            the emulators
+  media/&lt;system&gt;/                   box art, logos, bezels, the console picture
+  data/                             settings, the log, reports
+  licenses/                         license texts</code></pre>
+
+<h2>Updating</h2>
+<p><b>Settings &gt; Updates</b> checks for a newer release on GitHub. Press A on it to check now; on a new version, press A again and choose <b>Install and restart</b>.</p>
+<ul>
+  <li>Only the files that changed are downloaded into place; everything is unpacked and checked before anything is replaced.</li>
+  <li>Your games, saves, settings, artwork and BIOS files are never touched, and neither are your own <code>retro-launcher.png</code> / <code>.xml</code>.</li>
+  <li>Retro Launcher also checks once a day by itself and shows a message when a new version is out.</li>
+</ul>
+<p><b>By hand:</b> download the new release and copy its <code>external</code> folder over the old one. Your games and settings aren't in a release, so nothing of yours is overwritten.</p>
+
+<h2>Removing it</h2>
+<p>Delete <code>external/retro-launcher/</code> from the stick. Copy <code>roms/</code> and <code>saves/</code> somewhere first if you want to keep your games and saves.</p>

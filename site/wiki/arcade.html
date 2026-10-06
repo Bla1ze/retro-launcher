@@ -1,0 +1,48 @@
+<!-- title: Arcade guide -->
+<!-- lede: Arcade games need the right romset for the right emulator. Here's how Retro Launcher sorts that out, and what to do when a game is dimmed. -->
+<!-- order: 4 -->
+<h2>Romsets in one minute</h2>
+<p>An arcade game is a zip of ROM chips, and each emulator version expects slightly different ones. Retro Launcher has two arcade emulators:</p>
+<table>
+  <tr><th>Emulator</th><th>Wants</th><th>Good at</th></tr>
+  <tr><td><b>FBNeo</b></td><td>Current FBNeo sets</td><td>Capcom, SNK / Neo Geo, Cave, Toaplan, most 80s and 90s games</td></tr>
+  <tr><td><b>MAME 2003-Plus</b></td><td>MAME 0.78 sets</td><td>Older and less common games FBNeo doesn't cover</td></tr>
+</table>
+<p>You don't pick one: Retro Launcher checks every zip against both emulators' ROM lists (without unpacking it) and plays it with the one it's complete for, preferring FBNeo. To try the other one, press Home on the game and change <b>Emulator</b>.</p>
+
+<h2>Where they go</h2>
+<ul>
+  <li><code>roms/arcade/</code>: arcade zips as they are, never unzipped.</li>
+  <li>Any <b>parent</b> zip a clone needs goes next to it (<code>sf2.zip</code> for <code>sf2ce.zip</code>), and so does any <b>BIOS</b> zip (<code>neogeo.zip</code>, <code>pgm.zip</code>...).</li>
+  <li>Neo Geo, NAOMI and Atomiswave have rows of their own; see below.</li>
+</ul>
+
+<h2>Why a game is dimmed</h2>
+<p>A dimmed game has a note under it saying why. The common ones:</p>
+<table>
+  <tr><th>Note</th><th>What to do</th></tr>
+  <tr><td>Needs <code>xxx.zip</code></td><td>Add that BIOS or parent zip to the same folder. Settings &gt; BIOS check lists every one your games are missing.</td></tr>
+  <tr><td><i>n</i> ROMs missing or wrong version</td><td>The zip is from another emulator version. Get the set that matches FBNeo or MAME 0.78.</td></tr>
+  <tr><td>Not a set these emulators know</td><td>The zip's name isn't a game either emulator has (often a renamed or newer-MAME set).</td></tr>
+  <tr><td>The zip can't be read</td><td>The file is damaged or not really a zip. Copy it again.</td></tr>
+  <tr><td>Needs a CHD disk image</td><td>The game needs a hard disk or CD image, which isn't supported.</td></tr>
+  <tr><td>(not working)</td><td>The emulator itself marks the game as not working properly.</td></tr>
+</table>
+<p>Settings &gt; <b>Arcade: hide clones &amp; broken sets</b> hides dimmed games, and clones whose parent you also have.</p>
+
+<h2>Neo Geo</h2>
+<p>Neo Geo games have their own <b>Neo Geo</b> row, folder <code>roms/neogeo/</code>, played with FBNeo. They need <code>neogeo.zip</code>, either next to the games or in <code>system/fbneo/</code>; one that's only in <code>roms/arcade/</code> is copied over for you. Zips in this folder that aren't Neo Geo games are flagged to move to <code>roms/arcade/</code>. Neo Geo games in <code>roms/arcade/</code> keep working there too.</p>
+
+<h2>NAOMI and Atomiswave</h2>
+<p>Sega's NAOMI and Sammy's Atomiswave boards run on Flycast, folders <code>roms/naomi/</code> and <code>roms/atomiswave/</code>. They need <code>naomi.zip</code> or <code>awbios.zip</code> next to the games (or in <code>system/dc/</code>).</p>
+<p>NAOMI GD-ROM games also need their disc as a <code>.chd</code>, in a folder named after the zip:</p>
+<pre><code>roms/naomi/ikaruga.zip
+roms/naomi/ikaruga/gdl-0010.chd</code></pre>
+
+<h2>Genres, vertical games and high scores</h2>
+<ul>
+  <li>Opening <b>Arcade</b> shows its genres first: All games, Vertical games, Shooters, Fighters, Sports and more. The genre you used last is remembered.</li>
+  <li><b>Vertical</b> games go to the playfield automatically, turned the right way up.</li>
+  <li>High scores are kept between plays: FBNeo's in <code>system/fbneo/</code>, MAME 2003-Plus's in its own list.</li>
+  <li><kbd>REWIND</kbd> inserts a coin.</li>
+</ul>

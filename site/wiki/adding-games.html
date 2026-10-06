@@ -1,0 +1,51 @@
+<!-- title: Adding games -->
+<!-- lede: Where games go, which files work, and the easy ways to get games and artwork onto the cabinet. -->
+<!-- order: 2 -->
+<h2>Where games go</h2>
+<p>Each system has a folder: <code>external/retro-launcher/roms/&lt;system&gt;/</code>, for example <code>roms/snes/</code> or <code>roms/psx/</code>. The <a href="systems.html">Systems</a> guide lists every folder and the file types it takes.</p>
+<p>The menu reads the folders when it starts, and again after a Network transfer. File names become the game names, without tags like <code>(USA)</code> or <code>[!]</code>.</p>
+
+<h2>Cartridge games</h2>
+<ul>
+  <li>Plain files (<code>.nes</code>, <code>.sfc</code>, <code>.md</code>...) or <code>.zip</code>, one game per zip.</li>
+  <li>No-Intro names (<code>Super Mario World (USA).sfc</code>) match their artwork best, but GoodTools names and plain titles work too.</li>
+</ul>
+
+<h2>Disc games</h2>
+<p>PlayStation, Saturn, Dreamcast and PSP games come as disc images. Don't zip them.</p>
+<ul>
+  <li><b><code>.chd</code> is best:</b> one compressed file per disc.</li>
+  <li><b><code>.cue</code> + <code>.bin</code> tracks:</b> keep the tracks next to the <code>.cue</code>; only the <code>.cue</code> shows in the list.</li>
+  <li><b>Dreamcast <code>.gdi</code>:</b> keep the track files next to it. A game in a folder of its own works too: <code>roms/dreamcast/Game Name/disc.gdi</code> shows as "Game Name".</li>
+  <li><b>Multi-disc games:</b> make an <code>.m3u</code> text file listing the discs, one per line, and use <b>Change disc</b> in the pause menu.</li>
+  <li><b>PSP:</b> <code>.iso</code>, <code>.cso</code> (compressed) or <code>.chd</code>.</li>
+</ul>
+
+<h2>Arcade games</h2>
+<p>Arcade zips go in as they are, never unzipped, together with any BIOS or parent zips they need. Romset versions matter: see the <a href="arcade.html">Arcade guide</a>.</p>
+
+<h2>Network transfer</h2>
+<p>Send games to the cabinet from any computer or phone on the same network, without taking the USB stick out.</p>
+<ol>
+  <li>On the cabinet: <b>Settings &gt; Network transfer</b>. It shows an address like <code>http://192.168.1.20:8081</code> and a 4-digit PIN (the backglass shows them too).</li>
+  <li>Open that address in a browser and enter the PIN.</li>
+  <li>Pick the system, then drop your games on the page or use <b>Choose files</b> / <b>Choose a folder</b>.</li>
+  <li>Press <kbd>B</kbd> on the cabinet when you're done. The menu adds the new games.</li>
+</ol>
+<ul>
+  <li>Games already on the stick are skipped, and the page only accepts the system's own file types.</li>
+  <li>Disc systems and NAOMI / Atomiswave keep a game's folder (a <code>.cue</code> with its tracks); other systems take the files only.</li>
+  <li>It runs only while that screen is open, with a new PIN each time.</li>
+  <li>Use the port the cabinet shows (8080 is often taken, so it may be 8081).</li>
+</ul>
+
+<h2>Artwork</h2>
+<p><b>Settings &gt; Download artwork</b> fetches what your games are missing, with the cabinet online:</p>
+<ul>
+  <li>box art (on the backglass);</li>
+  <li>game logos (on the DMD, like a marquee);</li>
+  <li>a bezel for each system (the frame around the picture).</li>
+</ul>
+<p>It only downloads what's missing, runs in the background while you browse, and lists games it found no cover for in <code>media/art-not-found.txt</code>. Starting a game pauses it; choose it again to carry on.</p>
+<h3>Your own artwork</h3>
+<p>Put a cover named exactly like the game file in <code>media/&lt;system&gt;/boxart/</code>, as <code>.png</code> or <code>.jpg</code>: <code>Sonic the Hedgehog (USA).png</code> for <code>Sonic the Hedgehog (USA).md</code>. A bezel for one game goes in <code>media/&lt;system&gt;/bezels/</code> with the same naming.</p>

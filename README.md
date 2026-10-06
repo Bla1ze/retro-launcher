@@ -391,6 +391,15 @@ The output is `dist/external/retro-launcher/`. The build ends with the SDK's
 compatibility check (glibc ≤ 2.26). The SDK's toolchain file sets no
 optimization level, so this project forces a Release (`-O3`) build itself.
 
+### The website and guides
+
+The website is `docs/` (GitHub Pages, from `main`). The guides under `docs/wiki/`
+are generated:
+1. Edit a guide in `site/wiki/<page>.html`, or the system data in
+   `tools/build_wiki.py`.
+2. Run `tools/build_wiki.py`.
+3. Commit both.
+
 ### Making a release
 
 ```sh
