@@ -1422,15 +1422,19 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     bool loaded;
     { CoreGL glScope; loaded = core.load_game(&game); }  // SET_HW_RENDER may create the core's context in here
     if (!loaded) return fail("The emulator could not start this ROM.");
-    core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     // FBNeo: trackball / spinner / paddle games take the trackball as a mouse
-    // ("mouse, ball only": the buttons stay on the pad).
+    // ("mouse, ball only": the buttons stay on the pad). Every other game, and
+    // every other core, gets the plain joypad.
+    bool fbneoMouse = false;
     if (g_trackball.fd >= 0 && baseName(corePath).compare(0, 5, "fbneo") == 0) {
         Arcade::Entry te;
-        if (Arcade::lookup(appDir, baseName(corePath), lower(stem(gameFile)), te) && te.flags.find('T') != std::string::npos) {
-            core.set_controller_port_device(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 2));
-            log("trackball: FBNeo port 1 set to mouse (ball only)");
-        }
+        fbneoMouse = Arcade::lookup(appDir, baseName(corePath), lower(stem(gameFile)), te) && te.flags.find('T') != std::string::npos;
+    }
+    if (fbneoMouse) {
+        core.set_controller_port_device(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 2));
+        log("trackball: FBNeo port 1 set to mouse (ball only)");
+    } else {
+        core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
     }
     core.get_system_av_info(&g_av);
     if (g_coreCtx) {
