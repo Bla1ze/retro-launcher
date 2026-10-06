@@ -167,7 +167,7 @@ const std::vector<System>& systems() {
         // GPU core (OpenGL ES): Flycast.
         {"dreamcast", "Dreamcast", "DC", {"flycast_libretro.so"}, {"chd", "cdi", "gdi", "cue", "m3u"}, 4.0f / 3.0f, true},
         {"n64", "Nintendo 64", "N64", {"mupen64plus_next_libretro.so"}, {"n64", "z64", "v64"}, 4.0f / 3.0f, false},
-        {"saturn", "Saturn", "SAT", {"yabasanshiro_libretro.so"}, {"chd", "cue", "iso", "ccd", "m3u"}, 4.0f / 3.0f, false},
+        {"saturn", "Saturn", "SAT", {"yabasanshiro_libretro.so"}, {"chd", "cue", "iso", "ccd"}, 4.0f / 3.0f, false},
         {"psp", "PSP", "PSP", {"ppsspp_libretro.so"}, {"iso", "cso", "chd", "pbp", "elf"}, 16.0f / 9.0f, false},
         {"psx", "PlayStation", "PS1", {"pcsx_rearmed_libretro.so"}, {"chd", "cue", "pbp", "m3u", "iso", "img", "bin"},
          4.0f / 3.0f, true},
@@ -480,7 +480,71 @@ int discNumber(const std::string& stem, std::string& base) {
     return 0;
 }
 
-// Multi-disc games: discs named "... (Disc 1)", "(Disc 2)"... in one folder
+// The player names a game's saves after its playlist once it has one: carry the
+// newest per-disc save (named after each disc's file or folder) over to it.
+void carryDiscSave(const std::string& appDir, const System& sys, const std::string& game, const std::vector<std::string>& discStems) {
+    const std::string saves = appDir + "/saves/" + sys.id + "/";
+    const std::string target = saves + game + ".srm";
+    if (isFile(target)) return;
+    std::string newest;
+    time_t newestTime = 0;
+    for (const std::string& stem : discStems) {
+        std::string srm = saves + stem + ".srm";
+        struct stat st;
+        if (::stat(srm.c_str(), &st) == 0 && st.st_mtime >= newestTime) { newest = srm; newestTime = st.st_mtime; }
+    }
+    if (!newest.empty() && copyFile(newest, target)) log("%s: save %s carried over", sys.id.c_str(), newest.substr(newest.find_last_of('/') + 1).c_str());
+}
+
+// Multi-disc games kept one disc per folder ("Game (Disc 1)/", "Game (Disc 2)/"...,
+// how many downloads unpack): one playlist beside the folders, pointing into
+// each, so they too become one game.
+void makeFolderDiscPlaylists(const std::string& appDir, const System& sys, const std::string& dir) {
+    static const std::set<std::string> discExts = {"chd", "cue", "pbp", "iso", "cdi", "gdi", "ccd", "img"};
+    std::map<std::string, std::map<int, std::string>> groups;  // base name -> disc -> "folder/file"
+    std::set<std::string> unclear;                              // a disc folder with no single disc file
+    if (DIR* d = ::opendir(dir.c_str())) {
+        while (struct dirent* e = ::readdir(d)) {
+            std::string folder = e->d_name;
+            if (folder.empty() || folder[0] == '.' || !isDir(dir + "/" + folder)) continue;
+            std::string base;
+            int n = discNumber(folder, base);
+            if (n <= 0) continue;
+            // The folder's disc: its one sheet (.cue / .gdi / .ccd), else its one image.
+            std::vector<std::string> sheets, images;
+            if (DIR* sd = ::opendir((dir + "/" + folder).c_str())) {
+                while (struct dirent* f = ::readdir(sd)) {
+                    std::string name = f->d_name;
+                    std::string ext = extOf(name);
+                    if (name.empty() || name[0] == '.' || !discExts.count(ext) ||
+                        std::find(sys.extensions.begin(), sys.extensions.end(), ext) == sys.extensions.end())
+                        continue;
+                    (ext == "cue" || ext == "gdi" || ext == "ccd" ? sheets : images).push_back(name);
+                }
+                ::closedir(sd);
+            }
+            std::string disc = sheets.size() == 1 ? sheets[0] : sheets.empty() && images.size() == 1 ? images[0] : "";
+            if (disc.empty()) { unclear.insert(base); continue; }
+            groups[base][n] = folder + "/" + disc;
+        }
+        ::closedir(d);
+    }
+    for (const auto& g : groups) {
+        if (g.second.size() < 2 || unclear.count(g.first)) continue;
+        const std::string m3u = dir + "/" + g.first + ".m3u";
+        if (isFile(m3u)) continue;
+        std::ofstream out(m3u);
+        for (const auto& disc : g.second) out << disc.second << "\n";
+        out.close();
+        if (!out) { log("%s: could not write %s", sys.id.c_str(), m3u.c_str()); continue; }
+        log("%s: made %s.m3u for %zu disc folders", sys.id.c_str(), g.first.c_str(), g.second.size());
+        std::vector<std::string> stems;  // a folder game's saves are named after its folder
+        for (const auto& disc : g.second) stems.push_back(disc.second.substr(0, disc.second.find('/')));
+        carryDiscSave(appDir, sys, g.first, stems);
+    }
+}
+
+// Multi-disc games (PlayStation, Dreamcast): discs named "... (Disc 1)", "(Disc 2)"... in one folder
 // with no playlist get one (<game>.m3u beside them), so the menu lists one game
 // with disc swapping (pause menu > Change disc) and one memory card. The newest
 // per-disc save becomes the game's, if it has none yet. `folderName`: a game in
@@ -513,19 +577,9 @@ void makeDiscPlaylists(const std::string& appDir, const System& sys, const std::
         out.close();
         if (!out) { log("%s: could not write %s", sys.id.c_str(), m3u.c_str()); continue; }
         log("%s: made %s.m3u for %zu discs", sys.id.c_str(), g.first.c_str(), g.second.size());
-        // Carry the newest per-disc save over to the game's (the player names
-        // saves after the playlist from now on).
-        const std::string saves = appDir + "/saves/" + sys.id + "/";
-        const std::string target = saves + g.first + ".srm";
-        if (isFile(target)) continue;
-        std::string newest;
-        time_t newestTime = 0;
-        for (const auto& disc : g.second) {
-            std::string srm = saves + disc.second.substr(0, disc.second.find_last_of('.')) + ".srm";
-            struct stat st;
-            if (::stat(srm.c_str(), &st) == 0 && st.st_mtime >= newestTime) { newest = srm; newestTime = st.st_mtime; }
-        }
-        if (!newest.empty() && copyFile(newest, target)) log("%s: save %s carried over", sys.id.c_str(), newest.substr(newest.find_last_of('/') + 1).c_str());
+        std::vector<std::string> stems;
+        for (const auto& disc : g.second) stems.push_back(disc.second.substr(0, disc.second.find_last_of('.')));
+        carryDiscSave(appDir, sys, g.first, stems);
     }
 }
 
@@ -533,8 +587,11 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
     if (isArcadeSystem(sys.id)) return Arcade::scan(appDir, sys);
     std::vector<Game> games;
     std::string dir = appDir + "/roms/" + sys.id;
-    if (std::find(sys.extensions.begin(), sys.extensions.end(), "m3u") != sys.extensions.end()) {
+    // Only where the core reads playlists and swaps discs: PCSX ReARMed and
+    // Flycast. YabaSanshiro (Saturn) has neither, so its discs stay separate.
+    if (sys.id == "psx" || sys.id == "dreamcast") {
         makeDiscPlaylists(appDir, sys, dir, "");
+        makeFolderDiscPlaylists(appDir, sys, dir);
         if (DIR* d = ::opendir(dir.c_str())) {  // and in games' own folders
             std::vector<std::string> subs;
             while (struct dirent* e = ::readdir(d)) {
@@ -624,6 +681,7 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
                 if (ref.empty() || ref[0] == '#') continue;
             }
             parts.insert(lower(ref.substr(ref.find_last_of('/') + 1)));
+            parts.insert(lower(ref));  // "Game (Disc 1)/Game (Disc 1).cue": a disc in its own folder
         }
     }
     if (!parts.empty())
@@ -829,7 +887,9 @@ static void writeGuides(const std::string& appDir) {
              : s.id == "psx" || s.id == "dreamcast" || s.id == "saturn"
                  ? exts.substr(0, exts.size() - 2) +
                        "\nUse .chd if you can (one small file per disc). A .cue or .gdi needs its track\n"
-                       "files beside it; an .m3u lists a multi-disc game's discs. Don't zip disc images.\n"
+                       "files beside it. Don't zip disc images.\n" +
+                       std::string(s.id == "saturn" ? "Multi-disc games: each disc is its own game (no disc swapping).\n"
+                                                    : "Multi-disc games named \"(Disc 1)\", \"(Disc 2)\"... become one game.\n")
                            : exts + ".zip\n") +
             (bios.empty() ? "" : (isArcadeSystem(s.id) ? "BIOS: " : "BIOS (in system/): ") + bios + "\n") +
             (s.id == "arcade"

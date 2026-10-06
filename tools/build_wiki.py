@@ -53,7 +53,7 @@ SYSTEMS = [
      "X=A, A=B, B=C, LB=X, Y=Y, RB=Z, Start=Start, Rewind=Mode", ""),
     ("mastersystem", "Master System", ".sms, .zip", "Genesis Plus GX (the firmware's)", False, [],
      "A=Button 1, B=Button 2, Start=Pause", ""),
-    ("saturn", "Saturn", ".chd, .cue, .iso, .ccd, .m3u", "YabaSanshiro", True,
+    ("saturn", "Saturn", ".chd, .cue, .iso, .ccd", "YabaSanshiro", True,
      [("saturn_bios.bin", "system/", False, "runs more games than the built-in BIOS")],
      "A=A, B=B, LB=C, X=X, Y=Y, RB=Z, LB2=L, RB2=R, Start=Start",
      "Runs at its original resolution, with auto-frameskip on so busy scenes drop a drawn frame rather than the sound."),

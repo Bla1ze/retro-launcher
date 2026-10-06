@@ -285,13 +285,17 @@ none for PSP):
 
 ### Multi-disc games
 
-PlayStation, Saturn and Dreamcast discs named `… (Disc 1)`, `(Disc 2)`… (also
-`(Disc 1 of 3)`, `(CD1)`) in the same folder, with no playlist yet, get one when
-the menu scans. It writes `<game>.m3u` beside them, or `<folder>.m3u` inside a
-game's own folder. The menu then lists one game: its disc files are hidden, it
+PlayStation and Dreamcast discs named `… (Disc 1)`, `(Disc 2)`… (also
+`(Disc 1 of 3)`, `(CD1)`) with no playlist yet get one when the menu scans:
+- discs together in one folder get `<game>.m3u` beside them, or `<folder>.m3u`
+  inside a game's own folder;
+- one disc per folder (`Game (Disc 1)/`, `Game (Disc 2)/`…) gets `<game>.m3u`
+  next to those folders, pointing into each. The menu then lists one game: its disc files are hidden, it
 has one memory card, and pause menu > Change disc swaps discs. The newest
 per-disc `.srm` save is copied to the game's save name if it has none yet.
-Zipped discs can't be played; unzip them or convert them to `.chd`.
+Zipped discs can't be played; unzip them or convert them to `.chd`. The Saturn
+emulator (YabaSanshiro) reads no playlists and can't swap discs, so a Saturn
+multi-disc game lists each disc on its own.
 
 The download runs in the background while you browse. Starting a game stops it;
 pick it again later to continue. It uses the firmware's `curl`.
