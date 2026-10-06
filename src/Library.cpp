@@ -514,7 +514,10 @@ void carryDiscSave(const std::string& appDir, const System& sys, const std::stri
 // Multi-disc games kept one disc per folder ("Game (Disc 1)/", "Game (Disc 2)/"...,
 // how many downloads unpack): one playlist beside the folders, pointing into
 // each, so they too become one game.
-void makeFolderDiscPlaylists(const std::string& appDir, const System& sys, const std::string& dir) {
+// `folderName`: `dir` is a game's own folder holding its disc folders
+// ("Game/Game (Disc 1)/..."): the playlist goes inside, named after it.
+void makeFolderDiscPlaylists(const std::string& appDir, const System& sys, const std::string& dir,
+                             const std::string& folderName = "") {
     static const std::set<std::string> discExts = {"chd", "cue", "pbp", "iso", "cdi", "gdi", "ccd", "img"};
     std::map<std::string, std::map<int, std::string>> groups;  // base name -> disc -> "folder/file"
     std::set<std::string> unclear;                              // a disc folder with no single disc file
@@ -544,18 +547,30 @@ void makeFolderDiscPlaylists(const std::string& appDir, const System& sys, const
         }
         ::closedir(d);
     }
+    if (!folderName.empty()) {
+        // Inside a game's folder: one game only, and only if it has no playlist yet.
+        if (groups.size() != 1) return;
+        if (DIR* d = ::opendir(dir.c_str())) {
+            bool has = false;
+            while (struct dirent* e = ::readdir(d)) has = has || extOf(e->d_name) == "m3u";
+            ::closedir(d);
+            if (has) return;
+        }
+    }
     for (const auto& g : groups) {
         if (g.second.size() < 2 || unclear.count(g.first)) continue;
-        const std::string m3u = dir + "/" + g.first + ".m3u";
+        const std::string game = folderName.empty() ? g.first : folderName;
+        const std::string m3u = dir + "/" + game + ".m3u";
         if (isFile(m3u)) continue;
         std::ofstream out(m3u);
         for (const auto& disc : g.second) out << disc.second << "\n";
         out.close();
         if (!out) { log("%s: could not write %s", sys.id.c_str(), m3u.c_str()); continue; }
-        log("%s: made %s.m3u for %zu disc folders", sys.id.c_str(), g.first.c_str(), g.second.size());
+        log("%s: made %s%s.m3u for %zu disc folders", sys.id.c_str(), folderName.empty() ? "" : (folderName + "/").c_str(),
+            game.c_str(), g.second.size());
         std::vector<std::string> stems;  // a folder game's saves are named after its folder
         for (const auto& disc : g.second) stems.push_back(disc.second.substr(0, disc.second.find('/')));
-        carryDiscSave(appDir, sys, g.first, stems);
+        carryDiscSave(appDir, sys, game, stems);
     }
 }
 
@@ -614,7 +629,10 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
                 if (!n.empty() && n[0] != '.' && isDir(dir + "/" + n)) subs.push_back(n);
             }
             ::closedir(d);
-            for (const std::string& sub : subs) makeDiscPlaylists(appDir, sys, dir + "/" + sub, sub);
+            for (const std::string& sub : subs) {
+                makeDiscPlaylists(appDir, sys, dir + "/" + sub, sub);
+                makeFolderDiscPlaylists(appDir, sys, dir + "/" + sub, sub);  // "Game/Game (Disc 1)/..."
+            }
         }
     }
     DIR* d = ::opendir(dir.c_str());
