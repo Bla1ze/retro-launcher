@@ -15,7 +15,9 @@ matches the core built from the same checkout:
 Output: one tab-separated line per game:
   name  cloneof  romof  flags  year  manufacturer  description  crc crc ...
 flags: V vertical, B BIOS / not runnable, P preliminary (not working), C needs
-a CHD (hard disk / CD image; not supported). The CRCs are every ROM the game
+a CHD (hard disk / CD image; not supported), T played with a trackball, spinner
+or paddle (MAME 2003-Plus's <input control>; FBNeo sets of the same name or
+parent get it too). The CRCs are every ROM the game
 needs, including those that live in its parent or BIOS zip, except no-dumps.
 """
 import os
@@ -34,7 +36,20 @@ def clean(s):
     return " ".join((s or "").replace("\t", " ").split())
 
 
-def build(xml_path, out_path, label):
+def trackball_sets(xml_path):
+    """Set names whose controls are a trackball, dial (spinner) or paddle."""
+    sets = set()
+    for _, g in ET.iterparse(xml_path, events=("end",)):
+        if g.tag not in ("game", "machine"):
+            continue
+        i = g.find("input")
+        if i is not None and i.get("control") in ("trackball", "dial", "paddle"):
+            sets.add(g.get("name"))
+        g.clear()
+    return sets
+
+
+def build(xml_path, out_path, label, trackball=frozenset()):
     games = 0
     with open(out_path, "w", encoding="utf-8") as out:
         out.write(f"# retro-launcher arcade db v1\t{label}\n")
@@ -52,6 +67,8 @@ def build(xml_path, out_path, label):
                 flags += "P"
             if g.find("disk") is not None:
                 flags += "C"
+            if g.get("name") in trackball or (g.get("cloneof") or "") in trackball:
+                flags += "T"
             crcs = []
             for r in g.findall("rom"):
                 if r.get("status") == "nodump" or not r.get("crc"):
@@ -196,6 +213,9 @@ def main():
     cat = os.path.join(src, "mame2003-plus-libretro", "metadata", "catver.ini")
     if os.path.exists(cat):
         print(f"arcade-genres.txt: {build_genres(cat, os.path.join(out, 'arcade-genres.txt'))} sets")
+    mame_xml = os.path.join(src, "mame2003-plus-libretro", "metadata", "mame2003-plus.xml")
+    trackball = trackball_sets(mame_xml) if os.path.exists(mame_xml) else set()
+    print(f"trackball / spinner / paddle games: {len(trackball)}")
     for name, repo, rel in SOURCES:
         path = os.path.join(src, repo, rel)
         if not os.path.exists(path):
@@ -203,7 +223,7 @@ def main():
             continue
         commit = subprocess.run(["git", "-C", os.path.join(src, repo), "log", "-1", "--format=%h"],
                                 capture_output=True, text=True).stdout.strip()
-        n = build(path, os.path.join(out, name), f"{repo} @ {commit}")
+        n = build(path, os.path.join(out, name), f"{repo} @ {commit}", trackball)
         print(f"{name}: {n} games ({repo} @ {commit}), {os.path.getsize(os.path.join(out, name)) // 1024} KB")
     return 0
 

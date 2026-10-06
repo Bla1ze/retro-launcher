@@ -13,7 +13,11 @@
 
 #include <SDL.h>
 
+#include <dirent.h>
 #include <dlfcn.h>
+#include <fcntl.h>
+#include <linux/input.h>
+#include <sys/ioctl.h>
 #include <signal.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -432,12 +436,16 @@ bool pinnedOption(const std::string& key) {
     return key == "fbneo-vertical-mode" || key == "mame2003-plus_tate_mode" || key == "reicast_screen_rotation";
 }
 
+bool g_haveTrackball = false;  // a trackball / mouse was found (Trackball below)
+
 // Defaults chosen here instead of the core's: GPU cores render above their
 // original resolution (the RK3588 has room to spare and the backglass is 1080p).
 // Still changeable in Core options; a saved choice wins.
 const char* preferredDefault(const std::string& key) {
     if (key == "reicast_internal_resolution") return "1280x960";  // Dreamcast / NAOMI 2x
     if (key == "ppsspp_internal_resolution") return "960x544";    // PSP 2x (3x was too heavy for e.g. GTA: LCS)
+    // MAME 2003-Plus reads trackballs / spinners from the mouse when there is one.
+    if (key == "mame2003-plus_xy_device" && g_haveTrackball) return "mouse";
     if (key == "mupen64plus-43screensize") return "1280x960";     // N64 2x
     // Saturn: heavy scenes are CPU-bound (SH-2 emulation), so it skips drawing
     // a frame when behind instead of starving the audio.
@@ -901,8 +909,90 @@ size_t audioBatch(const int16_t* data, size_t frames) {
 void audioSample(int16_t l, int16_t r) { g_audioBatch.push_back(l); g_audioBatch.push_back(r); }
 void inputPoll() {}
 
+// ------------------------------------------------------------------ trackball
+// The Arcade Control Panel's trackball is a USB mouse
+// (/dev/input/by-id/usb-0838_8918-event-mouse, as the firmware's own player
+// reads it); any other mouse works too. Read straight from evdev once a frame
+// and given to cores that ask for a mouse: MAME 2003-Plus (its xy_device set to
+// "mouse") and FBNeo for trackball / spinner / paddle games (port set to its
+// "mouse, ball only" device).
+struct Trackball {
+    int fd = -1;
+    float scale = 1.0f, accX = 0.0f, accY = 0.0f;
+    int16_t dx = 0, dy = 0;
+    bool left = false, right = false, middle = false;
+
+    static bool isMouse(int f) {
+        unsigned long rel = 0, key[(KEY_MAX + 1) / (8 * sizeof(unsigned long)) + 1] = {};
+        if (::ioctl(f, EVIOCGBIT(EV_REL, sizeof(rel)), &rel) < 0) return false;
+        ::ioctl(f, EVIOCGBIT(EV_KEY, sizeof(key)), key);
+        const size_t bits = 8 * sizeof(unsigned long);
+        bool hasLeft = (key[BTN_LEFT / bits] >> (BTN_LEFT % bits)) & 1;
+        return (rel & (1ul << REL_X)) && (rel & (1ul << REL_Y)) && hasLeft;
+    }
+    bool open() {
+        std::vector<std::string> tries = {"/dev/input/by-id/usb-0838_8918-event-mouse"};
+        if (DIR* d = ::opendir("/dev/input/by-id")) {  // other USB mice
+            while (struct dirent* e = ::readdir(d)) {
+                std::string n = e->d_name;
+                if (n.size() > 12 && n.compare(n.size() - 12, 12, "-event-mouse") == 0) tries.push_back("/dev/input/by-id/" + n);
+            }
+            ::closedir(d);
+        }
+        for (int i = 0; i < 32; ++i) tries.push_back("/dev/input/event" + std::to_string(i));
+        for (const std::string& p : tries) {
+            int f = ::open(p.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+            if (f < 0) continue;
+            if (!isMouse(f)) { ::close(f); continue; }
+            char name[128] = "?";
+            ::ioctl(f, EVIOCGNAME(sizeof(name)), name);
+            log("trackball: %s (%s)", p.c_str(), name);
+            fd = f;
+            g_haveTrackball = true;
+            return true;
+        }
+        log("trackball: none found");
+        return false;
+    }
+    // Once per frame: this frame's movement (scaled; fractions carried over).
+    // `use` false (a menu is open) drops the movement.
+    void frame(bool use) {
+        dx = dy = 0;
+        if (fd < 0) return;
+        struct input_event ev[64];
+        ssize_t n;
+        while ((n = ::read(fd, ev, sizeof(ev))) > 0) {
+            for (ssize_t i = 0; i < n / (ssize_t)sizeof(ev[0]); ++i) {
+                if (ev[i].type == EV_REL && ev[i].code == REL_X) accX += ev[i].value * scale;
+                else if (ev[i].type == EV_REL && ev[i].code == REL_Y) accY += ev[i].value * scale;
+                else if (ev[i].type == EV_KEY && ev[i].code == BTN_LEFT) left = ev[i].value != 0;
+                else if (ev[i].type == EV_KEY && ev[i].code == BTN_RIGHT) right = ev[i].value != 0;
+                else if (ev[i].type == EV_KEY && ev[i].code == BTN_MIDDLE) middle = ev[i].value != 0;
+            }
+        }
+        if (!use) { accX = accY = 0.0f; return; }
+        auto take = [](float& acc) {
+            float whole = std::max(-32767.0f, std::min(32767.0f, std::trunc(acc)));
+            acc -= whole;
+            return (int16_t)whole;
+        };
+        dx = take(accX);
+        dy = take(accY);
+    }
+} g_trackball;
+
 int16_t inputState(unsigned port, unsigned device, unsigned index, unsigned id) {
     if (port == 0 && (device & 0xff) == RETRO_DEVICE_ANALOG && index <= 1 && id <= 1) return g_analog[index][id];
+    if (port == 0 && (device & 0xff) == RETRO_DEVICE_MOUSE) {
+        switch (id) {
+        case RETRO_DEVICE_ID_MOUSE_X: return g_trackball.dx;
+        case RETRO_DEVICE_ID_MOUSE_Y: return g_trackball.dy;
+        case RETRO_DEVICE_ID_MOUSE_LEFT: return g_trackball.left;
+        case RETRO_DEVICE_ID_MOUSE_RIGHT: return g_trackball.right;
+        case RETRO_DEVICE_ID_MOUSE_MIDDLE: return g_trackball.middle;
+        default: return 0;
+        }
+    }
     // The firmware ColecoVision core (libcv) reads keypad digits as keyboard keys
     // and ignores Start / Select: those press keypad 1 (start, skill 1) and *.
     // Its X button opens an on-screen keypad for the rest (D-pad, A presses).
@@ -1119,6 +1209,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     Library::Settings settings;
     settings.load(appDir);
     log("system %s, rom %s, screen %s", sys->id.c_str(), romPath.c_str(), Library::screenName(screen));
+    Library::logInputDevices();
+    // The trackball, before the core reads its options (MAME 2003-Plus's xy_device).
+    if (Library::isArcadeSystem(sys->id) && g_trackball.open()) {
+        const std::string speed = settings.value("trackball.speed", "normal");
+        g_trackball.scale = speed == "slow" ? 0.5f : speed == "fast" ? 2.0f : 1.0f;
+    }
 
     // Watchdog first, so even a hang while loading goes back to the menu.
     // signal() blocks SIGALRM while its handler runs, and the handler execs, so
@@ -1327,6 +1423,15 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     { CoreGL glScope; loaded = core.load_game(&game); }  // SET_HW_RENDER may create the core's context in here
     if (!loaded) return fail("The emulator could not start this ROM.");
     core.set_controller_port_device(0, RETRO_DEVICE_JOYPAD);
+    // FBNeo: trackball / spinner / paddle games take the trackball as a mouse
+    // ("mouse, ball only": the buttons stay on the pad).
+    if (g_trackball.fd >= 0 && baseName(corePath).compare(0, 5, "fbneo") == 0) {
+        Arcade::Entry te;
+        if (Arcade::lookup(appDir, baseName(corePath), lower(stem(gameFile)), te) && te.flags.find('T') != std::string::npos) {
+            core.set_controller_port_device(0, RETRO_DEVICE_SUBCLASS(RETRO_DEVICE_ANALOG, 2));
+            log("trackball: FBNeo port 1 set to mouse (ball only)");
+        }
+    }
     core.get_system_av_info(&g_av);
     if (g_coreCtx) {
         CoreGL glScope;
@@ -1521,6 +1626,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         // Menus (and hold-Start for the pause menu) always use the default
         // layout, so a remap can't lock anyone out; the game gets its own.
         uint16_t raw = readButtons(Library::defaultButtonMap());
+        g_trackball.frame(menu == Menu::None);
         uint16_t gameRaw = readButtons(buttonMap);
         uint16_t down = raw & ~prevButtons;
         prevButtons = raw;

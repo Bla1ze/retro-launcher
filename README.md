@@ -152,6 +152,22 @@ arcade folder: real names, missing BIOS or parent zips named, vertical games
 (Ikaruga...) on the playfield. GD-ROM games also need their `.chd` in a folder
 named after the zip, e.g. `roms/naomi/ikaruga/gdl-0010.chd`.
 
+### Trackball (Arcade Control Panel)
+
+The Arcade Control Panel's trackball works in trackball, spinner and paddle
+games, for example Missile Command, Centipede, Marble Madness, Tempest and
+Arkanoid.
+- **How it's read:** the player reads it as a USB mouse
+  (`/dev/input/by-id/usb-0838_8918-event-mouse`, as the firmware does). Any
+  other USB mouse works too.
+- **MAME 2003-Plus:** gets the trackball as its mouse.
+- **FBNeo:** switches to the trackball for the games MAME 2003-Plus's list marks
+  as trackball, dial or paddle (flag `T` in the arcade databases).
+- **Speed:** Settings > Trackball speed (Normal, Slow, Fast).
+
+The log lists every input device at startup (`input:` lines) and the trackball
+it found (`trackball:`).
+
 ### Neo Geo
 
 Neo Geo games have their own row, with the console photo and SNK covers. Put
@@ -339,6 +355,7 @@ stored in `data/settings.cfg` (key = value):
 | Playfield game rotation | `rotate.playfield` | `90`, `270` | `90` |
 | Arcade: hide clones & broken sets | `arcade.hide` | `off`, `on` | `off` |
 | Hide consoles with no games | `systems.hideEmpty` | `off` (listed, dimmed), `on` | `off` |
+| Trackball speed | `trackball.speed` | `normal`, `slow`, `fast` | `normal` |
 
 Below the settings are five actions:
 - **Download artwork** adds covers and logos for games that have none (see Artwork).

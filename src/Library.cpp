@@ -93,6 +93,15 @@ void exec(const std::vector<std::string>& args, const std::string& program = "")
 
 } // namespace
 
+void logInputDevices() {
+    std::ifstream in("/proc/bus/input/devices");
+    std::string line, name;
+    while (std::getline(in, line)) {
+        if (line.compare(0, 9, "N: Name=\"") == 0) name = line.substr(9, line.size() - 10);
+        else if (line.compare(0, 12, "H: Handlers=") == 0) log("input: %s [%s]", name.c_str(), line.substr(12).c_str());
+    }
+}
+
 const std::string& selfPath() {
     static std::string path = [] {
         char buf[1024];

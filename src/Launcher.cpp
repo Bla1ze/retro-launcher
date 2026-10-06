@@ -427,6 +427,7 @@ bool Menu::initVideo() {
     }
     SDL_SetTextureBlendMode(m_canvas, SDL_BLENDMODE_NONE);
     log("menu output %dx%d, canvas scale %.2f", ow, oh, m_canvasScale);
+    Library::logInputDevices();
     logHardware(m_renderer);
     Gfx::init(m_renderer, m_canvasScale);
     m_controls.open();
@@ -736,6 +737,7 @@ const std::vector<Menu::SettingDef>& Menu::settingDefs() {
         {"Playfield game rotation", "rotate.playfield", {"90", "270"}, {"90 degrees", "270 degrees"}},
         {"Arcade: hide clones & broken sets", "arcade.hide", {"off", "on"}, {"Off", "On"}},
         {"Hide consoles with no games", "systems.hideEmpty", {"off", "on"}, {"Off", "On"}},
+        {"Trackball speed", "trackball.speed", {"normal", "slow", "fast"}, {"Normal", "Slow", "Fast"}},
     };
     return defs;
 }

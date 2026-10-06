@@ -128,6 +128,8 @@ std::vector<std::pair<std::string, std::string>> controlHints(const std::string&
 // Log to data/launcher.log and stdout (stdout reaches logs/output.txt when the
 // app XML has <logging>true</logging>).
 void openLog(const std::string& appDir, const char* mode);
+// Logs every input device the kernel reports (name and its event / js nodes).
+void logInputDevices();
 void log(const char* fmt, ...) __attribute__((format(printf, 1, 2)));
 int logFd();  // the log file's descriptor (-1 if none), for signal handlers
 
