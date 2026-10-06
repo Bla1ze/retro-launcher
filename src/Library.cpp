@@ -529,20 +529,36 @@ void makeFolderDiscPlaylists(const std::string& appDir, const System& sys, const
             int n = discNumber(folder, base);
             if (n <= 0) continue;
             // The folder's disc: its one sheet (.cue / .gdi / .ccd), else its one image.
-            std::vector<std::string> sheets, images;
-            if (DIR* sd = ::opendir((dir + "/" + folder).c_str())) {
-                while (struct dirent* f = ::readdir(sd)) {
-                    std::string name = f->d_name;
-                    std::string ext = extOf(name);
-                    if (name.empty() || name[0] == '.' || !discExts.count(ext) ||
-                        std::find(sys.extensions.begin(), sys.extensions.end(), ext) == sys.extensions.end())
-                        continue;
-                    (ext == "cue" || ext == "gdi" || ext == "ccd" ? sheets : images).push_back(name);
+            // Unzipping often leaves the files one folder further in
+            // ("Game (Disc 3)/Game (Disc 3)/..."): then that folder's.
+            auto findDisc = [&](const std::string& path, std::string& onlySub) {
+                std::vector<std::string> sheets, images, subs;
+                if (DIR* sd = ::opendir(path.c_str())) {
+                    while (struct dirent* f = ::readdir(sd)) {
+                        std::string name = f->d_name;
+                        if (name.empty() || name[0] == '.') continue;
+                        if (isDir(path + "/" + name)) { subs.push_back(name); continue; }
+                        std::string ext = extOf(name);
+                        if (!discExts.count(ext) || std::find(sys.extensions.begin(), sys.extensions.end(), ext) == sys.extensions.end())
+                            continue;
+                        (ext == "cue" || ext == "gdi" || ext == "ccd" ? sheets : images).push_back(name);
+                    }
+                    ::closedir(sd);
                 }
-                ::closedir(sd);
+                onlySub = subs.size() == 1 ? subs[0] : "";
+                return sheets.size() == 1 ? sheets[0] : sheets.empty() && images.size() == 1 ? images[0] : std::string();
+            };
+            std::string inner, ignored;
+            std::string disc = findDisc(dir + "/" + folder, inner);
+            if (disc.empty() && !inner.empty()) {
+                std::string deeper = findDisc(dir + "/" + folder + "/" + inner, ignored);
+                if (!deeper.empty()) disc = inner + "/" + deeper;
             }
-            std::string disc = sheets.size() == 1 ? sheets[0] : sheets.empty() && images.size() == 1 ? images[0] : "";
-            if (disc.empty()) { unclear.insert(base); continue; }
+            if (disc.empty()) {
+                log("%s: %s: no single disc file (.cue/.chd...) found, so its game isn't grouped", sys.id.c_str(), folder.c_str());
+                unclear.insert(base);
+                continue;
+            }
             groups[base][n] = folder + "/" + disc;
         }
         ::closedir(d);
