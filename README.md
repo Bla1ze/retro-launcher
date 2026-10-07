@@ -2,6 +2,10 @@
 
 **Website: [bla1ze.github.io/retro-launcher](https://bla1ze.github.io/retro-launcher/)**
 
+<p align="center">
+  <img src="docs/assets/screenshot-consoles.png" width="860" alt="Retro Launcher on a cabinet: the Consoles list on the playfield with Arcade highlighted, flanked by the system's name and its arcade-cabinet art" />
+</p>
+
 A console game launcher for **AtGames Legends Pinball** cabinets, with its own
 built-in emulator front-end. Browse and search your games on the playfield,
 play them on the backglass, and see box art, controls and the console itself on
