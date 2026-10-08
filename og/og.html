@@ -1,0 +1,39 @@
+<!doctype html>
+<!-- Template for docs/assets/og-image.jpg (1200x630). Re-render with og/render.sh. -->
+<html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans:wght@500;600&family=Press+Start+2P&display=swap" rel="stylesheet">
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  body { position: relative; color: #eef2ff; font-family: 'Noto Sans', sans-serif; background: #05060f; }
+  .glow { position: absolute; inset: 0;
+    background: radial-gradient(560px 420px at 14% 20%, rgba(30,139,255,.30), transparent 70%),
+                radial-gradient(520px 420px at 90% 12%, rgba(255,122,26,.18), transparent 70%); }
+  .grid { position: absolute; left: -200px; right: -200px; bottom: -20px; height: 300px;
+    background-image: linear-gradient(rgba(63,216,255,.8) 2px, transparent 2px), linear-gradient(90deg, rgba(63,216,255,.8) 2px, transparent 2px);
+    background-size: 64px 40px; transform: perspective(380px) rotateX(58deg); transform-origin: bottom;
+    -webkit-mask-image: linear-gradient(transparent, #000 45%); mask-image: linear-gradient(transparent, #000 45%); }
+  .text { position: absolute; left: 70px; top: 96px; width: 500px; }
+  .kicker { font: 600 22px 'Noto Sans'; letter-spacing: .22em; text-transform: uppercase; color: #3fd8ff; }
+  h1 { font: 400 54px/1.22 'Press Start 2P'; margin: 26px 0 26px; color: #ffd23f;
+    text-shadow: 4px 4px 0 #ff3b3b, 0 0 30px rgba(255,210,63,.35); }
+  p { font-size: 27px; line-height: 1.38; color: #c8d0ee; font-weight: 500; }
+  .url { position: absolute; left: 70px; bottom: 48px; font: 600 22px 'Noto Sans'; color: #a3acd0; z-index: 2; }
+  .shot { position: absolute; right: 36px; top: 150px; width: 450px; border-radius: 12px; transform: rotate(4deg);
+    box-shadow: 0 24px 60px rgba(0,0,0,.75), 0 0 0 2px rgba(255,255,255,.1); }
+  .art { position: absolute; right: 340px; top: 92px; width: 190px; border-radius: 14px; transform: rotate(-7deg); z-index: 2;
+    box-shadow: 0 24px 60px rgba(0,0,0,.75), 0 0 36px rgba(30,139,255,.55); }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 10px; background: linear-gradient(90deg, #1e8bff, #3fd8ff, #ffd23f, #ff7a1a); }
+</style></head><body>
+  <div class="glow"></div>
+  <div class="grid"></div>
+  <div class="text">
+    <div class="kicker">For AtGames Legends Pinball</div>
+    <h1>Retro<br>Launcher</h1>
+    <p>21 retro systems on your cabinet: browse on the playfield, play on the backglass.</p>
+  </div>
+  <div class="url">bla1ze.github.io/retro-launcher</div>
+  <img class="shot" src="../docs/assets/screenshot-consoles.png">
+  <img class="art" src="../docs/assets/retro-launcher.png">
+  <div class="bar"></div>
+</body></html>
