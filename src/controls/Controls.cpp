@@ -257,15 +257,20 @@ ControlEvent Controls::event(
         case SDL_CONTROLLER_BUTTON_BACK:
             return ControlEvent::Back;
         case SDL_CONTROLLER_BUTTON_LEFTSTICK:
+        case SDL_CONTROLLER_BUTTON_RIGHTSTICK: {
+            // Retro Launcher: only the cabinet's own controls (vendor 0838) send
+            // Rewind as a stick click. On a real pad (Xbox, 8BitDo) a stick click
+            // happens by accident on a hard push, so it means nothing here.
+            SDL_GameController* gc = SDL_GameControllerFromInstanceID(input.cbutton.which);
+            const SDL_JoystickGUID g = SDL_JoystickGetGUID(gc ? SDL_GameControllerGetJoystick(gc) : nullptr);
+            if (!(g.data[4] == 0x38 && g.data[5] == 0x08)) return ControlEvent::None;
+            if (input.cbutton.button == SDL_CONTROLLER_BUTTON_RIGHTSTICK) return ControlEvent::Rewind2;
+        }
             // CE exports XCNT_GAMEPAD_LEFT_THUMB / REWIND as SDL leftstick.
             // Keep it as a distinct SDK event so apps can decide whether it
             // means "back", "rewind", or a gameplay action.
+            // (RIGHTSTICK, REWIND2, returned above.)
             return ControlEvent::Rewind;
-        case SDL_CONTROLLER_BUTTON_RIGHTSTICK:
-            // CE exports XCNT_GAMEPAD_RIGHT_THUMB / REWIND2 as SDL rightstick.
-            // Exposing it separately keeps both thumb-style CE controls
-            // available without falling back to raw button indexes.
-            return ControlEvent::Rewind2;
         default:
             return ControlEvent::None;
         }

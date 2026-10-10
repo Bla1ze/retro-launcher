@@ -997,6 +997,7 @@ const std::vector<int16_t>& resampleStereo(const std::vector<int16_t>& in, doubl
 // when a pad is opened is ignored on that pad until the same pad lets go. A
 // live pad lets go at once; a dead one never does, and stays out of the way.
 std::vector<int> g_padPlayer;  // per pad: 0 = player 1 ...
+std::vector<bool> g_padCabinet;  // per pad: the cabinet's own controls (vendor 0838)
 // The cabinet's own controls (CE's virtual controller and the arcade panel,
 // USB vendor 0838) are player 1. Every other controller gets the next player
 // in the order it was connected; "Swap players 1 and 2" (pause menu, kept in
@@ -1019,6 +1020,7 @@ void openPads() {
     SDL_GameControllerUpdate();
     // Players: cabinet first, then the others in connection order.
     g_padPlayer.assign(g_pads.size(), 0);
+    g_padCabinet.assign(g_pads.size(), false);
     std::vector<SDL_JoystickID> present;
     bool cabinet = false;
     for (size_t n = 0; n < g_pads.size(); ++n) {
@@ -1026,6 +1028,7 @@ void openPads() {
         const SDL_JoystickGUID g = SDL_JoystickGetGUID(j);
         const bool cab = g.data[4] == 0x38 && g.data[5] == 0x08;  // vendor 0838 (AtGames)
         cabinet = cabinet || cab;
+        g_padCabinet[n] = cab;
         if (!cab) present.push_back(SDL_JoystickInstanceID(j));
     }
     g_extraOrder.erase(std::remove_if(g_extraOrder.begin(), g_extraOrder.end(), [&](SDL_JoystickID id) {
@@ -1084,10 +1087,12 @@ bool havePlayer2() {
 }
 
 // player -1: any controller (menus); else only that player's controllers.
-bool padButton(SDL_GameControllerButton b, int player = -1) {
+// cabinetOnly: only the cabinet's own controls (see cabDown's Rewind).
+bool padButton(SDL_GameControllerButton b, int player = -1, bool cabinetOnly = false) {
     bool down = false;
     for (size_t n = 0; n < g_pads.size(); ++n) {
         if (player >= 0 && g_padPlayer[n] != player) continue;
+        if (cabinetOnly && !g_padCabinet[n]) continue;
         bool on = SDL_GameControllerGetButton(g_pads[n], b);
         if (g_padHeldButtons[n] >> b & 1) {
             if (on) continue;
@@ -1127,9 +1132,11 @@ bool cabDown(Library::Cab c, int player = -1) {
     case Library::Cab::LB2: return padAxis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, player) > dz;
     case Library::Cab::RB2: return padAxis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, player) > dz;
     case Library::Cab::Start: return padButton(SDL_CONTROLLER_BUTTON_START, player);
-    // SDL's Back never fires on the cabinet, but count it where it exists.
-    case Library::Cab::Rewind: return padButton(SDL_CONTROLLER_BUTTON_LEFTSTICK, player) || padButton(SDL_CONTROLLER_BUTTON_BACK, player);
-    case Library::Cab::Rewind2: return padButton(SDL_CONTROLLER_BUTTON_RIGHTSTICK, player);
+    // The cabinet reports its Rewind buttons as stick clicks; on a real pad a
+    // stick click happens by accident (a hard push), so there Rewind is Back /
+    // View only. SDL's Back never fires on the cabinet.
+    case Library::Cab::Rewind: return padButton(SDL_CONTROLLER_BUTTON_LEFTSTICK, player, true) || padButton(SDL_CONTROLLER_BUTTON_BACK, player);
+    case Library::Cab::Rewind2: return padButton(SDL_CONTROLLER_BUTTON_RIGHTSTICK, player, true);
     default: return false;
     }
 }
