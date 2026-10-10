@@ -173,6 +173,7 @@ struct retro_hw_render_callback {
 #define RETRO_DEVICE_ANALOG 5
 #define RETRO_DEVICE_INDEX_ANALOG_LEFT 0
 #define RETRO_DEVICE_INDEX_ANALOG_RIGHT 1
+#define RETRO_DEVICE_INDEX_ANALOG_BUTTON 2  // per-button pressure (id = JOYPAD_*), 0..0x7fff
 #define RETRO_DEVICE_ID_ANALOG_X 0
 #define RETRO_DEVICE_ID_ANALOG_Y 1
 

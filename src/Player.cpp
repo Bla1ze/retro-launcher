@@ -285,6 +285,10 @@ uint16_t g_buttons = 0;  // player 1 (port 0)
 constexpr int kPlayers = 4;
 uint16_t g_extraButtons[kPlayers - 1] = {};
 int16_t g_extraAnalog[kPlayers - 1][2][2] = {};
+// Per player, how hard each RetroPad button is pressed (0..0x7fff), for cores
+// that read pressure (Dreamcast triggers: gas and brake). A trigger gives its
+// real travel; any other button is all or nothing.
+int16_t g_pressure[kPlayers][16] = {};
 bool g_cvKeys = false;  // the core is the firmware's libcv (see inputState)
 
 // ColecoVision auto-start (firmware core): games open on a "select game 1-8"
@@ -919,6 +923,8 @@ Trackball g_trackball;  // Trackball.h
 
 
 int16_t inputState(unsigned port, unsigned device, unsigned index, unsigned id) {
+    if (port < (unsigned)kPlayers && (device & 0xff) == RETRO_DEVICE_ANALOG && index == RETRO_DEVICE_INDEX_ANALOG_BUTTON)
+        return id < 16 ? g_pressure[port][id] : 0;
     if (port == 0 && (device & 0xff) == RETRO_DEVICE_ANALOG && index <= 1 && id <= 1) return g_analog[index][id];
     if (port == 0 && (device & 0xff) == RETRO_DEVICE_MOUSE) {
         switch (id) {
@@ -1157,6 +1163,20 @@ uint16_t readButtons(const Library::ButtonMap& map, int player = -1) {
     set(RETRO_DEVICE_ID_JOYPAD_LEFT, padButton(SDL_CONTROLLER_BUTTON_DPAD_LEFT, player) || lx < -dz);
     set(RETRO_DEVICE_ID_JOYPAD_RIGHT, padButton(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, player) || lx > dz);
     return b;
+}
+
+// Pressure for each RetroPad button of one player, given its (turned) buttons:
+// a button fed by a trigger (LB2 / RB2) reports how far the trigger is pulled.
+void readPressure(const Library::ButtonMap& map, int player, uint16_t buttons, int16_t out[16]) {
+    for (int id = 0; id < 16; ++id) {
+        const Library::Cab c = map.src[id];
+        int v = (buttons >> id) & 1 ? 0x7fff : 0;
+        if (c == Library::Cab::LB2 || c == Library::Cab::RB2) {
+            const int a = padAxis(c == Library::Cab::LB2 ? SDL_CONTROLLER_AXIS_TRIGGERLEFT : SDL_CONTROLLER_AXIS_TRIGGERRIGHT, player);
+            v = std::min(0x7fff, std::max(0, a));  // the cabinet's button-triggers read 0 or full anyway
+        }
+        out[id] = (int16_t)v;
+    }
 }
 
 // A game turned by hand (a TATE-mode game drawn sideways in a landscape frame)
@@ -1761,6 +1781,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             if (suppressInput && raw == 0) suppressInput = false;
             const int ctlTurn = turnControls ? userTurn / 90 : 0;
             g_buttons = suppressInput ? 0 : turnDirections(gameRaw, ctlTurn);
+            if (suppressInput) std::memset(g_pressure[0], 0, sizeof(g_pressure[0]));
+            else readPressure(buttonMap, 0, g_buttons, g_pressure[0]);
             cvAutoStep();
             // Analog: the stick if it's pushed, else the D-pad at full tilt (the
             // cabinet's joystick may report as a D-pad; PSP games often read only
@@ -1782,6 +1804,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             for (int p = 1; p < kPlayers; ++p) {
                 const uint16_t b = suppressInput ? 0 : turnDirections(readButtons(buttonMap, p), ctlTurn);
                 g_extraButtons[p - 1] = b;
+                if (suppressInput) std::memset(g_pressure[p], 0, sizeof(g_pressure[p]));
+                else readPressure(buttonMap, p, b, g_pressure[p]);
                 int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX, p), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY, p);
                 int rx = padAxis(SDL_CONTROLLER_AXIS_RIGHTX, p), ry = padAxis(SDL_CONTROLLER_AXIS_RIGHTY, p);
                 turnStick(lx, ly, ctlTurn);
@@ -1806,6 +1830,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             std::memset(g_analog, 0, sizeof(g_analog));
             std::memset(g_extraButtons, 0, sizeof(g_extraButtons));
             std::memset(g_extraAnalog, 0, sizeof(g_extraAnalog));
+            std::memset(g_pressure, 0, sizeof(g_pressure));
             int n = (int)g_optDefs.size();
             auto change = [&](int dir) {
                 const OptDef& d = g_optDefs[optSel];
@@ -1832,6 +1857,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             std::memset(g_analog, 0, sizeof(g_analog));
             std::memset(g_extraButtons, 0, sizeof(g_extraButtons));
             std::memset(g_extraAnalog, 0, sizeof(g_extraAnalog));
+            std::memset(g_pressure, 0, sizeof(g_pressure));
             int n = (int)items.size();
             if (pressed(RETRO_DEVICE_ID_JOYPAD_UP)) menuSel = (menuSel + n - 1) % n;
             if (pressed(RETRO_DEVICE_ID_JOYPAD_DOWN)) menuSel = (menuSel + 1) % n;
