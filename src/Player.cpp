@@ -1213,9 +1213,15 @@ void drawPauseMenu(SDL_Renderer* r, int winW, int winH, const std::string& title
     const float W = winW / scale, H = winH / scale;
     SDL_RenderSetScale(r, scale, scale);
     Gfx::rect(r, {0, 0, W, H}, {4, 6, 12, 190});
-    const float rowH = 62.0f, gap = 10.0f, pw = 560.0f;
+    // Rows shrink to fit: on a landscape screen (the backglass, 720 tall here)
+    // eight items at full size ran off the top and bottom. Room is kept under
+    // the panel for a toast.
+    const float n = (float)std::max<size_t>(1, items.size());
+    const float room = H - 40.0f - 72.0f - 190.0f;  // margins, toast, title + footer
+    const float pitch = std::max(40.0f, std::min(72.0f, room / n));
+    const float gap = pitch >= 60.0f ? 10.0f : 6.0f, rowH = pitch - gap, pw = 560.0f;
     const float ph = 150.0f + items.size() * (rowH + gap) + 40.0f;
-    const float px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
+    const float px = (W - pw) * 0.5f, py = std::max(20.0f, (H - 72.0f - ph) * 0.5f);
     Gfx::softRect(r, {px, py, pw, ph}, 30.0f, 36.0f, {0, 0, 0, 200}, false);
     Gfx::panel(r, {px, py, pw, ph}, 30.0f, {30, 36, 58, 250}, {18, 22, 38, 250}, {255, 255, 255, 30}, 1.0f);
     Gfx::hGradient(r, {px + 30.0f, py, pw - 60.0f, 4.0f}, Theme::Accent, Theme::Accent2);
@@ -1225,7 +1231,8 @@ void drawPauseMenu(SDL_Renderer* r, int winW, int winH, const std::string& title
         bool active = (int)i == sel;
         Theme::rowCard(r, row, active);
         SDL_Color c = !enabled[i] ? Theme::Faint : active ? Theme::Text : Theme::TextDim;
-        AppFont::drawCentered(r, items[i], W * 0.5f, row.y + 15.0f, 30.0f, c);
+        const float fs = rowH >= 52.0f ? 30.0f : 26.0f;
+        AppFont::drawCentered(r, items[i], W * 0.5f, row.y + (rowH - fs * 1.07f) * 0.5f, fs, c);
     }
     AppFont::drawCentered(r, "A Select     B Resume", W * 0.5f, py + ph - 38.0f, 20.0f, Theme::Muted);
     if (!toast.empty()) {
