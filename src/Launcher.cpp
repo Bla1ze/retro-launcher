@@ -26,6 +26,7 @@
 #include <cctype>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -2547,6 +2548,12 @@ int Menu::run() {
         float dt = std::min((now - last) / 1000.0f, 0.033f);
         last = now;
         // Updates: a new release found by the daily check, or an install finished.
+        // Simulator preview of the What's new panel (RETRO_LAUNCHER_PREVIEW_NOTES): opens it once found.
+        static bool previewNotes = std::getenv("RETRO_LAUNCHER_PREVIEW_NOTES") != nullptr;
+        if (previewNotes && m_update.state() == Updater::State::Available && !m_update.notes().empty()) {
+            previewNotes = false;
+            openNotes();
+        }
         if (!m_updateAnnounced && m_update.quiet() && m_update.state() == Updater::State::Available) {
             m_updateAnnounced = true;
             m_toast = "Retro Launcher v" + m_update.latest() + " is available - Settings > Updates";
