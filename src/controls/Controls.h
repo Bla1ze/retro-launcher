@@ -154,6 +154,16 @@ enum class ControlEvent {
     Confirm = A
 };
 
+// Retro Launcher: the cabinet's controller file maps some pads (the Xbox
+// Wireless Controller) with shoulders and triggers swapped, a shoulder bound to
+// half a trigger axis, which reads as held at rest. For every connected pad
+// that isn't the cabinet's own (vendor 0838) and has a shoulder on an axis while
+// its trigger is on a button, re-register its mapping the usual way round
+// (shoulders = buttons, triggers = full axes), in this process only. Returns the
+// names of the pads it fixed. Call after the mapping files are loaded and before
+// opening controllers (open ones are refreshed by SDL too).
+std::vector<std::string> fixSwappedShoulderMappings();
+
 // Owns the SDL virtual-controller input device used by an External Application.
 //
 // One Controls object is normally enough for a simple single-player game.

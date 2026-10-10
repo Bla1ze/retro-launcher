@@ -9,6 +9,7 @@
 #include "DisplayProfile.h"
 #include "Library.h"
 #include "Trackball.h"
+#include "controls/Controls.h"
 #include "libretro_min.h"
 #include "vendor/stb_image.h"  // implementation lives in GamePanels.cpp
 
@@ -1009,6 +1010,8 @@ std::vector<uint32_t> g_padHeldAxes;     // per pad, bit per SDL_GameControllerA
 constexpr int kStuckAxis = 16000;
 
 void openPads() {
+    for (const std::string& name : AtGames::fixSwappedShoulderMappings())
+        log("%s: shoulders and triggers mapped the usual way round (the cabinet's file swaps them)", name.c_str());
     for (SDL_GameController* p : g_pads) SDL_GameControllerClose(p);
     g_pads.clear();
     g_padHeldButtons.clear();

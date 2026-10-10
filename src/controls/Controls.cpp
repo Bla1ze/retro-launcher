@@ -100,6 +100,7 @@ bool Controls::open()
     // expose the device through the semantic GameController API instead of the
     // raw joystick fallback.
     registerControllerMappings();
+    fixSwappedShoulderMappings();  // per connected pad, so on every open
     loadControllerSettingFallbacks();
 
     // SDL_NumJoysticks() lists all joystick-like devices. We only open devices
@@ -394,6 +395,55 @@ void Controls::registerControllerMappings()
         // continue with SDL's built-in GameController mappings.
         SDL_GameControllerAddMappingsFromFile(path);
     }
+}
+
+// -----------------------------------------------------------------------------
+// "guid,name,..." with a shoulder on an axis and its trigger on a button ->
+// the same mapping with them the usual way round; "" if nothing to change.
+std::string unswapShoulders(const std::string& mapping) {
+    std::vector<std::string> f;
+    std::string cur;
+    for (size_t p = 0; p <= mapping.size(); ++p) {
+        if (p == mapping.size() || mapping[p] == ',') { f.push_back(cur); cur.clear(); } else cur += mapping[p];
+    }
+    if (f.size() < 3) return "";
+    auto find = [&](const std::string& key) -> int {
+        for (size_t k = 2; k < f.size(); ++k)
+            if (f[k].compare(0, key.size() + 1, key + ":") == 0) return (int)k;
+        return -1;
+    };
+    bool changed = false;
+    for (const char* side : {"left", "right"}) {
+        const int sh = find(std::string(side) + "shoulder"), tr = find(std::string(side) + "trigger");
+        if (sh < 0 || tr < 0) continue;
+        const std::string shv = f[sh].substr(f[sh].find(':') + 1), trv = f[tr].substr(f[tr].find(':') + 1);
+        const std::string axis = shv.empty() ? "" : shv[0] == 'a' ? shv
+                               : (shv[0] == '+' || shv[0] == '-') && shv.size() > 1 && shv[1] == 'a' ? shv.substr(1) : "";
+        if (axis.empty() || trv.empty() || trv[0] != 'b') continue;
+        f[sh] = std::string(side) + "shoulder:" + trv;  // the bumper's button
+        f[tr] = std::string(side) + "trigger:" + axis;  // the whole trigger axis
+        changed = true;
+    }
+    if (!changed) return "";
+    std::string out;
+    for (size_t k = 0; k < f.size(); ++k)
+        if (!f[k].empty()) out += (out.empty() ? "" : ",") + f[k];
+    return out;
+}
+
+std::vector<std::string> fixSwappedShoulderMappings() {
+    std::vector<std::string> fixed;
+    for (int i = 0; i < SDL_NumJoysticks(); ++i) {
+        const SDL_JoystickGUID guid = SDL_JoystickGetDeviceGUID(i);
+        if (guid.data[4] == 0x38 && guid.data[5] == 0x08) continue;  // the cabinet's own: as CE maps it
+        char* m = SDL_GameControllerMappingForGUID(guid);
+        if (!m) continue;
+        const std::string mapping = unswapShoulders(m);
+        SDL_free(m);
+        if (!mapping.empty() && SDL_GameControllerAddMapping(mapping.c_str()) >= 0)
+            fixed.push_back(mapping.substr(mapping.find(',') + 1, mapping.find(',', mapping.find(',') + 1) - mapping.find(',') - 1));
+    }
+    return fixed;
 }
 
 // -----------------------------------------------------------------------------
