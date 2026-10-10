@@ -279,7 +279,11 @@ SDL_Texture* makeScanlines(SDL_Renderer* r, int lines, int darkness) {
 }
 std::vector<int16_t> g_audioBatch;
 std::vector<SDL_GameController*> g_pads;
-uint16_t g_buttons = 0;
+uint16_t g_buttons = 0;  // player 1 (port 0)
+// Players 2-4 (ports 1-3): USB / Bluetooth controllers beside the cabinet.
+constexpr int kPlayers = 4;
+uint16_t g_extraButtons[kPlayers - 1] = {};
+int16_t g_extraAnalog[kPlayers - 1][2][2] = {};
 bool g_cvKeys = false;  // the core is the firmware's libcv (see inputState)
 
 // ColecoVision auto-start (firmware core): games open on a "select game 1-8"
@@ -934,6 +938,13 @@ int16_t inputState(unsigned port, unsigned device, unsigned index, unsigned id) 
         if (id == '-') return (g_buttons >> RETRO_DEVICE_ID_JOYPAD_SELECT) & 1;
         return 0;
     }
+    if (port >= 1 && port < (unsigned)kPlayers) {
+        if ((device & 0xff) == RETRO_DEVICE_ANALOG && index <= 1 && id <= 1) return g_extraAnalog[port - 1][index][id];
+        if ((device & 0xff) != RETRO_DEVICE_JOYPAD) return 0;
+        const uint16_t b = g_extraButtons[port - 1];
+        if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)b;
+        return id < 16 ? (int16_t)((b >> id) & 1) : 0;
+    }
     if (port != 0 || (device & 0xff) != RETRO_DEVICE_JOYPAD) return 0;
     if (id == RETRO_DEVICE_ID_JOYPAD_MASK) return (int16_t)g_buttons;
     return id < 16 ? (int16_t)((g_buttons >> id) & 1) : 0;
@@ -985,6 +996,13 @@ const std::vector<int16_t>& resampleStereo(const std::vector<int16_t>& in, doubl
 // them (arcade boards count a press only on its way down). So anything held
 // when a pad is opened is ignored on that pad until the same pad lets go. A
 // live pad lets go at once; a dead one never does, and stays out of the way.
+std::vector<int> g_padPlayer;  // per pad: 0 = player 1 ...
+// The cabinet's own controls (CE's virtual controller and the arcade panel,
+// USB vendor 0838) are player 1. Every other controller gets the next player
+// in the order it was connected; "Swap players 1 and 2" (pause menu, kept in
+// settings) trades the first two, for playing on a pad alone.
+std::vector<SDL_JoystickID> g_extraOrder;
+bool g_swapPlayers = false;
 std::vector<uint32_t> g_padHeldButtons;  // per pad, bit per SDL_GameControllerButton
 std::vector<uint32_t> g_padHeldAxes;     // per pad, bit per SDL_GameControllerAxis
 constexpr int kStuckAxis = 16000;
@@ -999,6 +1017,30 @@ void openPads() {
         if (SDL_IsGameController(i))
             if (SDL_GameController* p = SDL_GameControllerOpen(i)) g_pads.push_back(p);
     SDL_GameControllerUpdate();
+    // Players: cabinet first, then the others in connection order.
+    g_padPlayer.assign(g_pads.size(), 0);
+    std::vector<SDL_JoystickID> present;
+    bool cabinet = false;
+    for (size_t n = 0; n < g_pads.size(); ++n) {
+        SDL_Joystick* j = SDL_GameControllerGetJoystick(g_pads[n]);
+        const SDL_JoystickGUID g = SDL_JoystickGetGUID(j);
+        const bool cab = g.data[4] == 0x38 && g.data[5] == 0x08;  // vendor 0838 (AtGames)
+        cabinet = cabinet || cab;
+        if (!cab) present.push_back(SDL_JoystickInstanceID(j));
+    }
+    g_extraOrder.erase(std::remove_if(g_extraOrder.begin(), g_extraOrder.end(), [&](SDL_JoystickID id) {
+        return std::find(present.begin(), present.end(), id) == present.end();
+    }), g_extraOrder.end());
+    for (SDL_JoystickID id : present)
+        if (std::find(g_extraOrder.begin(), g_extraOrder.end(), id) == g_extraOrder.end()) g_extraOrder.push_back(id);
+    for (size_t n = 0; n < g_pads.size(); ++n) {
+        SDL_Joystick* j = SDL_GameControllerGetJoystick(g_pads[n]);
+        auto it = std::find(g_extraOrder.begin(), g_extraOrder.end(), SDL_JoystickInstanceID(j));
+        int player = it == g_extraOrder.end() ? 0 : std::min(kPlayers - 1, (cabinet ? 1 : 0) + (int)(it - g_extraOrder.begin()));
+        if (g_swapPlayers && player <= 1) player = 1 - player;
+        g_padPlayer[n] = player;
+        log("pad %zu (%s): player %d", n, SDL_GameControllerName(g_pads[n]), player + 1);
+    }
     for (size_t n = 0; n < g_pads.size(); ++n) {
         uint32_t held = 0, axes = 0;
         for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b)
@@ -1019,9 +1061,33 @@ void openPads() {
     log("%zu controller(s) open", g_pads.size());
 }
 
-bool padButton(SDL_GameControllerButton b) {
+// "Player 1: Cabinet, Player 2: Xbox Wireless Controller" (for a toast).
+std::string playersSummary() {
+    std::string out;
+    for (int p = 0; p < kPlayers; ++p) {
+        std::string who;
+        for (size_t n = 0; n < g_pads.size(); ++n)
+            if (g_padPlayer[n] == p) {
+                SDL_Joystick* j = SDL_GameControllerGetJoystick(g_pads[n]);
+                const SDL_JoystickGUID g = SDL_JoystickGetGUID(j);
+                std::string name = g.data[4] == 0x38 && g.data[5] == 0x08 ? "Cabinet" : SDL_GameControllerName(g_pads[n]) ? SDL_GameControllerName(g_pads[n]) : "Controller";
+                if (who.find(name) == std::string::npos) who += (who.empty() ? "" : " + ") + name;
+            }
+        if (!who.empty()) out += (out.empty() ? "" : ",  ") + std::string("P") + std::to_string(p + 1) + ": " + who;
+    }
+    return out;
+}
+
+bool havePlayer2() {
+    for (int p : g_padPlayer) if (p >= 1) return true;
+    return false;
+}
+
+// player -1: any controller (menus); else only that player's controllers.
+bool padButton(SDL_GameControllerButton b, int player = -1) {
     bool down = false;
     for (size_t n = 0; n < g_pads.size(); ++n) {
+        if (player >= 0 && g_padPlayer[n] != player) continue;
         bool on = SDL_GameControllerGetButton(g_pads[n], b);
         if (g_padHeldButtons[n] >> b & 1) {
             if (on) continue;
@@ -1033,9 +1099,10 @@ bool padButton(SDL_GameControllerButton b) {
     return down;
 }
 
-int padAxis(SDL_GameControllerAxis a) {
+int padAxis(SDL_GameControllerAxis a, int player = -1) {
     int best = 0;
     for (size_t n = 0; n < g_pads.size(); ++n) {
+        if (player >= 0 && g_padPlayer[n] != player) continue;
         int v = SDL_GameControllerGetAxis(g_pads[n], a);
         if (g_padHeldAxes[n] >> a & 1) {
             if (std::abs(v) > kStuckAxis) continue;
@@ -1048,37 +1115,37 @@ int padAxis(SDL_GameControllerAxis a) {
 }
 
 // What each cabinet button is doing right now.
-bool cabDown(Library::Cab c) {
+bool cabDown(Library::Cab c, int player = -1) {
     const int dz = 16000;
     switch (c) {
-    case Library::Cab::A: return padButton(SDL_CONTROLLER_BUTTON_A);
-    case Library::Cab::B: return padButton(SDL_CONTROLLER_BUTTON_B);
-    case Library::Cab::X: return padButton(SDL_CONTROLLER_BUTTON_X);
-    case Library::Cab::Y: return padButton(SDL_CONTROLLER_BUTTON_Y);
-    case Library::Cab::LB: return padButton(SDL_CONTROLLER_BUTTON_LEFTSHOULDER);
-    case Library::Cab::RB: return padButton(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER);
-    case Library::Cab::LB2: return padAxis(SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dz;
-    case Library::Cab::RB2: return padAxis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dz;
-    case Library::Cab::Start: return padButton(SDL_CONTROLLER_BUTTON_START);
+    case Library::Cab::A: return padButton(SDL_CONTROLLER_BUTTON_A, player);
+    case Library::Cab::B: return padButton(SDL_CONTROLLER_BUTTON_B, player);
+    case Library::Cab::X: return padButton(SDL_CONTROLLER_BUTTON_X, player);
+    case Library::Cab::Y: return padButton(SDL_CONTROLLER_BUTTON_Y, player);
+    case Library::Cab::LB: return padButton(SDL_CONTROLLER_BUTTON_LEFTSHOULDER, player);
+    case Library::Cab::RB: return padButton(SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, player);
+    case Library::Cab::LB2: return padAxis(SDL_CONTROLLER_AXIS_TRIGGERLEFT, player) > dz;
+    case Library::Cab::RB2: return padAxis(SDL_CONTROLLER_AXIS_TRIGGERRIGHT, player) > dz;
+    case Library::Cab::Start: return padButton(SDL_CONTROLLER_BUTTON_START, player);
     // SDL's Back never fires on the cabinet, but count it where it exists.
-    case Library::Cab::Rewind: return padButton(SDL_CONTROLLER_BUTTON_LEFTSTICK) || padButton(SDL_CONTROLLER_BUTTON_BACK);
-    case Library::Cab::Rewind2: return padButton(SDL_CONTROLLER_BUTTON_RIGHTSTICK);
+    case Library::Cab::Rewind: return padButton(SDL_CONTROLLER_BUTTON_LEFTSTICK, player) || padButton(SDL_CONTROLLER_BUTTON_BACK, player);
+    case Library::Cab::Rewind2: return padButton(SDL_CONTROLLER_BUTTON_RIGHTSTICK, player);
     default: return false;
     }
 }
 
 // RetroPad buttons for a layout (the game's own, or the default for menus).
-uint16_t readButtons(const Library::ButtonMap& map) {
+uint16_t readButtons(const Library::ButtonMap& map, int player = -1) {
     const int dz = 16000;
     uint16_t b = 0;
     auto set = [&b](int id, bool on) { if (on) b |= (uint16_t)(1u << id); };
     for (int id = 0; id < 16; ++id)
-        if (map.src[id] != Library::Cab::None && cabDown(map.src[id])) set(id, true);
-    int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY);
-    set(RETRO_DEVICE_ID_JOYPAD_UP, padButton(SDL_CONTROLLER_BUTTON_DPAD_UP) || ly < -dz);
-    set(RETRO_DEVICE_ID_JOYPAD_DOWN, padButton(SDL_CONTROLLER_BUTTON_DPAD_DOWN) || ly > dz);
-    set(RETRO_DEVICE_ID_JOYPAD_LEFT, padButton(SDL_CONTROLLER_BUTTON_DPAD_LEFT) || lx < -dz);
-    set(RETRO_DEVICE_ID_JOYPAD_RIGHT, padButton(SDL_CONTROLLER_BUTTON_DPAD_RIGHT) || lx > dz);
+        if (map.src[id] != Library::Cab::None && cabDown(map.src[id], player)) set(id, true);
+    int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX, player), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY, player);
+    set(RETRO_DEVICE_ID_JOYPAD_UP, padButton(SDL_CONTROLLER_BUTTON_DPAD_UP, player) || ly < -dz);
+    set(RETRO_DEVICE_ID_JOYPAD_DOWN, padButton(SDL_CONTROLLER_BUTTON_DPAD_DOWN, player) || ly > dz);
+    set(RETRO_DEVICE_ID_JOYPAD_LEFT, padButton(SDL_CONTROLLER_BUTTON_DPAD_LEFT, player) || lx < -dz);
+    set(RETRO_DEVICE_ID_JOYPAD_RIGHT, padButton(SDL_CONTROLLER_BUTTON_DPAD_RIGHT, player) || lx > dz);
     return b;
 }
 
@@ -1205,6 +1272,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     Library::parseScreen(screenArg, screen);
     Library::Settings settings;
     settings.load(appDir);
+    g_swapPlayers = settings.value("players.swap", "off") == "on";
     log("system %s, rom %s, screen %s", sys->id.c_str(), romPath.c_str(), Library::screenName(screen));
     Library::logInputDevices();
     // The trackball, before the core reads its options (MAME 2003-Plus's xy_device).
@@ -1547,7 +1615,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     const std::string coreTitle = std::string(info.library_name ? info.library_name : "Core") + " " +
                                   (info.library_version ? info.library_version : "");
     int menuSel = 0;
-    enum { PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseTurn, PauseTurnControls, PauseDisc, PauseQuit };
+    enum { PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseTurn, PauseTurnControls, PausePlayers, PauseDisc, PauseQuit };
     std::vector<int> pauseIds;
     // Multi-disc games: how many discs, which one is in (asked once; changed here).
     unsigned discs = 0, discIndex = 0;
@@ -1602,6 +1670,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         menu = m;
         menuSel = 0;
         toast.clear();
+        if (m == Menu::Pause && havePlayer2()) { toast = playersSummary(); toastAt = SDL_GetTicks() + 1500; }  // who is who, a little longer
         pauseAudio(true);
     };
     auto closeMenu = [&]() {
@@ -1634,13 +1703,15 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_QUIT) reason = "quit";
-            if (e.type == SDL_CONTROLLERDEVICEADDED || e.type == SDL_CONTROLLERDEVICEREMOVED) openPads();
+            if (e.type == SDL_CONTROLLERDEVICEADDED || e.type == SDL_CONTROLLERDEVICEREMOVED) {
+                openPads();  // the next pause menu shows who is who
+            }
         }
         // Menus (and hold-Start for the pause menu) always use the default
         // layout, so a remap can't lock anyone out; the game gets its own.
         uint16_t raw = readButtons(Library::defaultButtonMap());
         g_trackball.frame(menu == Menu::None);
-        uint16_t gameRaw = readButtons(buttonMap);
+        uint16_t gameRaw = readButtons(buttonMap, 0);  // player 1; the others below
         uint16_t down = raw & ~prevButtons;
         prevButtons = raw;
         bool guide = padButton(SDL_CONTROLLER_BUTTON_GUIDE), guideDown = guide && !prevGuide;
@@ -1653,6 +1724,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (menu == Menu::Pause) {
             pauseIds = {PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseTurn};
             if (userTurn == 90 || userTurn == 270) pauseIds.push_back(PauseTurnControls);
+            if (havePlayer2() || g_swapPlayers) pauseIds.push_back(PausePlayers);
             if (discs > 1) pauseIds.push_back(PauseDisc);
             pauseIds.push_back(PauseQuit);
             for (int id : pauseIds) {
@@ -1663,6 +1735,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 case PauseReset: items.push_back("Reset"); enabled.push_back(core.reset != nullptr); break;
                 case PauseOptions: items.push_back("Core options"); enabled.push_back(!g_optDefs.empty()); break;
                 case PauseTurn: items.push_back(std::string("Rotate picture: ") + (userTurn == 90 ? "turned right" : userTurn == 180 ? "upside down" : userTurn == 270 ? "turned left" : "off")); enabled.push_back(true); break;
+                case PausePlayers: items.push_back(g_swapPlayers ? "Swap players 1 and 2: on" : "Swap players 1 and 2: off"); enabled.push_back(true); break;
                 case PauseTurnControls: items.push_back(std::string("Turn controls with it: ") + (turnControls ? "on" : "off")); enabled.push_back(true); break;
                 case PauseDisc: items.push_back("Change disc (" + std::to_string(discIndex + 1) + " of " + std::to_string(discs) + ")"); enabled.push_back(true); break;
                 case PauseQuit: items.push_back("Quit to menu"); enabled.push_back(true); break;
@@ -1683,8 +1756,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             // cabinet's joystick may report as a D-pad; PSP games often read only
             // the analog nub).
             {
-                int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY);
-                int rx = padAxis(SDL_CONTROLLER_AXIS_RIGHTX), ry = padAxis(SDL_CONTROLLER_AXIS_RIGHTY);
+                int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX, 0), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY, 0);
+                int rx = padAxis(SDL_CONTROLLER_AXIS_RIGHTX, 0), ry = padAxis(SDL_CONTROLLER_AXIS_RIGHTY, 0);
                 turnStick(lx, ly, ctlTurn);
                 turnStick(rx, ry, ctlTurn);
                 auto bit = [&](int id) { return (g_buttons >> id) & 1; };
@@ -1694,6 +1767,22 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 g_analog[0][1] = suppressInput ? 0 : (int16_t)ly;
                 g_analog[1][0] = suppressInput ? 0 : (int16_t)rx;
                 g_analog[1][1] = suppressInput ? 0 : (int16_t)ry;
+            }
+            // Players 2-4: the same layout and picture turn, from their own controllers.
+            for (int p = 1; p < kPlayers; ++p) {
+                const uint16_t b = suppressInput ? 0 : turnDirections(readButtons(buttonMap, p), ctlTurn);
+                g_extraButtons[p - 1] = b;
+                int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX, p), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY, p);
+                int rx = padAxis(SDL_CONTROLLER_AXIS_RIGHTX, p), ry = padAxis(SDL_CONTROLLER_AXIS_RIGHTY, p);
+                turnStick(lx, ly, ctlTurn);
+                turnStick(rx, ry, ctlTurn);
+                auto bit = [&](int id) { return (b >> id) & 1; };
+                if (std::abs(lx) < 8000) lx = bit(RETRO_DEVICE_ID_JOYPAD_RIGHT) ? 32767 : bit(RETRO_DEVICE_ID_JOYPAD_LEFT) ? -32767 : 0;
+                if (std::abs(ly) < 8000) ly = bit(RETRO_DEVICE_ID_JOYPAD_DOWN) ? 32767 : bit(RETRO_DEVICE_ID_JOYPAD_UP) ? -32767 : 0;
+                g_extraAnalog[p - 1][0][0] = suppressInput ? 0 : (int16_t)lx;
+                g_extraAnalog[p - 1][0][1] = suppressInput ? 0 : (int16_t)ly;
+                g_extraAnalog[p - 1][1][0] = suppressInput ? 0 : (int16_t)rx;
+                g_extraAnalog[p - 1][1][1] = suppressInput ? 0 : (int16_t)ry;
             }
             if (raw & (1u << RETRO_DEVICE_ID_JOYPAD_START)) {
                 if (!startHeld) startHeld = t;
@@ -1705,6 +1794,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         } else if (menu == Menu::Options) {
             g_buttons = 0;
             std::memset(g_analog, 0, sizeof(g_analog));
+            std::memset(g_extraButtons, 0, sizeof(g_extraButtons));
+            std::memset(g_extraAnalog, 0, sizeof(g_extraAnalog));
             int n = (int)g_optDefs.size();
             auto change = [&](int dir) {
                 const OptDef& d = g_optDefs[optSel];
@@ -1729,6 +1820,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         } else {
             g_buttons = 0;
             std::memset(g_analog, 0, sizeof(g_analog));
+            std::memset(g_extraButtons, 0, sizeof(g_extraButtons));
+            std::memset(g_extraAnalog, 0, sizeof(g_extraAnalog));
             int n = (int)items.size();
             if (pressed(RETRO_DEVICE_ID_JOYPAD_UP)) menuSel = (menuSel + n - 1) % n;
             if (pressed(RETRO_DEVICE_ID_JOYPAD_DOWN)) menuSel = (menuSel + 1) % n;
@@ -1764,6 +1857,15 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     settings.set(turnKey, std::to_string(userTurn));
                     settings.save();
                     log("picture: turned %d for this game, drawn at %d degrees", userTurn, picAngle);
+                    break;
+                case PausePlayers:
+                    // For playing on a pad alone: it becomes player 1. Kept for every game.
+                    g_swapPlayers = !g_swapPlayers;
+                    settings.set("players.swap", g_swapPlayers ? "on" : "off");
+                    settings.save();
+                    openPads();
+                    toast = playersSummary();
+                    toastAt = t;
                     break;
                 case PauseTurnControls:
                     turnControls = !turnControls;
