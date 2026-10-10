@@ -979,26 +979,69 @@ const std::vector<int16_t>& resampleStereo(const std::vector<int16_t>& in, doubl
 
 // ------------------------------------------------------------------- input
 
+// A controller can freeze with a button held: a Bluetooth pad switched off
+// without a clean disconnect keeps reporting its last state, and since every
+// pad feeds player 1 a frozen Coin or Start blocks those buttons on all of
+// them (arcade boards count a press only on its way down). So anything held
+// when a pad is opened is ignored on that pad until the same pad lets go. A
+// live pad lets go at once; a dead one never does, and stays out of the way.
+std::vector<uint32_t> g_padHeldButtons;  // per pad, bit per SDL_GameControllerButton
+std::vector<uint32_t> g_padHeldAxes;     // per pad, bit per SDL_GameControllerAxis
+constexpr int kStuckAxis = 16000;
+
 void openPads() {
     for (SDL_GameController* p : g_pads) SDL_GameControllerClose(p);
     g_pads.clear();
+    g_padHeldButtons.clear();
+    g_padHeldAxes.clear();
     // Open EVERY controller: the cabinet splits its buttons across two devices.
     for (int i = 0; i < SDL_NumJoysticks(); ++i)
         if (SDL_IsGameController(i))
             if (SDL_GameController* p = SDL_GameControllerOpen(i)) g_pads.push_back(p);
+    SDL_GameControllerUpdate();
+    for (size_t n = 0; n < g_pads.size(); ++n) {
+        uint32_t held = 0, axes = 0;
+        for (int b = 0; b < SDL_CONTROLLER_BUTTON_MAX; ++b)
+            if (SDL_GameControllerGetButton(g_pads[n], (SDL_GameControllerButton)b)) {
+                held |= 1u << b;
+                log("pad %zu (%s): %s held at open, ignored until released", n, SDL_GameControllerName(g_pads[n]),
+                    SDL_GameControllerGetStringForButton((SDL_GameControllerButton)b));
+            }
+        for (int a = 0; a < SDL_CONTROLLER_AXIS_MAX; ++a)
+            if (std::abs((int)SDL_GameControllerGetAxis(g_pads[n], (SDL_GameControllerAxis)a)) > kStuckAxis) {
+                axes |= 1u << a;
+                log("pad %zu (%s): axis %s held at open, ignored until released", n, SDL_GameControllerName(g_pads[n]),
+                    SDL_GameControllerGetStringForAxis((SDL_GameControllerAxis)a));
+            }
+        g_padHeldButtons.push_back(held);
+        g_padHeldAxes.push_back(axes);
+    }
     log("%zu controller(s) open", g_pads.size());
 }
 
 bool padButton(SDL_GameControllerButton b) {
-    for (SDL_GameController* p : g_pads)
-        if (SDL_GameControllerGetButton(p, b)) return true;
-    return false;
+    bool down = false;
+    for (size_t n = 0; n < g_pads.size(); ++n) {
+        bool on = SDL_GameControllerGetButton(g_pads[n], b);
+        if (g_padHeldButtons[n] >> b & 1) {
+            if (on) continue;
+            g_padHeldButtons[n] &= ~(1u << b);
+            log("pad %zu: %s released, back in use", n, SDL_GameControllerGetStringForButton(b));
+        }
+        down = down || on;
+    }
+    return down;
 }
 
 int padAxis(SDL_GameControllerAxis a) {
     int best = 0;
-    for (SDL_GameController* p : g_pads) {
-        int v = SDL_GameControllerGetAxis(p, a);
+    for (size_t n = 0; n < g_pads.size(); ++n) {
+        int v = SDL_GameControllerGetAxis(g_pads[n], a);
+        if (g_padHeldAxes[n] >> a & 1) {
+            if (std::abs(v) > kStuckAxis) continue;
+            g_padHeldAxes[n] &= ~(1u << a);
+            log("pad %zu: axis %s released, back in use", n, SDL_GameControllerGetStringForAxis(a));
+        }
         if (std::abs(v) > std::abs(best)) best = v;
     }
     return best;

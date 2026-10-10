@@ -2234,18 +2234,39 @@ void Menu::pollDirections(bool& running) {
         SDL_CONTROLLER_BUTTON_DPAD_LEFT, SDL_CONTROLLER_BUTTON_DPAD_RIGHT};
     static const SDL_Scancode kKey[DirCount] = {SDL_SCANCODE_UP, SDL_SCANCODE_DOWN, SDL_SCANCODE_LEFT, SDL_SCANCODE_RIGHT};
     const int kStick = 16000;
+    // A direction already held the first time a controller is seen is ignored
+    // on it until released: a Bluetooth pad switched off without a clean
+    // disconnect can keep reporting a held direction forever, which would
+    // scroll the menu on its own (the same guard as the player's openPads).
+    static std::map<SDL_JoystickID, unsigned> stuck;  // per controller, bit per direction
     bool held[DirCount] = {};
     for (int j = 0; j < SDL_NumJoysticks(); ++j) {
-        SDL_GameController* gc = SDL_GameControllerFromInstanceID(SDL_JoystickGetDeviceInstanceID(j));
+        const SDL_JoystickID id = SDL_JoystickGetDeviceInstanceID(j);
+        SDL_GameController* gc = SDL_GameControllerFromInstanceID(id);
         if (!gc) continue;
+        bool on[DirCount] = {};
         for (int d = 0; d < DirCount; ++d)
-            if (SDL_GameControllerGetButton(gc, kBtn[d])) held[d] = true;
+            if (SDL_GameControllerGetButton(gc, kBtn[d])) on[d] = true;
         int x = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTX);
         int y = SDL_GameControllerGetAxis(gc, SDL_CONTROLLER_AXIS_LEFTY);
-        if (y < -kStick) held[DirUp] = true;
-        if (y > kStick) held[DirDown] = true;
-        if (x < -kStick) held[DirLeft] = true;
-        if (x > kStick) held[DirRight] = true;
+        if (y < -kStick) on[DirUp] = true;
+        if (y > kStick) on[DirDown] = true;
+        if (x < -kStick) on[DirLeft] = true;
+        if (x > kStick) on[DirRight] = true;
+        auto seen = stuck.find(id);
+        if (seen == stuck.end()) {
+            unsigned m = 0;
+            for (int d = 0; d < DirCount; ++d) if (on[d]) m |= 1u << d;
+            if (m) log("controller %s: direction held when first seen, ignored until released", SDL_GameControllerName(gc));
+            seen = stuck.emplace(id, m).first;
+        }
+        for (int d = 0; d < DirCount; ++d) {
+            if (seen->second >> d & 1) {
+                if (on[d]) continue;
+                seen->second &= ~(1u << d);
+            }
+            if (on[d]) held[d] = true;
+        }
     }
     const Uint8* keys = SDL_GetKeyboardState(nullptr);
     Uint32 now = SDL_GetTicks();
