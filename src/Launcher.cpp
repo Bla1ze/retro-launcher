@@ -285,6 +285,20 @@ private:
     void startArtDownload();
 
     // Home on a game: options popup.
+    // What's new: the notes of every release being installed, before Install.
+    struct NoteLine {
+        std::string text;
+        float size = 26.0f, indent = 0.0f, gap = 0.0f;
+        SDL_Color color{242, 245, 250, 255};
+        bool bullet = false, display = false;
+    };
+    bool m_notesOpen = false;
+    int m_notesSel = 0;  // 0 Later, 1 Install and restart
+    float m_notesScroll = 0.0f, m_notesHeight = 0.0f;
+    std::vector<NoteLine> m_noteLines;
+    void openNotes();
+    void handleNotes(AtGames::ControlEvent ev);
+    void renderNotes();
     bool m_popup = false;
     int m_popupSys = 0, m_popupGame = 0, m_popupSel = 0;
     bool highlightedGame(int& sys, int& game) const;
@@ -993,6 +1007,7 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
         }
         return;
     }
+    if (m_notesOpen) { handleNotes(ev); return; }
     if (m_popup) { handlePopup(ev, running); return; }
     if (m_view == View::Search) { handleSearch(ev); return; }
     if (m_view == View::Controls) { handleControls(ev); return; }
@@ -1059,8 +1074,10 @@ void Menu::handle(AtGames::ControlEvent ev, bool& running) {
             else if (m_setSel == biosRow()) openBios();
             else if (m_setSel == updateRow()) {
                 const Updater::State us = m_update.state();
-                if (us == Updater::State::Available)
-                    ask(Confirm::Update, "Install v" + m_update.latest() + "?", "Install and restart");
+                if (us == Updater::State::Available) {
+                    if (!m_update.notes().empty()) openNotes();
+                    else ask(Confirm::Update, "Install v" + m_update.latest() + "?", "Install and restart");
+                }
                 else if (us != Updater::State::Checking && us != Updater::State::Downloading &&
                          us != Updater::State::Installing && us != Updater::State::Done)
                     m_update.check(m_appDir, false);
@@ -1227,12 +1244,191 @@ float scrollFor(float current, int sel, int count, float dt, float top = kListTo
     return current + (wantTop - current) * std::min(1.0f, dt * 14.0f);
 }
 
+// ------------------------------------------------------------- what's new
+
+namespace {
+// The notes panel's geometry (logical canvas, 720 x 1280).
+constexpr float kNotesX = 24.0f, kNotesY = 56.0f, kNotesW = 672.0f, kNotesH = 1168.0f;
+constexpr float kNotesTop = kNotesY + 168.0f, kNotesBottom = kNotesY + kNotesH - 140.0f;
+constexpr float kNotesPad = 36.0f;
+
+// **bold** and `code` marks out, the text kept.
+std::string plainMarkdown(std::string t) {
+    std::string out;
+    for (size_t i = 0; i < t.size(); ++i) {
+        if (t[i] == '`') continue;
+        if (t[i] == '*' && i + 1 < t.size() && t[i + 1] == '*') { ++i; continue; }
+        out += t[i];
+    }
+    return out;
+}
+
+// Words of `text` in lines no wider than maxW at `size`.
+std::vector<std::string> wrapText(SDL_Renderer* r, const std::string& text, float size, float maxW, bool display) {
+    std::vector<std::string> lines;
+    std::string line, word;
+    const AppFont::Face face = display ? AppFont::Face::Display : AppFont::Face::Body;
+    auto flush = [&]() {
+        if (word.empty()) return;
+        std::string tryLine = line.empty() ? word : line + " " + word;
+        if (!line.empty() && AppFont::measureWidth(r, tryLine, size, face) > maxW) { lines.push_back(line); line = word; }
+        else line = tryLine;
+        word.clear();
+    };
+    for (char c : text) {
+        if (c == ' ') flush();
+        else word += c;
+    }
+    flush();
+    if (!line.empty()) lines.push_back(line);
+    return lines;
+}
+}  // namespace
+
+void Menu::openNotes() {
+    m_noteLines.clear();
+    const float textW = kNotesW - 2.0f * kNotesPad;
+    const auto notes = m_update.notes();
+    for (size_t n = 0; n < notes.size(); ++n) {
+        NoteLine v;
+        v.text = "v" + notes[n].first;
+        v.size = Theme::Type::Heading;
+        v.color = Theme::accent();
+        v.display = true;
+        v.gap = n == 0 ? 0.0f : 34.0f;
+        m_noteLines.push_back(v);
+        float pendingGap = 6.0f;
+        std::string src = notes[n].second;
+        size_t at = 0;
+        while (at <= src.size()) {
+            size_t nl = src.find('\n', at);
+            std::string raw = src.substr(at, nl == std::string::npos ? std::string::npos : nl - at);
+            at = nl == std::string::npos ? src.size() + 1 : nl + 1;
+            size_t lead = raw.find_first_not_of(' ');
+            if (lead == std::string::npos) { pendingGap = std::max(pendingGap, 10.0f); continue; }
+            std::string t = raw.substr(lead);
+            NoteLine base;
+            if (t.compare(0, 3, "## ") == 0 || t.compare(0, 4, "### ") == 0) {
+                base.text = plainMarkdown(t.substr(t.find(' ') + 1));
+                base.size = Theme::Type::Body;
+                base.color = Theme::Text;
+                base.display = true;
+                pendingGap = std::max(pendingGap, 18.0f);
+            } else if (t.compare(0, 2, "- ") == 0 || t.compare(0, 2, "* ") == 0) {
+                base.text = plainMarkdown(t.substr(2));
+                base.size = 25.0f;
+                base.color = lead >= 2 ? Theme::Muted : Theme::TextDim;
+                base.indent = 26.0f + (float)(lead / 2) * 30.0f;
+                base.bullet = true;
+            } else {
+                base.text = plainMarkdown(t);
+                base.size = 25.0f;
+                base.color = Theme::TextDim;
+            }
+            const std::vector<std::string> wrapped =
+                wrapText(m_renderer, base.text, base.size, textW - base.indent, base.display);
+            for (size_t k = 0; k < wrapped.size(); ++k) {
+                NoteLine l = base;
+                l.text = wrapped[k];
+                l.bullet = base.bullet && k == 0;
+                l.gap = k == 0 ? pendingGap : 0.0f;
+                m_noteLines.push_back(l);
+            }
+            pendingGap = 4.0f;
+        }
+    }
+    m_notesHeight = 0.0f;
+    for (const NoteLine& l : m_noteLines) m_notesHeight += l.gap + l.size * 1.32f;
+    m_notesScroll = 0.0f;
+    m_notesSel = 0;  // Later, as the other confirmations start on Cancel
+    m_notesOpen = true;
+}
+
+void Menu::handleNotes(AtGames::ControlEvent ev) {
+    using CE = AtGames::ControlEvent;
+    const float view = kNotesBottom - kNotesTop, maxScroll = std::max(0.0f, m_notesHeight - view + 12.0f);
+    switch (ev) {
+    case CE::Up: m_notesScroll = std::max(0.0f, m_notesScroll - 64.0f); break;
+    case CE::Down: m_notesScroll = std::min(maxScroll, m_notesScroll + 64.0f); break;
+    case CE::LeftShoulder: m_notesScroll = std::max(0.0f, m_notesScroll - view * 0.85f); break;
+    case CE::RightShoulder: m_notesScroll = std::min(maxScroll, m_notesScroll + view * 0.85f); break;
+    case CE::Left: m_notesSel = 0; break;
+    case CE::Right: m_notesSel = 1; break;
+    case CE::B: case CE::Back: case CE::Guide: m_notesOpen = false; break;
+    case CE::A: case CE::Start:
+        m_notesOpen = false;
+        if (m_notesSel == 1) m_update.install();
+        break;
+    default: break;
+    }
+}
+
+void Menu::renderNotes() {
+    SDL_Renderer* r = m_renderer;
+    const float w = AppConfig::kLogicalWidth, h = AppConfig::kLogicalHeight;
+    Gfx::rect(r, {0.0f, 0.0f, w, h}, {4, 6, 12, 215});
+    Gfx::softRect(r, {kNotesX, kNotesY, kNotesW, kNotesH}, 32.0f, 40.0f, {0, 0, 0, 200}, false);
+    Gfx::panel(r, {kNotesX, kNotesY, kNotesW, kNotesH}, 32.0f, {30, 36, 58, 255}, {18, 22, 38, 255}, {255, 255, 255, 26}, 1.0f);
+    Gfx::hGradient(r, {kNotesX + 32.0f, kNotesY, kNotesW - 64.0f, 4.0f}, Theme::Accent, Theme::Accent2);
+    AppFont::drawCentered(r, "What's new", w * 0.5f, kNotesY + 36.0f, Theme::Type::Title, Theme::Text, AppFont::Face::Display);
+    const auto notes = m_update.notes();
+    const std::string span = notes.size() > 1 ? "v" + notes.back().first + " to v" + notes.front().first + "  -  " +
+                                                    std::to_string(notes.size()) + " updates"
+                                              : "Retro Launcher v" + m_update.latest();
+    AppFont::drawCentered(r, span, w * 0.5f, kNotesY + 116.0f, Theme::Type::Small, Theme::Muted);
+
+    // The notes, scrolled.
+    beginListClip(kNotesTop, kNotesBottom);
+    float y = kNotesTop - m_notesScroll;
+    for (const NoteLine& l : m_noteLines) {
+        y += l.gap;
+        const float lh = l.size * 1.32f;
+        if (y + lh >= kNotesTop && y <= kNotesBottom) {
+            const float x = kNotesX + kNotesPad + l.indent;
+            if (l.bullet) Gfx::roundRect(r, {x - 18.0f, y + l.size * 0.48f, 7.0f, 7.0f}, 3.5f, Theme::alpha(Theme::accent(), 220));
+            AppFont::draw(r, l.text, x, y, l.size, l.color, l.display ? AppFont::Face::Display : AppFont::Face::Body);
+        }
+        y += lh;
+    }
+    endListClip();
+    // Fades at the edges, and a scroll bar when it doesn't all fit.
+    const float view = kNotesBottom - kNotesTop;
+    if (m_notesScroll > 0.5f)
+        Gfx::rect(r, {kNotesX + 2.0f, kNotesTop, kNotesW - 4.0f, 2.0f}, {255, 255, 255, 30});
+    if (m_notesHeight > view) {
+        const float trackH = view - 16.0f, barH = std::max(48.0f, trackH * view / m_notesHeight);
+        const float maxScroll = m_notesHeight - view + 12.0f;
+        const float barY = kNotesTop + 8.0f + (trackH - barH) * std::min(1.0f, m_notesScroll / maxScroll);
+        Gfx::roundRect(r, {kNotesX + kNotesW - 16.0f, kNotesTop + 8.0f, 5.0f, trackH}, 2.5f, {255, 255, 255, 20});
+        Gfx::roundRect(r, {kNotesX + kNotesW - 16.0f, barY, 5.0f, barH}, 2.5f, Theme::alpha(Theme::accent(), 200));
+    }
+
+    // Later | Install and restart
+    const float by = kNotesY + kNotesH - 112.0f, bh = 80.0f, gap = 20.0f;
+    const float bw0 = 210.0f, bw1 = kNotesW - 2.0f * kNotesPad - bw0 - gap;
+    const FRect b0{kNotesX + kNotesPad, by, bw0, bh}, b1{b0.x + bw0 + gap, by, bw1, bh};
+    auto button = [&](const FRect& b, const std::string& label, bool sel, SDL_Color on) {
+        if (sel) {
+            Gfx::softRect(r, b, 40.0f, 16.0f, Theme::alpha(on, 80), true);
+            Gfx::roundRect(r, b, 40.0f, on);
+        } else {
+            Gfx::roundRect(r, b, 40.0f, {255, 255, 255, 18});
+        }
+        AppFont::drawCentered(r, label, b.x + b.w * 0.5f, b.y + 22.0f, Theme::Type::Body,
+                              sel ? SDL_Color{255, 245, 245, 255} : Theme::TextDim, AppFont::Face::Display);
+    };
+    button(b0, "Later", m_notesSel == 0, Theme::accent());
+    button(b1, "Install and restart", m_notesSel == 1, Theme::Live);
+}
+
 void Menu::beginListClip(float top, float bottom) {
-    SDL_Rect clip{0, (int)(top * m_canvasScale), (int)(AppConfig::kLogicalWidth * m_canvasScale),
-                  (int)((bottom - top) * m_canvasScale)};
-    SDL_RenderSetScale(m_renderer, 1.0f, 1.0f);
-    SDL_RenderSetClipRect(m_renderer, &clip);
+    // In canvas units, set while the canvas scale is on. SDL versions differ in
+    // when they apply the scale to a clip rect (when it's set, as the cabinet's
+    // 2.0.7, or when drawing, as newer ones): either way this lands right. (A
+    // pixel rect set at scale 1 was scaled twice by newer SDL, cutting lists.)
     SDL_RenderSetScale(m_renderer, m_canvasScale, m_canvasScale);
+    SDL_Rect clip{0, (int)top, AppConfig::kLogicalWidth, (int)(bottom - top)};
+    SDL_RenderSetClipRect(m_renderer, &clip);
 }
 
 void Menu::endListClip() {
@@ -2203,6 +2399,7 @@ void Menu::render(float dt) {
     else renderSystems();
     renderJump();
     if (m_popup) renderPopup();
+    if (m_notesOpen) renderNotes();
     if (m_confirm != Confirm::None)
         Theme::confirmDialog(m_renderer, AppConfig::kLogicalWidth, AppConfig::kLogicalHeight, m_confirmQ,
                              "Cancel", m_confirmOk, m_confirmSel);

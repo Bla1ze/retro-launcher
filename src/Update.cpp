@@ -5,6 +5,7 @@
 #include "vendor/stb_image.h"  // stbi_zlib_decode_noheader_buffer (stb's implementation lives in GamePanels.cpp)
 
 #include <algorithm>
+#include <cctype>
 #include <cerrno>
 #include <cstdio>
 #include <cstdlib>
@@ -19,7 +20,49 @@ using Library::log;
 
 namespace {
 
-const char* kLatestRelease = "https://api.github.com/repos/Bla1ze/retro-launcher/releases/latest";
+// Every release (newest first), for the latest one and the notes of all those
+// between it and this build.
+const char* kReleases = "https://api.github.com/repos/Bla1ze/retro-launcher/releases?per_page=30";
+
+// For previewing in the simulator only: RETRO_LAUNCHER_RELEASES_FILE reads the
+// release list from a file instead of GitHub, and RETRO_LAUNCHER_PRETEND_VERSION
+// stands in for this build's version. Neither is set on a cabinet.
+std::string currentVersion() {
+    const char* v = std::getenv("RETRO_LAUNCHER_PRETEND_VERSION");
+    return v && *v ? v : APP_VERSION;
+}
+
+// `"key": true` somewhere in s.
+bool jsonTrue(const std::string& s, const char* key) {
+    const std::string k = std::string("\"") + key + "\"";
+    size_t at = s.find(k);
+    if (at == std::string::npos) return false;
+    at += k.size();
+    while (at < s.size() && (s[at] == ' ' || s[at] == ':')) ++at;
+    return s.compare(at, 4, "true") == 0;
+}
+
+// A release body down to what a player wants to read: every "## " section but
+// the install one (download steps, guides link, checksum), no top-level title.
+std::string userNotes(const std::string& body) {
+    std::string out, line;
+    bool skip = false;
+    for (size_t i = 0; i <= body.size(); ++i) {
+        if (i < body.size() && body[i] != '\n') { if (body[i] != '\r') line += body[i]; continue; }
+        if (line.compare(0, 3, "## ") == 0) {
+            std::string t = line.substr(3);
+            for (char& c : t) c = (char)std::tolower((unsigned char)c);
+            skip = t.compare(0, 7, "install") == 0;
+        } else if (line.compare(0, 2, "# ") == 0) {
+            line.clear();
+            continue;
+        }
+        if (!skip) out += line + "\n";
+        line.clear();
+    }
+    while (!out.empty() && (out.back() == '\n' || out.back() == ' ')) out.pop_back();
+    return out;
+}
 const char* kPrefix = "external/retro-launcher/";
 
 std::vector<int> versionParts(std::string v) {
@@ -166,9 +209,16 @@ void Updater::runCheck() {
     ::mkdir((m_appDir + "/data").c_str(), 0755);
     std::ofstream(m_appDir + "/data/update-check.txt") << std::time(nullptr) << "\n";  // the daily check's clock
     const std::string tmp = m_appDir + "/data/.release.json", codeFile = m_appDir + "/data/.release.code";
-    int rc = m_curl.run({"--max-time", "30", "-o", tmp, "-w", "%{http_code}", kLatestRelease}, codeFile, false);
-    const std::string body = rc == 0 ? Net::readFile(tmp) : "";
-    const int http = std::atoi(Net::readFile(codeFile).c_str());
+    std::string body;
+    int rc = 0, http = 200;
+    if (const char* f = std::getenv("RETRO_LAUNCHER_RELEASES_FILE")) {
+        body = Net::readFile(f);
+        if (body.empty()) http = 404;
+    } else {
+        rc = m_curl.run({"--max-time", "30", "-o", tmp, "-w", "%{http_code}", kReleases}, codeFile, false);
+        body = rc == 0 ? Net::readFile(tmp) : "";
+        http = std::atoi(Net::readFile(codeFile).c_str());
+    }
     ::unlink(tmp.c_str());
     ::unlink(codeFile.c_str());
     if (rc != 0) { fail(Net::message(rc, "GitHub")); return; }
@@ -179,38 +229,62 @@ void Updater::runCheck() {
     }
     if (http == 403 || http == 429) { fail("GitHub is busy - try again in an hour"); return; }
     if (http != 200) { fail("GitHub answered " + std::to_string(http)); return; }
-    size_t at = 0;
-    std::string tag = Net::jsonNext(body, "tag_name", at);
-    if (tag.empty()) { fail("GitHub's answer had no version"); return; }
-    // The release zip among its files.
-    std::string url;
-    uint64_t size = 0;
-    at = 0;
-    while (true) {
-        std::string name = Net::jsonNext(body, "name", at);
-        if (at == std::string::npos) break;
-        if (name.compare(0, 16, "retro-launcher-v") == 0 && name.size() > 4 && name.compare(name.size() - 4, 4, ".zip") == 0) {
-            size_t u = at;
-            url = Net::jsonNext(body, "browser_download_url", u);
-            size = jsonNumber(body, "size", at);
-            break;
+    // One release per "tag_name": its fields up to the next release's tag.
+    struct Release { std::string version, url, notes; uint64_t size = 0; };
+    std::vector<Release> releases;
+    for (size_t at = body.find("\"tag_name\""); at != std::string::npos;) {
+        const size_t next = body.find("\"tag_name\"", at + 10);
+        const std::string seg = body.substr(at, next == std::string::npos ? std::string::npos : next - at);
+        at = next;
+        size_t p = 0;
+        const std::string tag = Net::jsonNext(seg, "tag_name", p);
+        if (tag.empty() || jsonTrue(seg, "draft") || jsonTrue(seg, "prerelease")) continue;
+        Release r;
+        r.version = tag[0] == 'v' || tag[0] == 'V' ? tag.substr(1) : tag;
+        // The release zip among its files.
+        p = 0;
+        while (true) {
+            std::string name = Net::jsonNext(seg, "name", p);
+            if (p == std::string::npos) break;
+            if (name.compare(0, 16, "retro-launcher-v") == 0 && name.size() > 4 && name.compare(name.size() - 4, 4, ".zip") == 0) {
+                size_t u = p;
+                r.url = Net::jsonNext(seg, "browser_download_url", u);
+                r.size = jsonNumber(seg, "size", p);
+                break;
+            }
         }
+        p = 0;
+        r.notes = userNotes(Net::jsonNext(seg, "body", p));
+        releases.push_back(r);
     }
-    std::string version = tag[0] == 'v' || tag[0] == 'V' ? tag.substr(1) : tag;
+    if (releases.empty()) { fail("GitHub's answer had no version"); return; }
+    std::sort(releases.begin(), releases.end(), [](const Release& a, const Release& b) { return isNewer(a.version, b.version); });
+    const Release& top = releases.front();
+    const std::string current = currentVersion();
+    std::vector<std::pair<std::string, std::string>> notes;
+    for (const Release& r : releases)
+        if (isNewer(r.version, current) && !r.notes.empty()) notes.push_back({r.version, r.notes});
     {
         std::lock_guard<std::mutex> lock(m_mu);
-        m_latest = version;
-        m_url = url;
-        m_size = size;
+        m_latest = top.version;
+        m_url = top.url;
+        m_size = top.size;
+        m_notes = notes;
     }
-    if (!isNewer(version, APP_VERSION)) {
-        log("update: v%s is the latest (this is v%s)", version.c_str(), APP_VERSION);
+    if (!isNewer(top.version, current)) {
+        log("update: v%s is the latest (this is v%s)", top.version.c_str(), current.c_str());
         m_state = State::UpToDate;
         return;
     }
-    if (url.empty()) { fail("v" + version + " has no download"); return; }
-    log("update: v%s available (%llu bytes): %s", version.c_str(), (unsigned long long)size, url.c_str());
+    if (top.url.empty()) { fail("v" + top.version + " has no download"); return; }
+    log("update: v%s available (%llu bytes, notes for %zu release(s)): %s", top.version.c_str(),
+        (unsigned long long)top.size, notes.size(), top.url.c_str());
     m_state = State::Available;
+}
+
+std::vector<std::pair<std::string, std::string>> Updater::notes() const {
+    std::lock_guard<std::mutex> lock(m_mu);
+    return m_notes;
 }
 
 void Updater::runInstall() {

@@ -7,6 +7,8 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 // Settings > Updates: compares this build with the latest GitHub release of
 // Bla1ze/retro-launcher, and on request downloads its zip and replaces only the
@@ -32,6 +34,10 @@ public:
     std::string latest() const;   // "0.23.0"
     std::string message() const;  // failure reason, or what was done
     int progress() const;         // download percent while Downloading
+    // What's new in every release between this build and the latest, newest
+    // first: (version, notes as Markdown, the release's install section and
+    // checksum left out). Shown before installing.
+    std::vector<std::pair<std::string, std::string>> notes() const;
     int filesUpdated() const { return m_updated.load(); }
     // The automatic check is due (none in the last day).
     static bool dailyCheckDue(const std::string& appDir);
@@ -51,5 +57,6 @@ private:
     bool m_prepared = false;
     mutable std::mutex m_mu;
     std::string m_latest, m_url, m_message, m_partPath;
+    std::vector<std::pair<std::string, std::string>> m_notes;
     uint64_t m_size = 0;
 };
