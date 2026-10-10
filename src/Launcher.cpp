@@ -263,6 +263,8 @@ private:
     Updater m_update;
     bool m_updateAnnounced = false;
     std::string updateValue() const;
+    std::string updateAvailable() const;
+    std::string m_knownLatest;  // what the last update check found (data/update-check.txt), read at start
 
     // Settings > BIOS check: what each system with games can use, and where it goes.
     struct BiosRow {
@@ -466,7 +468,17 @@ bool Menu::initVideo() {
     return true;
 }
 
+// The newer version waiting to be installed, "" if none: this run's check, or
+// what the last check found (kept in data/update-check.txt across restarts).
+std::string Menu::updateAvailable() const {
+    const Updater::State s = m_update.state();
+    if (s == Updater::State::Available) return m_update.latest();
+    if (s == Updater::State::UpToDate || s == Updater::State::Done) return "";
+    return !m_knownLatest.empty() && Updater::isNewer(m_knownLatest, APP_VERSION) ? m_knownLatest : "";
+}
+
 std::string Menu::updateValue() const {
+    if (m_update.state() == Updater::State::Idle && !updateAvailable().empty()) return "v" + updateAvailable() + " available";
     switch (m_update.state()) {
     case Updater::State::Checking: return "Checking...";
     case Updater::State::UpToDate: return "Up to date (v" APP_VERSION ")";
@@ -1601,7 +1613,9 @@ void Menu::renderSystems() {
         }
         if (i == settingsRow()) {
             AppFont::draw(r, "Settings", tx, y + 14.0f, Theme::Type::Body, active ? Theme::Text : Theme::TextDim);
-            AppFont::draw(r, "Picture, scaling, scanlines, screens", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
+            const std::string upd = updateAvailable();
+            if (!upd.empty()) AppFont::draw(r, "Update available: v" + upd, tx, y + 54.0f, Theme::Type::Caption, Theme::accent());
+            else AppFont::draw(r, "Picture, scaling, scanlines, screens", tx, y + 54.0f, Theme::Type::Caption, Theme::Muted);
             continue;
         }
         if (i == 1) {
@@ -2511,7 +2525,8 @@ int Menu::run() {
     if (!initVideo()) return 1;
     startConsoleIcons();
     m_trackball.open();  // scrolls the lists, if there is one
-    if (Updater::dailyCheckDue(m_appDir)) m_update.check(m_appDir, true);  // quietly, in the background
+    m_knownLatest = Updater::knownLatest(m_appDir);
+    if (Updater::startupCheckDue(m_appDir)) m_update.check(m_appDir, true);  // quietly, in the background
     for (auto& f : Library::loadFavorites(m_appDir)) m_favs.insert(f);
     if (m_startSys == "@recent" || m_startSys == "@favorites") {
         openList(m_startSys == "@favorites");

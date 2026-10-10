@@ -39,8 +39,14 @@ public:
     // checksum left out). Shown before installing.
     std::vector<std::pair<std::string, std::string>> notes() const;
     int filesUpdated() const { return m_updated.load(); }
-    // The automatic check is due (none in the last day).
-    static bool dailyCheckDue(const std::string& appDir);
+    // The startup check is due: no answer from GitHub in the last hour (the
+    // menu starts again after every game, so not every one of those).
+    static bool startupCheckDue(const std::string& appDir);
+    // The newest version the last successful check found ("" if none yet):
+    // keeps "update available" showing after the menu restarts, until installed.
+    static std::string knownLatest(const std::string& appDir);
+    // "1.0.10" is newer than "1.0.9" (numbers only; a "-test" suffix is ignored).
+    static bool isNewer(const std::string& version, const std::string& than);
 
 private:
     void runCheck();
