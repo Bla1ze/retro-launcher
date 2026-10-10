@@ -1082,6 +1082,28 @@ uint16_t readButtons(const Library::ButtonMap& map) {
     return b;
 }
 
+// A game turned by hand (a TATE-mode game drawn sideways in a landscape frame)
+// gets its directions turned to match, so up on the stick is up on the screen.
+// `quarters` = the picture's extra turn, clockwise, in quarter turns.
+uint16_t turnDirections(uint16_t b, int quarters) {
+    for (int k = 0; k < (quarters & 3); ++k) {
+        auto bit = [&](int id) { return (b >> id) & 1u; };
+        unsigned up = bit(RETRO_DEVICE_ID_JOYPAD_RIGHT), left = bit(RETRO_DEVICE_ID_JOYPAD_UP),
+                 down = bit(RETRO_DEVICE_ID_JOYPAD_LEFT), right = bit(RETRO_DEVICE_ID_JOYPAD_DOWN);
+        b &= (uint16_t)~((1u << RETRO_DEVICE_ID_JOYPAD_UP) | (1u << RETRO_DEVICE_ID_JOYPAD_DOWN) |
+                         (1u << RETRO_DEVICE_ID_JOYPAD_LEFT) | (1u << RETRO_DEVICE_ID_JOYPAD_RIGHT));
+        b |= (uint16_t)(up << RETRO_DEVICE_ID_JOYPAD_UP | down << RETRO_DEVICE_ID_JOYPAD_DOWN |
+                        left << RETRO_DEVICE_ID_JOYPAD_LEFT | right << RETRO_DEVICE_ID_JOYPAD_RIGHT);
+    }
+    return b;
+}
+
+void turnStick(int& x, int& y, int quarters) {
+    for (int k = 0; k < (quarters & 3); ++k) { int nx = y; y = -x; x = nx; }
+    x = std::max(-32768, std::min(32767, x));
+    y = std::max(-32768, std::min(32767, y));
+}
+
 // ------------------------------------------------------------- pause menu
 // Drawn over the frozen game in the Neon style, in a 1280x720 logical space
 // scaled to the screen (Gfx/AppFont/Theme bake per renderer).
@@ -1269,6 +1291,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         const std::string prefix = appDir + "/roms/" + sys->id + "/";
         if (fileKey.compare(0, prefix.size(), prefix) == 0) fileKey = fileKey.substr(prefix.size());
     }
+    // The picture's own turn for this game, set from the pause menu (TATE-mode
+    // games drawn sideways), and whether the directions turn with it.
+    const std::string turnKey = "picture.rotate." + sys->id + "/" + fileKey;
+    const std::string turnCtlKey = "picture.controls." + sys->id + "/" + fileKey;
+    int userTurn = ((std::atoi(settings.value(turnKey, "0").c_str()) / 90) % 4 + 4) % 4 * 90;
+    bool turnControls = settings.value(turnCtlKey, "on") != "off";
     int mapScope = 0;
     const Library::ButtonMap buttonMap = Library::buttonMapFor(settings, sys->id, fileKey, &mapScope);
     log("buttons (%s): %s", mapScope == 2 ? "this game" : mapScope == 1 ? "system" : "default",
@@ -1486,11 +1514,17 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     bool sideways = rotate == 90 || rotate == 270;  // the screen (pause menu follows this)
     // The picture also turns as the core asks (vertical arcade games), on top of
     // the screen's own rotation. libretro counts counter-clockwise, SDL clockwise.
-    const int picAngle = ((rotate - 90 * (int)g_coreRotation) % 360 + 360) % 360;
-    const bool picSideways = picAngle == 90 || picAngle == 270;
+    // On top of both, the game's own turn from the pause menu (userTurn, clockwise).
+    int picAngle = 0;
+    bool picSideways = false;
+    auto setPicAngle = [&]() {
+        picAngle = ((rotate - 90 * (int)g_coreRotation + userTurn) % 360 + 360) % 360;
+        picSideways = picAngle == 90 || picAngle == 270;
+    };
+    setPicAngle();
     if (picAngle != 0 && bezel.tex) { SDL_DestroyTexture(bezel.tex); bezel.tex = nullptr; }
-    log("picture: core rotation %u, screen %d, drawn at %d degrees, frame %ux%u, aspect %.3f", g_coreRotation, rotate,
-        picAngle, g_av.geometry.base_width, g_av.geometry.base_height, g_av.geometry.aspect_ratio);
+    log("picture: core rotation %u, screen %d, turned %d, drawn at %d degrees, frame %ux%u, aspect %.3f", g_coreRotation,
+        rotate, userTurn, picAngle, g_av.geometry.base_width, g_av.geometry.base_height, g_av.geometry.aspect_ratio);
     Uint32 started = SDL_GetTicks(), statsAt = started, startHeld = 0;
     unsigned long statFrames = 0, coreFrames = 0, underruns = 0, catchUps = 0;
     Uint32 lastPresent = SDL_GetTicks();
@@ -1513,7 +1547,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     const std::string coreTitle = std::string(info.library_name ? info.library_name : "Core") + " " +
                                   (info.library_version ? info.library_version : "");
     int menuSel = 0;
-    enum { PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseDisc, PauseQuit };
+    enum { PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseTurn, PauseTurnControls, PauseDisc, PauseQuit };
     std::vector<int> pauseIds;
     // Multi-disc games: how many discs, which one is in (asked once; changed here).
     unsigned discs = 0, discIndex = 0;
@@ -1617,7 +1651,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         std::vector<std::string> items;
         std::vector<bool> enabled;
         if (menu == Menu::Pause) {
-            pauseIds = {PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions};
+            pauseIds = {PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseTurn};
+            if (userTurn == 90 || userTurn == 270) pauseIds.push_back(PauseTurnControls);
             if (discs > 1) pauseIds.push_back(PauseDisc);
             pauseIds.push_back(PauseQuit);
             for (int id : pauseIds) {
@@ -1627,6 +1662,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 case PauseLoad: items.push_back("Load state"); enabled.push_back(canState && stateMatches(statePath)); break;
                 case PauseReset: items.push_back("Reset"); enabled.push_back(core.reset != nullptr); break;
                 case PauseOptions: items.push_back("Core options"); enabled.push_back(!g_optDefs.empty()); break;
+                case PauseTurn: items.push_back(std::string("Rotate picture: ") + (userTurn == 90 ? "turned right" : userTurn == 180 ? "upside down" : userTurn == 270 ? "turned left" : "off")); enabled.push_back(true); break;
+                case PauseTurnControls: items.push_back(std::string("Turn controls with it: ") + (turnControls ? "on" : "off")); enabled.push_back(true); break;
                 case PauseDisc: items.push_back("Change disc (" + std::to_string(discIndex + 1) + " of " + std::to_string(discs) + ")"); enabled.push_back(true); break;
                 case PauseQuit: items.push_back("Quit to menu"); enabled.push_back(true); break;
                 }
@@ -1639,20 +1676,24 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (menu == Menu::None) {
             // While the game runs: Home, or Start held a second, opens the menu.
             if (suppressInput && raw == 0) suppressInput = false;
-            g_buttons = suppressInput ? 0 : gameRaw;
+            const int ctlTurn = turnControls ? userTurn / 90 : 0;
+            g_buttons = suppressInput ? 0 : turnDirections(gameRaw, ctlTurn);
             cvAutoStep();
             // Analog: the stick if it's pushed, else the D-pad at full tilt (the
             // cabinet's joystick may report as a D-pad; PSP games often read only
             // the analog nub).
             {
                 int lx = padAxis(SDL_CONTROLLER_AXIS_LEFTX), ly = padAxis(SDL_CONTROLLER_AXIS_LEFTY);
+                int rx = padAxis(SDL_CONTROLLER_AXIS_RIGHTX), ry = padAxis(SDL_CONTROLLER_AXIS_RIGHTY);
+                turnStick(lx, ly, ctlTurn);
+                turnStick(rx, ry, ctlTurn);
                 auto bit = [&](int id) { return (g_buttons >> id) & 1; };
                 if (std::abs(lx) < 8000) lx = bit(RETRO_DEVICE_ID_JOYPAD_RIGHT) ? 32767 : bit(RETRO_DEVICE_ID_JOYPAD_LEFT) ? -32767 : 0;
                 if (std::abs(ly) < 8000) ly = bit(RETRO_DEVICE_ID_JOYPAD_DOWN) ? 32767 : bit(RETRO_DEVICE_ID_JOYPAD_UP) ? -32767 : 0;
                 g_analog[0][0] = suppressInput ? 0 : (int16_t)lx;
                 g_analog[0][1] = suppressInput ? 0 : (int16_t)ly;
-                g_analog[1][0] = suppressInput ? 0 : (int16_t)padAxis(SDL_CONTROLLER_AXIS_RIGHTX);
-                g_analog[1][1] = suppressInput ? 0 : (int16_t)padAxis(SDL_CONTROLLER_AXIS_RIGHTY);
+                g_analog[1][0] = suppressInput ? 0 : (int16_t)rx;
+                g_analog[1][1] = suppressInput ? 0 : (int16_t)ry;
             }
             if (raw & (1u << RETRO_DEVICE_ID_JOYPAD_START)) {
                 if (!startHeld) startHeld = t;
@@ -1716,6 +1757,19 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     break;
                 case PauseReset: { CoreGL glScope; core.reset(); } cvAutoArm(cvKey); closeMenu(); break;
                 case PauseOptions: menu = Menu::Options; optSel = optTop = 0; break;
+                case PauseTurn:
+                    // Live, and kept for this game. The bezel only fits an unturned picture.
+                    userTurn = (userTurn + 90) % 360;
+                    setPicAngle();
+                    settings.set(turnKey, std::to_string(userTurn));
+                    settings.save();
+                    log("picture: turned %d for this game, drawn at %d degrees", userTurn, picAngle);
+                    break;
+                case PauseTurnControls:
+                    turnControls = !turnControls;
+                    settings.set(turnCtlKey, turnControls ? "on" : "off");
+                    settings.save();
+                    break;
                 case PauseDisc: {
                     // Open the tray, put the next disc in, close it.
                     CoreGL glScope;
@@ -1801,8 +1855,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                                                         : (float)g_av.geometry.base_width / g_av.geometry.base_height;
                 if ((g_coreRotation & 1) && g_av.geometry.aspect_ratio > 0) aspect = 1.0f / aspect;
             }
+            const bool useBezel = bezel.tex && picAngle == 0;  // a picture turned from the pause menu goes without
             float bx = 0, by = 0, bw = picSideways ? winH : winW, bh = picSideways ? winW : winH;
-            if (bezel.tex) {
+            if (useBezel) {
                 float sx = (float)winW / bezel.w, sy = (float)winH / bezel.h;
                 bx = bezel.window.x * sx; by = bezel.window.y * sy;
                 bw = bezel.window.w * sx; bh = bezel.window.h * sy;
@@ -1816,12 +1871,12 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 if (mult >= 1) { ch = (float)(mult * src.h); cw = ch * shownAspect; }
             }
             SDL_Rect dst{(int)(bx + (bw - cw) / 2), (int)(by + (bh - ch) / 2), (int)cw, (int)ch};
-            if (!bezel.tex) dst = SDL_Rect{(int)((winW - cw) / 2), (int)((winH - ch) / 2), (int)cw, (int)ch};
+            if (!useBezel) dst = SDL_Rect{(int)((winW - cw) / 2), (int)((winH - ch) / 2), (int)cw, (int)ch};
             // The picture's on-screen footprint after rotation, for the bars.
             SDL_Rect shown = picSideways ? SDL_Rect{(int)((winW - ch) / 2), (int)((winH - cw) / 2), (int)ch, (int)cw} : dst;
             float frameDt = std::min(0.1f, (t - lastPresent) / 1000.0f);
             lastPresent = t;
-            if (bezel.tex) {
+            if (useBezel) {
                 SDL_SetRenderDrawColor(g_renderer, 0, 0, 0, 255);
                 SDL_RenderClear(g_renderer);
             } else {
@@ -1839,7 +1894,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     SDL_RenderCopyEx(g_renderer, scanTex, &ss, &dst, picAngle, nullptr, SDL_FLIP_NONE);
                 }
             }
-            if (bezel.tex) SDL_RenderCopy(g_renderer, bezel.tex, nullptr, nullptr);
+            if (useBezel) SDL_RenderCopy(g_renderer, bezel.tex, nullptr, nullptr);
             if (menu != Menu::None) {
                 const char* title = menu == Menu::Continue ? "WELCOME BACK" : "PAUSED";
                 auto drawMenuAt = [&](int w, int h) {
