@@ -691,6 +691,47 @@ inline void miniEq(SDL_Renderer* r, float x, float baseY, int bars, float h, SDL
     }
 }
 
+
+// --- screen building blocks (Retro Launcher) ----------------------------------
+// The shapes Retro Launcher's own screens draw (dialogs, popups, toasts, keys),
+// so each look can draw them its own way. Neon's are the screens' original calls.
+
+inline void shadowedPanel(SDL_Renderer* r, const FRect& rc, float radius, float spread, SDL_Color shadow,
+                          SDL_Color top, SDL_Color bottom, SDL_Color border, float bw)
+{
+    Gfx::softRect(r, rc, radius, spread, shadow, false);
+    Gfx::panel(r, rc, radius, top, bottom, border, bw);
+}
+
+inline void framedPanel(SDL_Renderer* r, const FRect& rc, float radius, SDL_Color top, SDL_Color bottom,
+                        SDL_Color border, float bw)
+{
+    Gfx::panel(r, rc, radius, top, bottom, border, bw);
+}
+
+inline void pill(SDL_Renderer* r, const FRect& rc, float radius, SDL_Color c) { Gfx::roundRect(r, rc, radius, c); }
+
+inline void button(SDL_Renderer* r, const FRect& rc, float radius, bool selected, SDL_Color on, SDL_Color off,
+                   float glowSpread, int glowAlpha)
+{
+    if (selected) {
+        Gfx::softRect(r, rc, radius, glowSpread, alpha(on, glowAlpha), true);
+        Gfx::roundRect(r, rc, radius, on);
+    } else {
+        Gfx::roundRect(r, rc, radius, off);
+    }
+}
+
+// Text on a button: the screen's own colors.
+inline SDL_Color buttonText(bool selected, SDL_Color /*fill*/, SDL_Color selectedColor, SDL_Color idleColor)
+{
+    return selected ? selectedColor : idleColor;
+}
+
+inline void topRule(SDL_Renderer* r, const FRect& rc) { Gfx::hGradient(r, rc, Accent, Accent2); }
+
+// Text set in the display face: as given.
+inline std::string displayText(const std::string& s) { return s; }
 } // namespace neon
 
 // ============================================================== Attract
@@ -805,7 +846,9 @@ inline float fitSize(SDL_Renderer* r, const std::string& s, float maxW, float si
 {
     const float w = AppFont::measureWidth(r, s, size, face);
     if (w <= maxW || w <= 0.0f) return size;
-    return std::max(minSize, size * maxW / w);
+    // 3% short of the exact fit: glyph advances round up at the new size, and a
+    // pixel over makes ellipsize() cut the title ("SUPER NINT...").
+    return std::max(minSize, size * maxW / w * 0.97f);
 }
 
 inline std::string upper(std::string s)
@@ -880,12 +923,10 @@ inline void background(SDL_Renderer* r, int w, int h)
 }
 
 // Adds the CRT "roll": a faint bright band drifting slowly down the tube.
-inline void backgroundAnimated(SDL_Renderer* r, int w, int h, float time)
+inline void backgroundAnimated(SDL_Renderer* r, int w, int h, float /*time*/)
 {
+    // Retro Launcher: no rolling CRT band (the user's call); the static scanlines stay.
     background(r, w, h);
-    const float y = std::fmod(time * 70.0f, h + 240.0f) - 120.0f;
-    Gfx::vGradient(r, {0.0f, y, static_cast<float>(w), 60.0f}, {61, 245, 255, 0}, {61, 245, 255, 14});
-    Gfx::vGradient(r, {0.0f, y + 60.0f, static_cast<float>(w), 60.0f}, {61, 245, 255, 14}, {61, 245, 255, 0});
 }
 
 // Caption in cyan over a yellow pixel title with a hard red offset shadow.
@@ -1351,6 +1392,49 @@ inline void miniEq(SDL_Renderer* r, float x, float baseY, int bars, float h, SDL
     }
 }
 
+
+// --- screen building blocks (Retro Launcher) ----------------------------------
+// Attract's versions: square boxes, hard offset shadows, no blur or rounding.
+
+inline void shadowedPanel(SDL_Renderer* r, const FRect& rc, float /*radius*/, float /*spread*/, SDL_Color shadow,
+                          SDL_Color top, SDL_Color /*bottom*/, SDL_Color /*border*/, float /*bw*/)
+{
+    // Navy, a cyan border and an inner rule, the hard black shadow (as the confirm dialog).
+    box(r, rc, {11, 11, 30, top.a}, alpha(Accent, top.a), 3.0f, true, {0, 0, 0, shadow.a});
+    const float in = 8.0f;
+    box(r, {rc.x + in, rc.y + in, rc.w - 2.0f * in, rc.h - 2.0f * in}, {0, 0, 0, 0}, alpha(Accent, top.a * 50 / 255), 1.0f, false);
+}
+
+inline void framedPanel(SDL_Renderer* r, const FRect& rc, float /*radius*/, SDL_Color top, SDL_Color /*bottom*/,
+                        SDL_Color /*border*/, float /*bw*/)
+{
+    box(r, rc, {8, 8, 20, std::max<Uint8>(top.a, 200)}, alpha(Accent, 200), 2.0f, false);
+}
+
+inline void pill(SDL_Renderer* r, const FRect& rc, float /*radius*/, SDL_Color c) { Gfx::rect(r, rc, c); }
+
+inline void button(SDL_Renderer* r, const FRect& rc, float /*radius*/, bool selected, SDL_Color on, SDL_Color /*off*/,
+                   float /*glowSpread*/, int /*glowAlpha*/)
+{
+    if (selected) {
+        box(r, rc, on, Gold, 3.0f, true, Gold);
+    } else {
+        box(r, rc, Card, Hairline, 2.0f, false);
+    }
+}
+
+// Dark text on a light fill (cyan, yellow), light text on a dark one (red).
+inline SDL_Color buttonText(bool selected, SDL_Color fill, SDL_Color /*selectedColor*/, SDL_Color /*idleColor*/)
+{
+    if (!selected) return TextDim;
+    const int luma = (fill.r * 299 + fill.g * 587 + fill.b * 114) / 1000;
+    return luma > 140 ? Ink : Text;
+}
+
+inline void topRule(SDL_Renderer* r, const FRect& rc) { Gfx::rect(r, rc, Accent); }
+
+// Text set in the display face: upper case, as all of Attract's pixel type.
+inline std::string displayText(const std::string& s) { return upper(s); }
 } // namespace attract
 
 static_assert(neon::kMargin == kMargin && attract::kMargin == kMargin, "theme geometry differs");
@@ -1401,5 +1485,15 @@ inline void icon(SDL_Renderer* r, Icon kind, float x, float y, float s, SDL_Colo
 inline int listTop(int sel, int count, int rows) { return style() == Style::Attract ? attract::listTop(sel, count, rows) : neon::listTop(sel, count, rows); }
 inline void emptyState(SDL_Renderer* r, int w, const std::string& big, const std::string& hint, SDL_Color bigColor = Text) { if (style() == Style::Attract) attract::emptyState(r, w, big, hint, bigColor); else neon::emptyState(r, w, big, hint, bigColor); }
 inline void miniEq(SDL_Renderer* r, float x, float baseY, int bars, float h, SDL_Color c, bool live) { if (style() == Style::Attract) attract::miniEq(r, x, baseY, bars, h, c, live); else neon::miniEq(r, x, baseY, bars, h, c, live); }
+
+
+inline void shadowedPanel(SDL_Renderer* r, const FRect& rc, float radius, float spread, SDL_Color shadow, SDL_Color top, SDL_Color bottom, SDL_Color border, float bw) { if (style() == Style::Attract) attract::shadowedPanel(r, rc, radius, spread, shadow, top, bottom, border, bw); else neon::shadowedPanel(r, rc, radius, spread, shadow, top, bottom, border, bw); }
+inline void framedPanel(SDL_Renderer* r, const FRect& rc, float radius, SDL_Color top, SDL_Color bottom, SDL_Color border, float bw) { if (style() == Style::Attract) attract::framedPanel(r, rc, radius, top, bottom, border, bw); else neon::framedPanel(r, rc, radius, top, bottom, border, bw); }
+inline void pill(SDL_Renderer* r, const FRect& rc, float radius, SDL_Color c) { if (style() == Style::Attract) attract::pill(r, rc, radius, c); else neon::pill(r, rc, radius, c); }
+inline void button(SDL_Renderer* r, const FRect& rc, float radius, bool selected, SDL_Color on, SDL_Color off, float glowSpread, int glowAlpha) { if (style() == Style::Attract) attract::button(r, rc, radius, selected, on, off, glowSpread, glowAlpha); else neon::button(r, rc, radius, selected, on, off, glowSpread, glowAlpha); }
+inline SDL_Color buttonText(bool selected, SDL_Color fill, SDL_Color selectedColor, SDL_Color idleColor) { return style() == Style::Attract ? attract::buttonText(selected, fill, selectedColor, idleColor) : neon::buttonText(selected, fill, selectedColor, idleColor); }
+inline void topRule(SDL_Renderer* r, const FRect& rc) { if (style() == Style::Attract) attract::topRule(r, rc); else neon::topRule(r, rc); }
+inline std::string displayText(const std::string& s) { return style() == Style::Attract ? attract::displayText(s) : neon::displayText(s); }
+inline bool blinkOn() { return style() == Style::Attract ? attract::blinkOn() : true; }
 
 } // namespace Theme

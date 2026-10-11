@@ -3,6 +3,7 @@
 #include "DrmKms.h"
 #include "Library.h"
 #include "PanelFont.h"
+#include "Theme.h"
 
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_ONLY_JPEG
@@ -30,13 +31,27 @@ namespace {
 
 using Library::log;
 
-constexpr uint8_t kInk[3] = {245, 246, 250};
-constexpr uint8_t kGold[3] = {245, 214, 95};
-constexpr uint8_t kTeal[3] = {43, 199, 184};
-constexpr uint8_t kViolet[3] = {124, 92, 232};
+// The panels' palette: Neon's values, swapped for Attract's by panelStyle() at
+// init (titles yellow over a red shadow, captions cyan, details pink, a near-
+// black CRT ground with scanlines, no light pools or blur).
+uint8_t kInk[3] = {245, 246, 250};
+uint8_t kGold[3] = {245, 214, 95};
+uint8_t kTeal[3] = {43, 199, 184};
+uint8_t kViolet[3] = {124, 92, 232};
 constexpr uint8_t kWhite[3] = {255, 255, 255};
-constexpr uint8_t kGradTop[3] = {16, 30, 46};
-constexpr uint8_t kGradBot[3] = {30, 16, 50};
+uint8_t kGradTop[3] = {16, 30, 46};
+uint8_t kGradBot[3] = {30, 16, 50};
+constexpr uint8_t kAttractShadow[3] = {229, 36, 75};  // Rose
+
+bool attract() { return Theme::style() == Theme::Style::Attract; }
+
+void panelStyle() {
+    if (!attract()) return;
+    const uint8_t ink[3] = {255, 225, 77}, gold[3] = {255, 95, 210}, teal[3] = {61, 245, 255}, violet[3] = {255, 95, 210},
+                  top[3] = {8, 8, 20}, bot[3] = {4, 4, 10};
+    std::memcpy(kInk, ink, 3); std::memcpy(kGold, gold, 3); std::memcpy(kTeal, teal, 3);
+    std::memcpy(kViolet, violet, 3); std::memcpy(kGradTop, top, 3); std::memcpy(kGradBot, bot, 3);
+}
 
 int findCard0Fd() {
     DIR* d = ::opendir("/proc/self/fd");
@@ -67,6 +82,7 @@ void gradient(std::vector<uint8_t>& c, int W, int H, const uint8_t top[3], const
 
 // A soft radial pool of light (additive), for the no-art title card.
 void glow(std::vector<uint8_t>& c, int W, int H, float cx, float cy, float radius, const uint8_t col[3], float strength) {
+    if (attract()) return;  // Attract: hard edges, no light pools
     int x0 = std::max(0, (int)(cx - radius)), x1 = std::min(W, (int)(cx + radius));
     int y0 = std::max(0, (int)(cy - radius)), y1 = std::min(H, (int)(cy + radius));
     for (int y = y0; y < y1; ++y)
@@ -82,13 +98,43 @@ void glow(std::vector<uint8_t>& c, int W, int H, float cx, float cy, float radiu
 void text(std::vector<uint8_t>& c, int W, int H, const std::string& s, float cx, float top, float px,
           const uint8_t col[3], PanelFont::Face face, float maxW) {
     if (s.empty()) return;
+    if (attract() && face == PanelFont::Face::Display) {  // pixel type: upper case over a hard red shadow
+        std::string u = s;
+        for (char& ch : u) ch = (char)std::toupper((unsigned char)ch);
+        float w = PanelFont::measure(u, px, face);
+        const float room = maxW * 0.95f;  // the shadow sits to the right: keep it inside
+        if (w > room && w > 0) { px *= room / w; w = room; }
+        const float off = std::max(2.0f, px * 0.07f);
+        PanelFont::draw(c.data(), W, H, u, cx - w * 0.5f + off, top + off, px, kAttractShadow[0], kAttractShadow[1],
+                        kAttractShadow[2], face);
+        PanelFont::draw(c.data(), W, H, u, cx - w * 0.5f, top, px, col[0], col[1], col[2], face);
+        return;
+    }
     float w = PanelFont::measure(s, px, face);
     if (w > maxW && w > 0) { px *= maxW / w; w = maxW; }
     PanelFont::draw(c.data(), W, H, s, cx - w * 0.5f, top, px, col[0], col[1], col[2], face);
 }
 
+// The ground behind a panel: Neon's gradient; Attract's adds a dark scanline
+// every 4 lines and darker bands at the top and bottom (a CRT tube).
+void ground(std::vector<uint8_t>& c, int W, int H) {
+    gradient(c, W, H, kGradTop, kGradBot);
+    if (!attract()) return;
+    const int band = std::max(1, H / 8);
+    for (int y = 0; y < H; ++y) {
+        float k = (y % 4 == 3) ? 0.55f : 1.0f;
+        if (y < band) k *= 0.55f + 0.45f * y / band;
+        else if (y >= H - band) k *= 0.55f + 0.45f * (H - 1 - y) / band;
+        if (k >= 1.0f) continue;
+        uint8_t* row = &c[(size_t)y * W * 4];
+        for (int x = 0; x < W; ++x)
+            for (int ch = 0; ch < 3; ++ch) row[x * 4 + ch] = (uint8_t)(row[x * 4 + ch] * k);
+    }
+}
+
 // Blurred, darkened backdrop: average to a tiny grid, bilinear back up.
 void backdrop(std::vector<uint8_t>& c, int W, int H, const std::vector<uint8_t>& img, int iw, int ih) {
+    if (attract()) { ground(c, W, H); return; }  // Attract: no blur, the CRT ground
     constexpr int SB = 18;
     float small[SB * SB * 3];
     for (int sy = 0; sy < SB; ++sy)
@@ -922,6 +968,7 @@ uint32_t GamePanels::pickCrtc(uint32_t currentEncoder, const std::vector<uint32_
 }
 
 int GamePanels::init(const DisplayProfile::Topology& topo, Mode mode, uint32_t gameConnector) {
+    panelStyle();
     m_mode = mode;
     m_fd = findCard0Fd();
     if (m_fd < 0) { log("panels: no card0 fd"); return 0; }
@@ -1099,7 +1146,7 @@ void GamePanels::composeBackglass(Panel& p, const Item& item, const std::vector<
         return;
     }
     // Title card: Neon gradient, two light pools, big title.
-    gradient(c, W, H, kGradTop, kGradBot);
+    ground(c, W, H);
     glow(c, W, H, W * 0.18f, H * 0.2f, H * 0.9f, kTeal, 0.22f);
     glow(c, W, H, W * 0.85f, H * 0.85f, H * 1.0f, kViolet, 0.25f);
     text(c, W, H, item.title.empty() ? "RETRO LAUNCHER" : item.system, W * 0.5f, H * 0.22f, H * 0.06f, kTeal,
@@ -1112,7 +1159,7 @@ void GamePanels::composeDmd(Panel& p, const Item& item, const std::vector<uint8_
                             const std::vector<uint8_t>& logo, int lw, int lh) {
     const int W = p.vw, H = p.vh;
     std::vector<uint8_t>& c = p.canvas;
-    gradient(c, W, H, kGradTop, kGradBot);
+    ground(c, W, H);
     glow(c, W, H, W * 0.5f, H * 0.5f, W * 0.5f, kTeal, 0.18f);
     // The game's logo, like a marquee, browsing or playing; the system's name under it.
     if (!logo.empty()) {
@@ -1243,7 +1290,7 @@ void GamePanels::composePlayfield(Panel& p, const Item& item, const std::vector<
     const float u = W / 720.0f;  // design units: the menu's 720-wide portrait canvas
     std::vector<uint8_t>& c = p.canvas;
     if (!art.empty()) backdrop(c, W, H, art, aw, ah);
-    else gradient(c, W, H, kGradTop, kGradBot);
+    else ground(c, W, H);
     glow(c, W, H, W * 0.15f, H * 0.08f, W * 0.9f, kTeal, 0.10f);
     glow(c, W, H, W * 0.9f, H * 0.95f, W * 1.0f, kViolet, 0.14f);
 

@@ -1211,6 +1211,8 @@ void drawPauseMenu(SDL_Renderer* r, int winW, int winH, const std::string& title
                    const std::vector<bool>& enabled, int sel, const std::string& toast) {
     const float scale = std::min(winW, winH) / 720.0f;
     const float W = winW / scale, H = winH / scale;
+    // Text sizes were set for Neon's faces: scale them by the theme's (1 in Neon).
+    const float bs = Theme::Type::Body / 30.0f, ds = Theme::Type::Title / 64.0f;
     SDL_RenderSetScale(r, scale, scale);
     Gfx::rect(r, {0, 0, W, H}, {4, 6, 12, 190});
     // Rows shrink to fit: on a landscape screen (the backglass, 720 tall here)
@@ -1222,24 +1224,24 @@ void drawPauseMenu(SDL_Renderer* r, int winW, int winH, const std::string& title
     const float gap = pitch >= 60.0f ? 10.0f : 6.0f, rowH = pitch - gap, pw = 560.0f;
     const float ph = 150.0f + items.size() * (rowH + gap) + 40.0f;
     const float px = (W - pw) * 0.5f, py = std::max(20.0f, (H - 72.0f - ph) * 0.5f);
-    Gfx::softRect(r, {px, py, pw, ph}, 30.0f, 36.0f, {0, 0, 0, 200}, false);
-    Gfx::panel(r, {px, py, pw, ph}, 30.0f, {30, 36, 58, 250}, {18, 22, 38, 250}, {255, 255, 255, 30}, 1.0f);
-    Gfx::hGradient(r, {px + 30.0f, py, pw - 60.0f, 4.0f}, Theme::Accent, Theme::Accent2);
-    Theme::glowTitle(r, title, W * 0.5f, py + 34.0f, 54.0f, Theme::Accent, AppFont::Face::Display);
+    Theme::shadowedPanel(r, {px, py, pw, ph}, 30.0f, 36.0f, {0, 0, 0, 200}, {30, 36, 58, 250}, {18, 22, 38, 250},
+                         {255, 255, 255, 30}, 1.0f);
+    Theme::topRule(r, {px + 30.0f, py, pw - 60.0f, 4.0f});
+    Theme::glowTitle(r, title, W * 0.5f, py + 34.0f, 54.0f * ds, Theme::Accent, AppFont::Face::Display);
     for (size_t i = 0; i < items.size(); ++i) {
         FRect row{px + 36.0f, py + 120.0f + i * (rowH + gap), pw - 72.0f, rowH};
         bool active = (int)i == sel;
         Theme::rowCard(r, row, active);
         SDL_Color c = !enabled[i] ? Theme::Faint : active ? Theme::Text : Theme::TextDim;
-        const float fs = rowH >= 52.0f ? 30.0f : 26.0f;
+        const float fs = (rowH >= 52.0f ? 30.0f : 26.0f) * bs;
         AppFont::drawCentered(r, items[i], W * 0.5f, row.y + (rowH - fs * 1.07f) * 0.5f, fs, c);
     }
-    AppFont::drawCentered(r, "A Select     B Resume", W * 0.5f, py + ph - 38.0f, 20.0f, Theme::Muted);
+    AppFont::drawCentered(r, "A Select     B Resume", W * 0.5f, py + ph - 38.0f, 20.0f * bs, Theme::Muted);
     if (!toast.empty()) {
-        float tw = AppFont::measureWidth(r, toast, 24.0f) + 60.0f;
+        float tw = AppFont::measureWidth(r, toast, 24.0f * bs) + 60.0f;
         FRect t{(W - tw) * 0.5f, py + ph + 20.0f, tw, 52.0f};
-        Gfx::panel(r, t, 26.0f, {36, 42, 66, 250}, {24, 28, 46, 250}, Theme::alpha(Theme::Accent, 200), 2.0f);
-        AppFont::drawCentered(r, toast, W * 0.5f, t.y + 12.0f, 24.0f, Theme::Text);
+        Theme::framedPanel(r, t, 26.0f, {36, 42, 66, 250}, {24, 28, 46, 250}, Theme::alpha(Theme::Accent, 200), 2.0f);
+        AppFont::drawCentered(r, toast, W * 0.5f, t.y + 12.0f, 24.0f * bs, Theme::Text);
     }
     SDL_RenderSetScale(r, 1.0f, 1.0f);
 }
@@ -1247,30 +1249,31 @@ void drawPauseMenu(SDL_Renderer* r, int winW, int winH, const std::string& title
 void drawOptionsMenu(SDL_Renderer* r, int winW, int winH, const std::string& coreName, int sel, int top, int visible) {
     const float scale = std::min(winW, winH) / 720.0f;
     const float W = winW / scale, H = winH / scale;
+    const float bs = Theme::Type::Body / 30.0f, ds = Theme::Type::Title / 64.0f;  // as drawPauseMenu
     SDL_RenderSetScale(r, scale, scale);
     Gfx::rect(r, {0, 0, W, H}, {4, 6, 12, 200});
     const float rowH = 50.0f, gap = 6.0f;
     const float pw = std::min(W - 60.0f, 960.0f), ph = 150.0f + visible * (rowH + gap) + 70.0f;
     const float px = (W - pw) * 0.5f, py = (H - ph) * 0.5f;
-    Gfx::softRect(r, {px, py, pw, ph}, 30.0f, 36.0f, {0, 0, 0, 200}, false);
-    Gfx::panel(r, {px, py, pw, ph}, 30.0f, {30, 36, 58, 250}, {18, 22, 38, 250}, {255, 255, 255, 30}, 1.0f);
-    Gfx::hGradient(r, {px + 30.0f, py, pw - 60.0f, 4.0f}, Theme::Accent, Theme::Accent2);
-    Theme::glowTitle(r, "CORE OPTIONS", W * 0.5f, py + 26.0f, 46.0f, Theme::Accent, AppFont::Face::Display);
-    AppFont::drawCentered(r, coreName, W * 0.5f, py + 84.0f, 20.0f, Theme::Muted);
+    Theme::shadowedPanel(r, {px, py, pw, ph}, 30.0f, 36.0f, {0, 0, 0, 200}, {30, 36, 58, 250}, {18, 22, 38, 250},
+                         {255, 255, 255, 30}, 1.0f);
+    Theme::topRule(r, {px + 30.0f, py, pw - 60.0f, 4.0f});
+    Theme::glowTitle(r, "CORE OPTIONS", W * 0.5f, py + 26.0f, 46.0f * ds, Theme::Accent, AppFont::Face::Display);
+    AppFont::drawCentered(r, coreName, W * 0.5f, py + 84.0f, 20.0f * bs, Theme::Muted);
     const float valueW = pw * 0.36f;
     for (int i = 0; i < visible && top + i < (int)g_optDefs.size(); ++i) {
         const OptDef& d = g_optDefs[top + i];
         FRect row{px + 28.0f, py + 124.0f + i * (rowH + gap), pw - 56.0f, rowH};
         bool active = top + i == sel;
         Theme::rowCard(r, row, active);
-        std::string label = Theme::ellipsize(r, d.desc, row.w - valueW - 50.0f, 24.0f, AppFont::Face::Body);
-        AppFont::draw(r, label, row.x + 18.0f, row.y + 12.0f, 24.0f, active ? Theme::Text : Theme::TextDim);
+        std::string label = Theme::ellipsize(r, d.desc, row.w - valueW - 50.0f, 24.0f * bs, AppFont::Face::Body);
+        AppFont::draw(r, label, row.x + 18.0f, row.y + 12.0f, 24.0f * bs, active ? Theme::Text : Theme::TextDim);
         auto it = g_options.find(d.key);
-        std::string value = Theme::ellipsize(r, it == g_options.end() ? "?" : it->second, valueW - 40.0f, 24.0f,
+        std::string value = Theme::ellipsize(r, it == g_options.end() ? "?" : it->second, valueW - 40.0f, 24.0f * bs,
                                              AppFont::Face::Body);
-        float vw = AppFont::measureWidth(r, value, 24.0f);
+        float vw = AppFont::measureWidth(r, value, 24.0f * bs);
         float vx = row.x + row.w - 22.0f - vw - (active ? 26.0f : 0.0f);
-        AppFont::draw(r, value, vx, row.y + 12.0f, 24.0f, active ? Theme::accent() : Theme::Muted);
+        AppFont::draw(r, value, vx, row.y + 12.0f, 24.0f * bs, active ? Theme::accent() : Theme::Muted);
         if (active) {
             Gfx::triangle(r, {vx - 26.0f, row.y + rowH * 0.5f - 8.0f, 16.0f, 16.0f}, 180.0, Theme::accent());
             Gfx::triangle(r, {row.x + row.w - 38.0f, row.y + rowH * 0.5f - 8.0f, 16.0f, 16.0f}, 0.0, Theme::accent());
@@ -1279,8 +1282,8 @@ void drawOptionsMenu(SDL_Renderer* r, int winW, int winH, const std::string& cor
     char counter[32];
     std::snprintf(counter, sizeof(counter), "%d / %d", sel + 1, (int)g_optDefs.size());
     AppFont::drawCentered(r, std::string(counter) + "     LEFT/RIGHT Change     LB/RB Page     B Back", W * 0.5f,
-                          py + ph - 56.0f, 19.0f, Theme::Muted);
-    AppFont::drawCentered(r, "Some options take effect the next time the game starts", W * 0.5f, py + ph - 32.0f, 17.0f,
+                          py + ph - 56.0f, 19.0f * bs, Theme::Muted);
+    AppFont::drawCentered(r, "Some options take effect the next time the game starts", W * 0.5f, py + ph - 32.0f, 17.0f * bs,
                           Theme::Faint);
     SDL_RenderSetScale(r, 1.0f, 1.0f);
 }
@@ -1755,6 +1758,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         bool guide = padButton(SDL_CONTROLLER_BUTTON_GUIDE), guideDown = guide && !prevGuide;
         prevGuide = guide;
         Uint32 t = SDL_GetTicks();
+        if (Theme::style() == Theme::Style::Attract) Theme::clock() = t / 1000.0f;  // Attract's blinking arrow
         auto pressed = [&](int id) { return (down >> id) & 1; };
 
         std::vector<std::string> items;

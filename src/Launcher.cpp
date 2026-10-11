@@ -1295,7 +1295,7 @@ void Menu::openNotes() {
     const auto notes = m_update.notes();
     for (size_t n = 0; n < notes.size(); ++n) {
         NoteLine v;
-        v.text = "v" + notes[n].first;
+        v.text = Theme::displayText("v" + notes[n].first);
         v.size = Theme::Type::Heading;
         v.color = Theme::accent();
         v.display = true;
@@ -1313,20 +1313,21 @@ void Menu::openNotes() {
             std::string t = raw.substr(lead);
             NoteLine base;
             if (t.compare(0, 3, "## ") == 0 || t.compare(0, 4, "### ") == 0) {
-                base.text = plainMarkdown(t.substr(t.find(' ') + 1));
-                base.size = Theme::Type::Body;
+                base.text = Theme::displayText(plainMarkdown(t.substr(t.find(' ') + 1)));
+                // Press Start sets about one em a glyph: Attract's section heads run smaller.
+                base.size = Theme::style() == Theme::Style::Attract ? 18.0f : Theme::Type::Body;
                 base.color = Theme::Text;
                 base.display = true;
                 pendingGap = std::max(pendingGap, 18.0f);
             } else if (t.compare(0, 2, "- ") == 0 || t.compare(0, 2, "* ") == 0) {
                 base.text = plainMarkdown(t.substr(2));
-                base.size = 25.0f;
+                base.size = Theme::Type::Small + 1.0f;  // Neon 25, Attract 29 (VT323 sets small)
                 base.color = lead >= 2 ? Theme::Muted : Theme::TextDim;
                 base.indent = 26.0f + (float)(lead / 2) * 30.0f;
                 base.bullet = true;
             } else {
                 base.text = plainMarkdown(t);
-                base.size = 25.0f;
+                base.size = Theme::Type::Small + 1.0f;  // Neon 25, Attract 29 (VT323 sets small)
                 base.color = Theme::TextDim;
             }
             const std::vector<std::string> wrapped =
@@ -1371,10 +1372,11 @@ void Menu::renderNotes() {
     SDL_Renderer* r = m_renderer;
     const float w = AppConfig::kLogicalWidth, h = AppConfig::kLogicalHeight;
     Gfx::rect(r, {0.0f, 0.0f, w, h}, {4, 6, 12, 215});
-    Gfx::softRect(r, {kNotesX, kNotesY, kNotesW, kNotesH}, 32.0f, 40.0f, {0, 0, 0, 200}, false);
-    Gfx::panel(r, {kNotesX, kNotesY, kNotesW, kNotesH}, 32.0f, {30, 36, 58, 255}, {18, 22, 38, 255}, {255, 255, 255, 26}, 1.0f);
-    Gfx::hGradient(r, {kNotesX + 32.0f, kNotesY, kNotesW - 64.0f, 4.0f}, Theme::Accent, Theme::Accent2);
-    AppFont::drawCentered(r, "What's new", w * 0.5f, kNotesY + 36.0f, Theme::Type::Title, Theme::Text, AppFont::Face::Display);
+    Theme::shadowedPanel(r, {kNotesX, kNotesY, kNotesW, kNotesH}, 32.0f, 40.0f, {0, 0, 0, 200}, {30, 36, 58, 255}, {18, 22, 38, 255},
+                         {255, 255, 255, 26}, 1.0f);
+    Theme::topRule(r, {kNotesX + 32.0f, kNotesY, kNotesW - 64.0f, 4.0f});
+    AppFont::drawCentered(r, Theme::displayText("What's new"), w * 0.5f, kNotesY + 36.0f, Theme::Type::Title, Theme::Text,
+                          AppFont::Face::Display);
     const auto notes = m_update.notes();
     const std::string span = notes.size() > 1 ? "v" + notes.back().first + " to v" + notes.front().first + "  -  " +
                                                     std::to_string(notes.size()) + " updates"
@@ -1389,7 +1391,7 @@ void Menu::renderNotes() {
         const float lh = l.size * 1.32f;
         if (y + lh >= kNotesTop && y <= kNotesBottom) {
             const float x = kNotesX + kNotesPad + l.indent;
-            if (l.bullet) Gfx::roundRect(r, {x - 18.0f, y + l.size * 0.48f, 7.0f, 7.0f}, 3.5f, Theme::alpha(Theme::accent(), 220));
+            if (l.bullet) Theme::pill(r, {x - 18.0f, y + l.size * 0.48f, 7.0f, 7.0f}, 3.5f, Theme::alpha(Theme::accent(), 220));
             AppFont::draw(r, l.text, x, y, l.size, l.color, l.display ? AppFont::Face::Display : AppFont::Face::Body);
         }
         y += lh;
@@ -1403,8 +1405,8 @@ void Menu::renderNotes() {
         const float trackH = view - 16.0f, barH = std::max(48.0f, trackH * view / m_notesHeight);
         const float maxScroll = m_notesHeight - view + 12.0f;
         const float barY = kNotesTop + 8.0f + (trackH - barH) * std::min(1.0f, m_notesScroll / maxScroll);
-        Gfx::roundRect(r, {kNotesX + kNotesW - 16.0f, kNotesTop + 8.0f, 5.0f, trackH}, 2.5f, {255, 255, 255, 20});
-        Gfx::roundRect(r, {kNotesX + kNotesW - 16.0f, barY, 5.0f, barH}, 2.5f, Theme::alpha(Theme::accent(), 200));
+        Theme::pill(r, {kNotesX + kNotesW - 16.0f, kNotesTop + 8.0f, 5.0f, trackH}, 2.5f, {255, 255, 255, 20});
+        Theme::pill(r, {kNotesX + kNotesW - 16.0f, barY, 5.0f, barH}, 2.5f, Theme::alpha(Theme::accent(), 200));
     }
 
     // Later | Install and restart
@@ -1412,14 +1414,12 @@ void Menu::renderNotes() {
     const float bw0 = 210.0f, bw1 = kNotesW - 2.0f * kNotesPad - bw0 - gap;
     const FRect b0{kNotesX + kNotesPad, by, bw0, bh}, b1{b0.x + bw0 + gap, by, bw1, bh};
     auto button = [&](const FRect& b, const std::string& label, bool sel, SDL_Color on) {
-        if (sel) {
-            Gfx::softRect(r, b, 40.0f, 16.0f, Theme::alpha(on, 80), true);
-            Gfx::roundRect(r, b, 40.0f, on);
-        } else {
-            Gfx::roundRect(r, b, 40.0f, {255, 255, 255, 18});
-        }
-        AppFont::drawCentered(r, label, b.x + b.w * 0.5f, b.y + 22.0f, Theme::Type::Body,
-                              sel ? SDL_Color{255, 245, 245, 255} : Theme::TextDim, AppFont::Face::Display);
+        Theme::button(r, b, 40.0f, sel, on, {255, 255, 255, 18}, 16.0f, 80);
+        const std::string text = Theme::displayText(label);
+        const float size = std::min(Theme::Type::Body, Theme::fitSize(r, text, b.w - 24.0f, Theme::Type::Body, 12.0f,
+                                                                      AppFont::Face::Display));
+        AppFont::drawCentered(r, text, b.x + b.w * 0.5f, b.y + 22.0f + (Theme::Type::Body - size) * 0.5f, size,
+                              Theme::buttonText(sel, on, SDL_Color{255, 245, 245, 255}, Theme::TextDim), AppFont::Face::Display);
     };
     button(b0, "Later", m_notesSel == 0, Theme::accent());
     button(b1, "Install and restart", m_notesSel == 1, Theme::Live);
@@ -1811,8 +1811,8 @@ void Menu::renderSearch() {
 
     // Query box with a blinking caret.
     FRect box{x0, kQueryTop, fullW, 70.0f};
-    Gfx::panel(r, box, 20.0f, {255, 255, 255, 20}, {255, 255, 255, 10},
-               Theme::alpha(Theme::accent(), m_inHits ? 90 : 220), 2.0f);
+    Theme::framedPanel(r, box, 20.0f, {255, 255, 255, 20}, {255, 255, 255, 10},
+                       Theme::alpha(Theme::accent(), m_inHits ? 90 : 220), 2.0f);
     std::string shown = m_query.empty() ? "Type a game name" : m_query;
     AppFont::draw(r, Theme::ellipsize(r, shown, box.w - 60.0f, Theme::Type::Body, AppFont::Face::Body), box.x + 24.0f,
                   box.y + 18.0f, Theme::Type::Body, m_query.empty() ? Theme::Faint : Theme::Text);
@@ -1834,12 +1834,7 @@ void Menu::renderSearch() {
             float kw = unitW * k.units + kKeyGap * (k.units - 1.0f);
             bool sel = !m_inHits && row == m_kbRow && col == m_kbCol;
             FRect kr{x, y, kw, kKeyH};
-            if (sel) {
-                Gfx::softRect(r, kr, 14.0f, 12.0f, Theme::alpha(Theme::accent(), 70), true);
-                Gfx::roundRect(r, kr, 14.0f, Theme::accent());
-            } else {
-                Gfx::roundRect(r, kr, 14.0f, {255, 255, 255, 16});
-            }
+            Theme::button(r, kr, 14.0f, sel, Theme::accent(), {255, 255, 255, 16}, 12.0f, 70);
             bool word = k.label.size() > 1;
             float size = word ? Theme::Type::Caption : 30.0f;
             AppFont::drawCentered(r, k.label, x + kw * 0.5f, y + (kKeyH - size) * 0.5f - 3.0f, size,
@@ -2091,11 +2086,13 @@ void Menu::renderTransfer() {
     const TransferServer::Status st = m_transfer.status();
     float y = kListTop + 10.0f;
     if (!st.listening) {
-        AppFont::drawCentered(r, "Couldn't start the transfer", cx, y, Theme::Type::Heading, Theme::Text, AppFont::Face::Display);
+        AppFont::drawCentered(r, Theme::displayText("Couldn't start the transfer"), cx, y, Theme::Type::Heading, Theme::Text,
+                              AppFont::Face::Display);
         AppFont::drawCentered(r, Theme::ellipsize(r, st.error, inner, Theme::Type::Small, AppFont::Face::Body), cx, y + 64.0f,
                               Theme::Type::Small, Theme::Muted);
     } else if (st.addresses.empty()) {
-        AppFont::drawCentered(r, "No network connection", cx, y, Theme::Type::Heading, Theme::Text, AppFont::Face::Display);
+        AppFont::drawCentered(r, Theme::displayText("No network connection"), cx, y, Theme::Type::Heading, Theme::Text,
+                              AppFont::Face::Display);
         AppFont::drawCentered(r, "Connect a network cable or Wi-Fi, then try again.", cx, y + 64.0f,
                               Theme::Type::Small, Theme::Muted);
     } else {
@@ -2103,7 +2100,10 @@ void Menu::renderTransfer() {
         y += 46.0f;
         for (size_t i = 0; i < st.addresses.size() && i < 2; ++i) {
             const std::string url = "http://" + st.addresses[i] + (st.port == 80 ? "" : ":" + std::to_string(st.port));
-            AppFont::drawCentered(r, url, cx, y, Theme::Type::Heading, Theme::accent(), AppFont::Face::Display);
+            // Shrunk to fit if it must (a wide display face can't fit a full address at Heading size).
+            const float us = Theme::fitSize(r, url, AppConfig::kLogicalWidth - 2.0f * Theme::kMargin, Theme::Type::Heading,
+                                            Theme::Type::Caption, AppFont::Face::Display);
+            AppFont::drawCentered(r, url, cx, y + (Theme::Type::Heading - us) * 0.5f, us, Theme::accent(), AppFont::Face::Display);
             y += 58.0f;
         }
         y += 20.0f;
@@ -2123,8 +2123,8 @@ void Menu::renderTransfer() {
         AppFont::draw(r, Theme::ellipsize(r, st.current, tw, Theme::Type::Body, AppFont::Face::Body), tx, ty, Theme::Type::Body, Theme::Text);
         ty += 50.0f;
         const float f = st.currentTotal ? (float)((double)st.currentDone / (double)st.currentTotal) : 0.0f;
-        Gfx::roundRect(r, {tx, ty, tw, 12.0f}, 6.0f, {255, 255, 255, 30});
-        if (f > 0.0f) Gfx::roundRect(r, {tx, ty, std::max(12.0f, tw * f), 12.0f}, 6.0f, Theme::accent());
+        Theme::pill(r, {tx, ty, tw, 12.0f}, 6.0f, {255, 255, 255, 30});
+        if (f > 0.0f) Theme::pill(r, {tx, ty, std::max(12.0f, tw * f), 12.0f}, 6.0f, Theme::accent());
         char pct[48];
         std::snprintf(pct, sizeof(pct), "%d%%  of %.1f MB", (int)(f * 100.0f), st.currentTotal / 1048576.0);
         AppFont::draw(r, pct, tx, ty + 22.0f, Theme::Type::Caption, Theme::Muted);
@@ -2174,9 +2174,9 @@ void Menu::renderPopup() {
     const int count = (int)items.size();
     const float pw = w - 2.0f * Theme::kMargin - 32.0f, ph = 190.0f + count * (itemH + gap);
     const float px = (w - pw) * 0.5f, py = (h - ph) * 0.5f - 40.0f;
-    Gfx::softRect(r, {px, py, pw, ph}, 32.0f, 40.0f, {0, 0, 0, 200}, false);
-    Gfx::panel(r, {px, py, pw, ph}, 32.0f, {30, 36, 58, 255}, {18, 22, 38, 255}, {255, 255, 255, 26}, 1.0f);
-    AppFont::drawCentered(r, Theme::ellipsize(r, g.title, pw - 80.0f, Theme::Type::Heading, AppFont::Face::Display),
+    Theme::shadowedPanel(r, {px, py, pw, ph}, 32.0f, 40.0f, {0, 0, 0, 200}, {30, 36, 58, 255}, {18, 22, 38, 255},
+                         {255, 255, 255, 26}, 1.0f);
+    AppFont::drawCentered(r, Theme::ellipsize(r, Theme::displayText(g.title), pw - 80.0f, Theme::Type::Heading, AppFont::Face::Display),
                           w * 0.5f, py + 40.0f, Theme::Type::Heading, Theme::Text, AppFont::Face::Display);
     AppFont::drawCentered(r, se.sys->name, w * 0.5f, py + 104.0f, Theme::Type::Caption, Theme::Muted);
     ScreenId over;
@@ -2349,8 +2349,8 @@ void Menu::renderToast() {
     const int w = AppConfig::kLogicalWidth;
     const float h = 76.0f, y = Theme::kFooterTop - h - 18.0f;
     FRect box{Theme::kMargin - 16.0f, y, w - 2.0f * (Theme::kMargin - 16.0f), h};
-    Gfx::softRect(r, box, 22.0f, 18.0f, {0, 0, 0, 180}, false);
-    Gfx::panel(r, box, 22.0f, {36, 42, 66, 250}, {24, 28, 46, 250}, Theme::alpha(Theme::accent(), 200), 2.0f);
+    Theme::shadowedPanel(r, box, 22.0f, 18.0f, {0, 0, 0, 180}, {36, 42, 66, 250}, {24, 28, 46, 250},
+                         Theme::alpha(Theme::accent(), 200), 2.0f);
     std::string text = Theme::ellipsize(r, m_toast, box.w - 48.0f, Theme::Type::Small, AppFont::Face::Body);
     AppFont::drawCentered(r, text, w * 0.5f, y + (h - Theme::Type::Small) * 0.5f - 4.0f, Theme::Type::Small, Theme::Text);
 }
@@ -2362,9 +2362,8 @@ void Menu::renderJump() {
     const float cx = AppConfig::kLogicalWidth * 0.5f, cy = 640.0f, s = 200.0f;
     float fade = m_jumpTime < 0.55f ? 1.0f : 1.0f - (m_jumpTime - 0.55f) / 0.25f;
     FRect box{cx - s * 0.5f, cy - s * 0.5f, s, s};
-    Gfx::softRect(r, box, 40.0f, 30.0f, {0, 0, 0, (Uint8)(160 * fade)}, false);
-    Gfx::panel(r, box, 40.0f, {30, 40, 66, (Uint8)(240 * fade)}, {20, 26, 46, (Uint8)(240 * fade)},
-               Theme::alpha(Theme::accent(), (int)(220 * fade)), 3.0f);
+    Theme::shadowedPanel(r, box, 40.0f, 30.0f, {0, 0, 0, (Uint8)(160 * fade)}, {30, 40, 66, (Uint8)(240 * fade)},
+                         {20, 26, 46, (Uint8)(240 * fade)}, Theme::alpha(Theme::accent(), (int)(220 * fade)), 3.0f);
     AppFont::drawCentered(r, std::string(1, m_jumpChar), cx, cy - 72.0f, 140.0f, Theme::alpha(Theme::Text, (int)(255 * fade)),
                           AppFont::Face::Display);
 }
