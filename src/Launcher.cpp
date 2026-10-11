@@ -296,7 +296,7 @@ private:
         bool bullet = false, display = false;
     };
     bool m_notesOpen = false;
-    int m_notesSel = 0;  // 0 Later, 1 Install and restart
+    int m_notesSel = 1;  // 0 Later, 1 Install and restart
     float m_notesScroll = 0.0f, m_notesHeight = 0.0f;
     std::vector<NoteLine> m_noteLines;
     void openNotes();
@@ -1353,7 +1353,7 @@ void Menu::openNotes() {
     m_notesHeight = 0.0f;
     for (const NoteLine& l : m_noteLines) m_notesHeight += l.gap + l.size * 1.32f;
     m_notesScroll = 0.0f;
-    m_notesSel = 0;  // Later, as the other confirmations start on Cancel
+    m_notesSel = 1;  // Install and restart: the user's choice (one press left for Later)
     m_notesOpen = true;
 }
 
