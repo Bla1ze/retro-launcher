@@ -4,6 +4,9 @@
 
 <p align="center">
   <img src="docs/assets/screenshot-consoles.png" width="860" alt="Retro Launcher on a cabinet: the Consoles list on the playfield with Arcade highlighted, flanked by the system's name and its arcade-cabinet art" />
+  <br/>
+  <img src="docs/assets/screenshot-attract.png" width="860" alt="The same Consoles screen in the Attract theme: pixel type and square boxes with hard shadows" />
+  <br/><sub>Neon (top) and Attract (Settings &gt; Theme)</sub>
 </p>
 
 A console game launcher for **AtGames Legends Pinball** cabinets, with its own
