@@ -147,9 +147,22 @@ void Updater::stop() {
     if (m_thread.joinable()) m_thread.join();
 }
 
-bool Updater::dailyCheckDue(const std::string& appDir) {
+// data/update-check.txt: when GitHub last answered, and the newest version it
+// had. Written only on an answer, so a cabinet that starts before its network
+// is up tries again at the next start.
+bool Updater::startupCheckDue(const std::string& appDir) {
     struct stat st;
-    return ::stat((appDir + "/data/update-check.txt").c_str(), &st) != 0 || std::time(nullptr) - st.st_mtime > 24 * 3600;
+    return ::stat((appDir + "/data/update-check.txt").c_str(), &st) != 0 || std::time(nullptr) - st.st_mtime > 3600;
+}
+
+bool Updater::isNewer(const std::string& version, const std::string& than) { return ::isNewer(version, than); }
+
+std::string Updater::knownLatest(const std::string& appDir) {
+    std::ifstream in(appDir + "/data/update-check.txt");
+    std::string when, version;
+    std::getline(in, when);
+    std::getline(in, version);
+    return version;
 }
 
 std::string Updater::latest() const {
@@ -207,7 +220,6 @@ void Updater::install() {
 void Updater::runCheck() {
     if (!m_prepared) { m_curl.prepare(m_appDir); m_prepared = true; }
     ::mkdir((m_appDir + "/data").c_str(), 0755);
-    std::ofstream(m_appDir + "/data/update-check.txt") << std::time(nullptr) << "\n";  // the daily check's clock
     const std::string tmp = m_appDir + "/data/.release.json", codeFile = m_appDir + "/data/.release.code";
     std::string body;
     int rc = 0, http = 200;
@@ -223,6 +235,7 @@ void Updater::runCheck() {
     ::unlink(codeFile.c_str());
     if (rc != 0) { fail(Net::message(rc, "GitHub")); return; }
     if (http == 404) {  // nothing published yet
+        std::ofstream(m_appDir + "/data/update-check.txt") << std::time(nullptr) << "\n";
         log("update: no release found");
         m_state = State::NoRelease;
         return;
@@ -264,6 +277,7 @@ void Updater::runCheck() {
     std::vector<std::pair<std::string, std::string>> notes;
     for (const Release& r : releases)
         if (isNewer(r.version, current) && !r.notes.empty()) notes.push_back({r.version, r.notes});
+    std::ofstream(m_appDir + "/data/update-check.txt") << std::time(nullptr) << "\n" << top.version << "\n";
     {
         std::lock_guard<std::mutex> lock(m_mu);
         m_latest = top.version;
