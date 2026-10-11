@@ -4,6 +4,7 @@
 // Uses stb_truetype (public domain / MIT, src/vendor/stb_truetype.h).
 
 #include "AppFont.h"
+#include "Theme.h"
 
 #define STB_TRUETYPE_IMPLEMENTATION
 #include "vendor/stb_truetype.h"
@@ -19,6 +20,8 @@ namespace {
 extern "C" {
 extern const unsigned char _binary_NotoSans_Regular_ttf_start[];
 extern const unsigned char _binary_BebasNeue_Regular_ttf_start[];
+extern const unsigned char _binary_VT323_Regular_ttf_start[];
+extern const unsigned char _binary_PressStart2P_Regular_ttf_start[];
 }
 
 constexpr int kFirstCharacter = 32;
@@ -32,6 +35,10 @@ constexpr int kCharacterCount = 96;
 // is used for large headers/titles, so it bakes large.
 constexpr float kBodyBake = 72.0f;
 constexpr float kDisplayBake = 160.0f;
+// Attract's faces: VT323 sets small (run larger), Press Start 2P is square
+// pixels at about one em a glyph, so a smaller bake is plenty.
+constexpr float kAttractBodyBake = 80.0f;
+constexpr float kAttractDisplayBake = 96.0f;
 constexpr int kAtlasSize = 2048;
 
 struct Font {
@@ -44,8 +51,11 @@ struct Font {
 // Index by (int)Face: 0 = Body (Noto Sans), 1 = Display (Bebas Neue).
 Font g_fonts[2];
 
+// The active theme's pair (Theme::style() is set at startup, before any text).
 const unsigned char* faceData(Face face)
 {
+    if (Theme::style() == Theme::Style::Attract)
+        return (face == Face::Display) ? _binary_PressStart2P_Regular_ttf_start : _binary_VT323_Regular_ttf_start;
     return (face == Face::Display)
         ? _binary_BebasNeue_Regular_ttf_start
         : _binary_NotoSans_Regular_ttf_start;
@@ -53,6 +63,7 @@ const unsigned char* faceData(Face face)
 
 float bakeSize(Face face)
 {
+    if (Theme::style() == Theme::Style::Attract) return (face == Face::Display) ? kAttractDisplayBake : kAttractBodyBake;
     return (face == Face::Display) ? kDisplayBake : kBodyBake;
 }
 

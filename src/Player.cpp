@@ -1309,6 +1309,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     Library::parseScreen(screenArg, screen);
     Library::Settings settings;
     settings.load(appDir);
+    Theme::setStyle(Theme::styleNamed(settings.value("theme", "neon")));  // the menu's look, before anything is drawn
     g_swapPlayers = settings.value("players.swap", "off") == "on";
     log("system %s, rom %s, screen %s", sys->id.c_str(), romPath.c_str(), Library::screenName(screen));
     Library::logInputDevices();

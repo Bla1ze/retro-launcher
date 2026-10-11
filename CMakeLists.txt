@@ -19,10 +19,11 @@ if(NOT SDL2_INCLUDE_DIR OR NOT SDL2_LIBRARY)
     message(FATAL_ERROR "SDL2 was not found. Rebuild the SDK Docker image.")
 endif()
 
-# Embed Noto Sans (body) and Bebas Neue (display) in the ELF, as Jukebox does.
+# Embed the fonts in the ELF, as Jukebox does: Noto Sans (body) and Bebas Neue
+# (display) for the Neon theme, VT323 and Press Start 2P for Attract.
 set(FONT_ASSET_DIR "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts")
 set(FONT_OBJECTS "")
-foreach(font NotoSans-Regular BebasNeue-Regular)
+foreach(font NotoSans-Regular BebasNeue-Regular VT323-Regular PressStart2P-Regular)
     set(obj "${CMAKE_CURRENT_BINARY_DIR}/${font}.o")
     add_custom_command(
         OUTPUT "${obj}"
@@ -45,6 +46,7 @@ add_executable(${ATGAMES_APP_NAME}
     src/GamePanels.cpp
     src/Gfx.cpp
     src/PanelFont.cpp
+    src/Theme.cpp
     src/Launcher.cpp
     src/Library.cpp
     src/Net.cpp
@@ -71,4 +73,6 @@ add_custom_command(TARGET ${ATGAMES_APP_NAME} POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E make_directory "${DIST_APP_DIR}/licenses"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/LICENSE" "${DIST_APP_DIR}/licenses/Retro-Launcher-GPL-3.0.txt"
     COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/OFL.txt" "${DIST_APP_DIR}/licenses/NotoSans-OFL.txt"
-    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BebasNeue-OFL.txt" "${DIST_APP_DIR}/licenses/BebasNeue-OFL.txt")
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/BebasNeue-OFL.txt" "${DIST_APP_DIR}/licenses/BebasNeue-OFL.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/VT323-OFL.txt" "${DIST_APP_DIR}/licenses/VT323-OFL.txt"
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/PressStart2P-OFL.txt" "${DIST_APP_DIR}/licenses/PressStart2P-OFL.txt")

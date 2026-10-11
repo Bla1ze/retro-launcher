@@ -262,6 +262,7 @@ private:
     // Settings > Updates (Update.h); checked by itself once a day at startup.
     Updater m_update;
     bool m_updateAnnounced = false;
+    bool m_restartForTheme = false;  // Settings > Theme changed: the menu starts again in the new look
     std::string updateValue() const;
 
     // Settings > BIOS check: what each system with games can use, and where it goes.
@@ -769,6 +770,7 @@ void Menu::cycleGameScreen(int sys, int game, int dir) {
 
 const std::vector<Menu::SettingDef>& Menu::settingDefs() {
     static const std::vector<SettingDef> defs = {
+        {"Theme", "theme", {"neon", "attract"}, {"Neon", "Attract"}},
         {"Picture sides", "sides", {"bezel", "glow", "black"}, {"Bezel", "Glow", "Black"}},
         {"Scaling", "scaling", {"smooth", "sharp", "integer"}, {"Smooth", "Sharp", "Pixel-perfect"}},
         {"CRT scanlines", "scanlines", {"off", "light", "strong"}, {"Off", "Light", "Strong"}},
@@ -794,6 +796,7 @@ void Menu::changeSetting(int dir) {
     int n = (int)d.values.size();
     m_settings.set(d.key, d.values[(i + dir + n) % n]);
     m_settings.save();
+    if (d.key == "theme") { m_restartForTheme = true; return; }  // fonts and look are set at start: restart
     if (d.key == "panels") {
         m_toast = "Screen artwork changes on the next start";
         m_toastTime = 0.0f;
@@ -2490,6 +2493,7 @@ void Menu::pollDirections(bool& running) {
 int Menu::run() {
     Library::ensureFolders(m_appDir);
     m_settings.load(m_appDir);
+    Theme::setStyle(Theme::styleNamed(m_settings.value("theme", "neon")));  // before anything is drawn
     scan();
     rebuildRows();
     // Return to where the player left off.
@@ -2513,6 +2517,11 @@ int Menu::run() {
     m_trackball.open();  // scrolls the lists, if there is one
     if (Updater::dailyCheckDue(m_appDir)) m_update.check(m_appDir, true);  // quietly, in the background
     for (auto& f : Library::loadFavorites(m_appDir)) m_favs.insert(f);
+    if (m_startSys == "@settings") {  // back from a theme change
+        m_sysRow = settingsRow();
+        m_view = View::Settings;
+        m_setSel = std::max(0, std::min(m_startIndex, (int)settingDefs().size() - 1));
+    }
     if (m_startSys == "@recent" || m_startSys == "@favorites") {
         openList(m_startSys == "@favorites");
         m_sysRow = m_startSys == "@favorites" ? 2 : 1;
@@ -2558,6 +2567,13 @@ int Menu::run() {
             m_updateAnnounced = true;
             m_toast = "Retro Launcher v" + m_update.latest() + " is available - Settings > Updates";
             m_toastTime = 0.0f;
+        }
+        if (m_restartForTheme) {
+            const std::string name = m_settings.value("theme", "neon");
+            log("menu: restarting for the %s theme", name.c_str());
+            shutdown();
+            Library::execMenu(m_appDir, "@settings", m_setSel, std::string("Theme: ") + (name == "attract" ? "Attract" : "Neon"));
+            return 1;  // only if exec failed
         }
         if (m_update.state() == Updater::State::Done) {
             const std::string msg = m_update.message();
