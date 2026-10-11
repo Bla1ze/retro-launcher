@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Controls &amp; settings - Retro Launcher guides</title>
-<meta name="description" content="Every button in the menus and in games, the pause and Home menus, and what each setting does.">
+<meta name="description" content="Every button in the menus and in games, more players, the pause and Home menus, and what each setting does.">
 <link rel="icon" href="../assets/retro-launcher.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -23,12 +23,12 @@
   <aside class="side">
     <h4>GUIDES</h4>
     <ul class="guides"><li><a href="install.html">Installing &amp; updating</a></li><li><a href="adding-games.html">Adding games</a></li><li><a href="systems.html">Systems</a></li><li><a href="arcade.html">Arcade guide</a></li><li><a href="controls-settings.html" class="here">Controls &amp; settings</a></li><li><a href="troubleshooting.html">Troubleshooting</a></li></ul>
-    <div class="toc-wrap"><h4>ON THIS PAGE</h4><ul class="toc"><li><a href="#in-the-menus">In the menus</a></li><li><a href="#the-home-menu-on-a-game">The Home menu on a game</a></li><li><a href="#in-a-game">In a game</a></li><li><a href="#changing-the-buttons">Changing the buttons</a></li><li><a href="#settings">Settings</a></li><li><a href="#settings-files">Settings files</a></li></ul></div>
+    <div class="toc-wrap"><h4>ON THIS PAGE</h4><ul class="toc"><li><a href="#in-the-menus">In the menus</a></li><li><a href="#the-home-menu-on-a-game">The Home menu on a game</a></li><li><a href="#in-a-game">In a game</a></li><li><a href="#more-players">More players</a></li><li><a href="#changing-the-buttons">Changing the buttons</a></li><li><a href="#settings">Settings</a></li><li><a href="#settings-files">Settings files</a></li></ul></div>
   </aside>
   <main>
     <div class="crumb">GUIDES / CONTROLS &AMP; SETTINGS</div>
     <h1>Controls &amp; settings</h1>
-    <p class="lede">Every button in the menus and in games, the pause and Home menus, and what each setting does.</p>
+    <p class="lede">Every button in the menus and in games, more players, the pause and Home menus, and what each setting does.</p>
 <h2 id="in-the-menus">In the menus</h2>
 <table>
   <tr><th>Button</th><th>Does</th></tr>
@@ -38,7 +38,7 @@
   <tr><td><kbd>B</kbd></td><td>Back. On the consoles list, asks before closing Retro Launcher.</td></tr>
   <tr><td>Flippers <kbd>LB</kbd> <kbd>RB</kbd></td><td>In a games list: previous / next letter. Elsewhere: a page up / down.</td></tr>
   <tr><td>Second flippers <kbd>LB2</kbd> <kbd>RB2</kbd></td><td>In a games list: previous / next system.</td></tr>
-  <tr><td><kbd>REWIND</kbd> or <kbd>Y</kbd></td><td>Add the game to Favorites, or take it off.</td></tr>
+  <tr><td><kbd>REWIND</kbd> or <kbd>Y</kbd></td><td>Add the game to Favorites, or take it off. On other controllers, Rewind is the <b>View</b> (Back) button.</td></tr>
   <tr><td><kbd>HOME</kbd></td><td>On a game: the game's options (below). On the consoles list: Search.</td></tr>
   <tr><td><kbd>X</kbd></td><td>Search.</td></tr>
   <tr><td>Left / Right</td><td>Only where something is sideways: a setting's value, the search keyboard.</td></tr>
@@ -69,10 +69,32 @@
   <li><b>Save state</b> / <b>Load state</b>: one save slot per game.</li>
   <li><b>Reset</b>.</li>
   <li><b>Core options</b>: the emulator&#39;s own settings, such as resolution. Remembered, for every game that emulator plays.</li>
+  <li><b>Rotate picture</b>: turns the picture a quarter at a time (off, turned right, upside down, turned left), for games that come up sideways, such as PSP, Game Boy Advance and Dreamcast games with a vertical (TATE) mode. Remembered for that game.
+    <ul><li><b>Turn controls with it</b> (shown when the picture is turned sideways): the joystick turns with the picture, so up is up on the screen. Switch it off for a game that turns its own controls.</li></ul></li>
+  <li><b>Swap players 1 and 2</b> (shown when a second controller is connected): see <a href="#more-players">More players</a>.</li>
   <li><b>Change disc</b>: multi-disc games only.</li>
   <li><b>Quit to menu</b>.</li>
 </ul>
 <p>Quitting also saves a resume point. Next time you start the game, it asks: <b>Continue where you left off</b> or <b>Start from the beginning</b>.</p>
+
+<h2 id="more-players">More players</h2>
+<p>The cabinet&#39;s own controls are player 1. Each USB or Bluetooth controller you connect becomes the next player, up to four, in the order they connect. With no cabinet controls, the first controller is player 1.</p>
+<ul>
+  <li>Every player gets the same button layout as player 1, so arcade games take player 2&#39;s coin and Start from player 2&#39;s controller.</li>
+  <li>When a second controller is connected, the pause menu shows who is who.</li>
+  <li><b>Swap players 1 and 2</b> in the pause menu makes a controller player 1, for playing on it alone. It&#39;s remembered for every game.</li>
+  <li>Menus and the pause menu answer every controller.</li>
+</ul>
+<h3>Xbox and other controllers</h3>
+<table>
+  <tr><th>Controller</th><th>Cabinet button</th></tr>
+  <tr><td><kbd>A</kbd> <kbd>B</kbd> <kbd>X</kbd> <kbd>Y</kbd>, <kbd>LB</kbd> <kbd>RB</kbd>, <kbd>LT</kbd> <kbd>RT</kbd></td><td>The buttons of the same name (LT / RT are the second flippers).</td></tr>
+  <tr><td><kbd>View</kbd> (Back)</td><td>REWIND: Coin in arcade games, Select on consoles.</td></tr>
+  <tr><td><kbd>Menu</kbd> (Start)</td><td>START.</td></tr>
+  <tr><td>Xbox / Guide button</td><td>HOME.</td></tr>
+  <tr><td>Stick clicks</td><td>Nothing, so a hard push can&#39;t insert a coin.</td></tr>
+</table>
+<p>Games that read how far a trigger is pulled, such as gas and brake in Dreamcast and NAOMI racing games, get the real amount from a controller&#39;s triggers.</p>
 
 <h2 id="changing-the-buttons">Changing the buttons</h2>
 <p>Home on a game &gt; <b>Controls</b>. Choose whether the layout is for <b>this game</b> or the <b>whole system</b>, then either:</p>
@@ -86,6 +108,7 @@
 <p>The <b>Settings</b> row is under Favorites on the consoles list. Change a setting with Left / Right.</p>
 <table>
   <tr><th>Setting</th><th>Choices</th><th>What it does</th></tr>
+  <tr><td>Theme</td><td>Neon, Attract</td><td>The look of every screen. Attract is an arcade attract-mode style: pixel type, square boxes and CRT scanlines. Changing it restarts the menu and brings you back to Settings.</td></tr>
   <tr><td>Picture sides</td><td>Bezel, Glow, Black</td><td>What fills the sides of the screen around a game: the system's bezel, a soft glow of the picture's colors, or black.</td></tr>
   <tr><td>Scaling</td><td>Smooth, Sharp, Pixel-perfect</td><td>How the picture is enlarged. Pixel-perfect keeps every pixel the same size, with borders.</td></tr>
   <tr><td>CRT scanlines</td><td>Off, Light, Strong</td><td>Old-TV lines over the picture.</td></tr>

@@ -45,9 +45,18 @@ already in the cabinet's firmware, or better ones built for it (see
 - **Button layouts** per system and per game: presets or press-to-assign, from
   Home > Controls.
 - **Pause menu**: hold Start or press Home for Resume, Save state, Load state,
-  Reset, Core options, Change disc (multi-disc games) and Quit. Core options lists every setting the running
-  emulator offers and applies changes straight away. Quitting saves your place, and the next launch offers
-  "Continue where you left off".
+  Reset, Core options, Rotate picture, Swap players (with a second controller), Change disc (multi-disc
+  games) and Quit. Core options lists every setting the running emulator offers and applies changes
+  straight away. Quitting saves your place, and the next launch offers "Continue where you left off".
+- **Rotate picture** per game, for games that come up sideways (PSP, GBA and Dreamcast games with a
+  vertical TATE mode): a quarter turn at a time, remembered per game, with the joystick turned to match
+  ("Turn controls with it", on by default).
+- **Up to four players**: the cabinet is player 1 and each USB / Bluetooth controller joins as the next
+  player, with the same button layout. Xbox controllers get the usual shoulders and triggers (the
+  cabinet's controller file swaps them), View as Rewind / Coin, and stick clicks that do nothing. Analog
+  trigger pressure reaches cores that read it (Dreamcast, NAOMI).
+- **Two themes**: Neon, or Attract (pixel type, square boxes, CRT scanlines), on the menus, the
+  backglass and DMD, and the pause menu. Settings > Theme.
 - **Solid playback**: vsync-locked pacing with dynamic audio rate control for
   60 Hz games, audio-clock pacing for 50 Hz (PAL) games, a watchdog for a stuck
   core, and a crash guard that returns to the menu instead of the firmware.
@@ -350,9 +359,15 @@ ROM.
 | Settings | Left / Right | Change the highlighted setting |
 | Search | Left / Right / Up / Down | Move on the keyboard |
 | Search | A / left flipper / right flipper | Type / delete / jump to results |
-| In a game | Rewind | Select (Coin in arcade games) |
+| In a game | Rewind (View on other controllers) | Select (Coin in arcade games) |
 | In a game | Hold Start (1 s) or Home | Pause menu |
 | Pause menu | A / B or Start | Select / resume |
+
+**Players**: the cabinet's controls are player 1; each other controller is the next player in
+connection order, up to four (with no cabinet controls, the first is player 1). Pause menu > **Swap
+players 1 and 2** (`players.swap`, every game) makes a controller player 1. On non-cabinet
+controllers, Rewind is View / Back and stick clicks do nothing (the cabinet reports its Rewind buttons as
+stick clicks).
 
 Cabinet A/B/X/Y map to libretro B/A/Y/X (SNES layout) by default. **Home >
 Controls** on a game changes it, for that game or its whole system: a preset
@@ -369,6 +384,7 @@ stored in `data/settings.cfg` (key = value):
 
 | Setting | Key | Values | Default |
 |---|---|---|---|
+| Theme | `theme` | `neon`, `attract` (changing it restarts the menu) | `neon` |
 | Picture sides | `sides` | `bezel`, `glow`, `black` | `bezel` |
 | Scaling | `scaling` | `smooth`, `sharp`, `integer` (pixel-perfect) | `smooth` |
 | CRT scanlines | `scanlines` | `off`, `light`, `strong` | `off` |
@@ -402,11 +418,16 @@ Below the settings are five actions:
     pictures. Games, saves, settings, downloaded artwork and BIOS files are never
     touched.
   - Your own `retro-launcher.png` / `.xml` are kept.
-  - The menu also checks once a day by itself, quietly, and says when a new
-    version is out.
+  - Before installing, a **What's new** panel lists the changes in every version
+    between yours and the newest (each release's notes, minus the install section).
+  - The menu also checks by itself every time it starts (unless GitHub answered in
+    the last hour); "Update available" then stays on the Settings row and on
+    Updates until it's installed.
 - **Empty trash** deletes the games removed with Home > Remove game.
 
-Per-game screens are stored as `game.<system>/<rom file> = backglass|playfield`.
+Per-game screens are stored as `game.<system>/<rom file> = backglass|playfield`, a game's
+picture turn (pause menu) as `picture.rotate.<system>/<rom file> = 0|90|180|270` and
+`picture.controls.<system>/<rom file> = on|off`.
 
 Core options changed in the pause menu are saved to `data/core-options.cfg` in
 RetroArch's format (`option_key = "value"`), so options from a RetroArch setup can
