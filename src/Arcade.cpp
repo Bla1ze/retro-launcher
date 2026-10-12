@@ -26,6 +26,40 @@ std::string lowerStr(std::string s) {
     return s;
 }
 
+// Sound samples (dkong.zip and co.) go in roms/arcade/samples/, but each core only
+// looks in its own folder: system/fbneo/samples/ and system/mame2003-plus/samples/.
+// Copy every zip into both, when it's missing there or a different size.
+void shareSamples(const std::string& appDir) {
+    const std::string from = appDir + "/roms/arcade/samples";
+    DIR* d = ::opendir(from.c_str());
+    if (!d) return;
+    const std::string sys = appDir + "/system";
+    const std::string dests[] = {sys + "/fbneo/samples", sys + "/mame2003-plus/samples"};
+    int copied = 0, failed = 0;
+    while (dirent* e = ::readdir(d)) {
+        const std::string name = e->d_name;
+        if (name.size() < 5 || name[0] == '.' || lowerStr(name.substr(name.size() - 4)) != ".zip") continue;
+        struct stat src;
+        if (::stat((from + "/" + name).c_str(), &src) != 0 || !S_ISREG(src.st_mode)) continue;
+        for (const std::string& dir : dests) {
+            struct stat dst;
+            const std::string to = dir + "/" + name;
+            if (::stat(to.c_str(), &dst) == 0 && dst.st_size == src.st_size) continue;
+            ::mkdir(sys.c_str(), 0755);
+            ::mkdir(dir.substr(0, dir.size() - 8).c_str(), 0755);
+            ::mkdir(dir.c_str(), 0755);
+            std::ifstream in(from + "/" + name, std::ios::binary);
+            std::ofstream out(to + ".part", std::ios::binary);
+            out << in.rdbuf();
+            out.close();
+            if (in && out && ::rename((to + ".part").c_str(), to.c_str()) == 0) ++copied;
+            else { ::remove((to + ".part").c_str()); ++failed; }
+        }
+    }
+    ::closedir(d);
+    if (copied || failed) log("samples: %d copied from roms/arcade/samples/ to the cores' folders, %d failed", copied, failed);
+}
+
 std::vector<std::string> splitTabs(const std::string& line) {
     std::vector<std::string> f;
     size_t a = 0;
@@ -287,6 +321,7 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         }
         ::closedir(d);
     }
+    if (sys.id == "arcade") shareSamples(appDir);
     if (zips.empty()) return games;
     // Neo Geo: neogeo.zip may be in roms/arcade/ only; FBNeo won't look there,
     // so copy it to system/fbneo/, one of the places it does look.

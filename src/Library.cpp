@@ -945,7 +945,8 @@ static void writeGuides(const std::string& appDir) {
                  ? std::string("Leave the zips as they are (don't unpack them). Each one is checked against the\n"
                                "ROM lists in cores/ and played with the emulator it is complete for: FBNeo\n"
                                "(current sets), else MAME 2003-Plus (MAME 0.78-era sets). Parent zips\n"
-                               "(sf2.zip for sf2ce.zip) go here too. Vertical games play on the playfield.\n")
+                               "(sf2.zip for sf2ce.zip) go here too. Vertical games play on the playfield.\n"
+                               "Sound samples (e.g. dkong.zip from a samples pack) go in roms/arcade/samples/.\n")
              : s.id == "neogeo"
                  ? std::string("Leave the zips as they are (FBNeo sets, e.g. mslug.zip, kof98.zip). Each is checked\n"
                                "against FBNeo's ROM list; clones need their parent zip here too. Other arcade\n"
