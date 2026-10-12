@@ -1,0 +1,39 @@
+<!-- Blog header (Ghost feature image), 1600x900 at 1.5x = 2400x1350. Re-render with og/render-blog-header.sh. -->
+<!doctype html>
+<html><head><meta charset="utf-8">
+<style>
+  * { margin: 0; box-sizing: border-box; }
+  html, body { width: 1600px; height: 900px; overflow: hidden; }
+  body { position: relative; background: #05060f; }
+  .glow { position: absolute; inset: 0;
+    background: radial-gradient(700px 480px at 50% 40%, rgba(30,139,255,.30), transparent 70%),
+                radial-gradient(600px 420px at 92% 10%, rgba(255,122,26,.20), transparent 70%),
+                radial-gradient(600px 420px at 8% 10%, rgba(255,59,150,.16), transparent 70%); }
+  /* synthwave sun on the horizon */
+  .sun { position: absolute; left: 50%; top: 250px; width: 560px; height: 560px; margin-left: -280px; border-radius: 50%;
+    background: linear-gradient(#ffd23f, #ff7a1a 45%, #ff3b96 80%);
+    -webkit-mask-image: repeating-linear-gradient(transparent 0 300px, #000 300px 330px, transparent 330px 342px, #000 342px 368px, transparent 368px 384px, #000 384px 404px, transparent 404px 424px, #000 424px 440px, transparent 440px 464px, #000 464px 480px, transparent 480px 600px);
+    filter: drop-shadow(0 0 40px rgba(255,122,26,.6)); opacity: .9; }
+  .sun2 { position: absolute; left: 50%; top: 150px; width: 1000px; height: 500px; margin-left: -500px; border-radius: 500px 500px 0 0;
+    background: linear-gradient(#ffd23f, #ff7a1a 50%, #ff3b96); filter: drop-shadow(0 0 60px rgba(255,140,40,.5)); opacity: .55;
+    -webkit-mask-image: linear-gradient(#000 0 52%, transparent 52% 58%, #000 58% 68%, transparent 68% 75%, #000 75% 83%, transparent 83% 91%, #000 91%); }
+  .grid { position: absolute; left: -400px; right: -400px; bottom: -20px; height: 560px; }
+  .grid::after { content: ''; position: absolute; inset: 0;
+    background-image: linear-gradient(rgba(63,216,255,.85) 2px, transparent 2px), linear-gradient(90deg, rgba(63,216,255,.85) 2px, transparent 2px);
+    background-size: 96px 64px; transform: perspective(420px) rotateX(60deg); transform-origin: bottom;
+    -webkit-mask-image: linear-gradient(transparent, #000 40%); }
+  .shot { position: absolute; width: 640px; border-radius: 14px; box-shadow: 0 30px 80px rgba(0,0,0,.8), 0 0 0 2px rgba(255,255,255,.1); }
+  .s1 { left: 50px; top: 330px; transform: rotate(-7deg); }
+  .s2 { right: 50px; top: 330px; transform: rotate(7deg); }
+  .art { position: absolute; left: 50%; top: 70px; width: 470px; margin-left: -235px; border-radius: 22px; z-index: 2;
+    box-shadow: 0 34px 90px rgba(0,0,0,.85), 0 0 70px rgba(30,139,255,.6), 0 0 0 2px rgba(255,255,255,.12); }
+  .bar { position: absolute; left: 0; right: 0; bottom: 0; height: 10px; background: linear-gradient(90deg, #1e8bff, #3fd8ff, #ffd23f, #ff7a1a); }
+</style></head><body>
+  <div class="glow"></div>
+  <div class="sun2"></div>
+  <div class="grid"></div>
+  <img class="shot s1" src="../docs/assets/screenshot-attract.png">
+  <img class="shot s2" src="../docs/assets/screenshot-consoles.png">
+  <img class="art" src="../assets/metadata/retro-launcher.png">
+  <div class="bar"></div>
+</body></html>
