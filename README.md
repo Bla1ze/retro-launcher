@@ -229,6 +229,11 @@ with year and maker. **Vertical games** (1942, Galaga, DoDonPachi...) play on
 the playfield by default, filling it in portrait; horizontal ones on the
 backglass. Home on a game changes either. Rewind is the coin button.
 
+**Sound samples:** some older games (Donkey Kong, Space Invaders, Galaxian) play
+some sounds from a separate samples zip with the game's name. Put those zips in
+`roms/arcade/samples/`; each arcade scan copies them into both emulators' sample
+folders (`system/fbneo/samples/` and `system/mame2003-plus/samples/`).
+
 The ROM lists are `cores/fbneo_libretro.db`, `cores/mame2003_plus_libretro.db` and
 `cores/flycast_libretro.db` (NAOMI / Atomiswave),
 made by `tools/make_arcade_db.py` from the same source the cores are built from.
@@ -397,6 +402,7 @@ stored in `data/settings.cfg` (key = value):
 | Arcade: hide clones & broken sets | `arcade.hide` | `off`, `on` | `off` |
 | Hide consoles with no games | `systems.hideEmpty` | `off` (listed, dimmed), `on` | `off` |
 | Trackball speed | `trackball.speed` | `normal`, `slow`, `fast` | `normal` |
+| CPU pinning | `cpu.pin` | `fast` (the emulator runs on the fast cores), `off` | `fast` |
 
 Below the settings are five actions:
 - **Download artwork** adds covers and logos for games that have none (see Artwork).

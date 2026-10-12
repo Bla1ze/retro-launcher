@@ -60,10 +60,10 @@
 
 <h2 id="sound-samples">Sound samples</h2>
 <p>Some older games (Donkey Kong, Space Invaders, Galaxian and others) play some of their sounds from recordings called <b>samples</b>, which come in a separate zip named after the game, such as <code>dkong.zip</code>. Without it the game runs but those sounds are missing.</p>
-<p>Each emulator looks for samples in its own folder, not next to the games. Put the samples zip in both, so it's found whichever emulator plays the game:</p>
-<pre><code>system/fbneo/samples/dkong.zip
-system/mame2003-plus/samples/dkong.zip</code></pre>
-<p>Create the folders if they aren't there. Don't put a samples zip in <code>roms/arcade/</code>: it has the same name as the game&#39;s own zip.</p>
+<p>Put samples zips in their own folder inside the arcade folder (create it if it isn't there):</p>
+<pre><code>roms/arcade/samples/dkong.zip</code></pre>
+<p>Each emulator looks for samples in its own folder, so every time Retro Launcher scans the arcade games it copies the zips from <code>roms/arcade/samples/</code> into both: <code>system/fbneo/samples/</code> and <code>system/mame2003-plus/samples/</code>. Samples already there are left alone, so a setup from an earlier version keeps working.</p>
+<p>Don't put a samples zip directly in <code>roms/arcade/</code>: it has the same name as the game&#39;s own zip. Before version 1.0.7, samples had to be put in both system folders by hand.</p>
 
 <h2 id="neo-geo">Neo Geo</h2>
 <p>Neo Geo games have their own <b>Neo Geo</b> row, folder <code>roms/neogeo/</code>, played with FBNeo. They need <code>neogeo.zip</code>, either next to the games or in <code>system/fbneo/</code>; one that's only in <code>roms/arcade/</code> is copied over for you. Zips in this folder that aren't Neo Geo games are flagged to move to <code>roms/arcade/</code>. Neo Geo games in <code>roms/arcade/</code> keep working there too.</p>

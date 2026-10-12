@@ -1,12 +1,13 @@
 #pragma once
 
-// CPU pinning test (branch pin-test). The 4KP's fast Cortex-A76 cores are
-// cpu1-4 and its slow A55s are cpu0 and cpu5-7 (measured by Power Probe),
-// roughly 2.4x apart. Nothing was pinned before, so the scheduler was free to
-// run the emulator on a slow core. This finds the two groups from each core's
-// top clock (so it doesn't depend on the numbering), pins the emulator to the
-// fast group and the panel worker to the slow one, and lets the player log
-// where the emulator actually ran.
+// CPU pinning. The 4KP's fast Cortex-A76 cores are cpu1-4 and its slow A55s
+// are cpu0 and cpu5-7, roughly 2.4x apart. Unpinned, the scheduler ran a
+// Saturn game on a slow core over a third of the time: 55.7 fps with 6.4 audio
+// underruns a second, against 59.7 fps and 0.12 pinned (1.0.6-pintest,
+// 2026-10-12). This finds the two groups from each core's top clock (so it
+// doesn't depend on the numbering), pins the emulator to the fast group and
+// the panel worker to the slow one, and lets the player log where the
+// emulator actually ran.
 
 #include <pthread.h>
 #include <sched.h>
@@ -69,8 +70,8 @@ inline bool isFast(int cpu)
     return false;
 }
 
-// Settings > CPU pinning (test): "fast" (default) or "off". Set by the player
-// at start, read by the panel worker.
+// Settings > CPU pinning: "fast" (default) or "off". Set by the player at
+// start, read by the panel worker.
 inline bool& enabled()
 {
     static bool on = false;

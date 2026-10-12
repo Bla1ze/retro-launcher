@@ -1318,7 +1318,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     settings.load(appDir);
     Theme::setStyle(Theme::styleNamed(settings.value("theme", "neon")));  // the menu's look, before anything is drawn
     g_swapPlayers = settings.value("players.swap", "off") == "on";
-    // CPU pinning test: the emulator (this thread) on the fast cores. The
+    // CPU pinning: the emulator (this thread) on the fast cores. The
     // panel worker, started later, pins itself to the slow ones.
     {
         const CpuPin::Groups& cg = CpuPin::groups();
@@ -2096,7 +2096,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (!presented) SDL_Delay(2);
         while (audio && SDL_GetQueuedAudioSize(audio) > maxQueue) SDL_Delay(1);
 
-        // Where the emulator ran this frame (pinning test).
+        // Where the emulator ran this frame, for the log.
         {
             const int cpu = sched_getcpu();
             if (cpu >= 0) {

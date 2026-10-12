@@ -1068,7 +1068,7 @@ void GamePanels::show(const Item& item, float dt) {
 }
 
 void GamePanels::worker() {
-    // Pinning test: panel drawing stays off the emulator's fast cores.
+    // CPU pinning: panel drawing stays off the emulator's fast cores.
     if (CpuPin::enabled()) CpuPin::pinSelf(CpuPin::groups().slow);
     // The DMD's row icons, ready before the menu first lands on one.
     for (const Panel& p : m_panels)
