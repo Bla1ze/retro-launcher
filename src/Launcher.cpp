@@ -792,6 +792,7 @@ const std::vector<Menu::SettingDef>& Menu::settingDefs() {
         {"Arcade: hide clones & broken sets", "arcade.hide", {"off", "on"}, {"Off", "On"}},
         {"Hide consoles with no games", "systems.hideEmpty", {"off", "on"}, {"Off", "On"}},
         {"Trackball speed", "trackball.speed", {"normal", "slow", "fast"}, {"Normal", "Slow", "Fast"}},
+        {"CPU pinning (test)", "cpu.pin", {"fast", "off"}, {"Fast cores", "Off"}},
     };
     return defs;
 }

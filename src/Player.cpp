@@ -2,6 +2,7 @@
 #include "Arcade.h"
 
 #include "Ambient.h"
+#include "CpuPin.h"
 #include "AppFont.h"
 #include "Gfx.h"
 #include "Theme.h"
@@ -257,6 +258,9 @@ bool g_newFrame = false;
 unsigned long g_frames = 0, g_dupes = 0;
 
 Ambient g_ambient;
+// Pinning test counters, reset with each stats line.
+unsigned long g_cpuSamples = 0, g_cpuFast = 0, g_cpuMoves = 0;
+int g_cpuLast = -1;
 bool g_sharp = false;  // Settings > Scaling: Sharp / Pixel-perfect
 
 // CRT scanlines: two rows per game line (clear, dark), stretched over the
@@ -1314,6 +1318,17 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     settings.load(appDir);
     Theme::setStyle(Theme::styleNamed(settings.value("theme", "neon")));  // the menu's look, before anything is drawn
     g_swapPlayers = settings.value("players.swap", "off") == "on";
+    // CPU pinning test: the emulator (this thread) on the fast cores. The
+    // panel worker, started later, pins itself to the slow ones.
+    {
+        const CpuPin::Groups& cg = CpuPin::groups();
+        CpuPin::enabled() = settings.value("cpu.pin", "fast") != "off";
+        bool pinned = false;
+        if (CpuPin::enabled()) pinned = CpuPin::pinSelf(cg.fast);
+        log("cpu: fast cores [%s], slow cores [%s]; pinning %s%s", CpuPin::list(cg.fast).c_str(),
+            CpuPin::list(cg.slow).c_str(), CpuPin::enabled() ? "ON" : "OFF (scheduler decides)",
+            CpuPin::enabled() ? (pinned ? ": emulator pinned to the fast cores" : ": FAILED to pin") : "");
+    }
     log("system %s, rom %s, screen %s", sys->id.c_str(), romPath.c_str(), Library::screenName(screen));
     Library::logInputDevices();
     // The trackball, before the core reads its options (MAME 2003-Plus's xy_device).
@@ -2081,7 +2096,21 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (!presented) SDL_Delay(2);
         while (audio && SDL_GetQueuedAudioSize(audio) > maxQueue) SDL_Delay(1);
 
+        // Where the emulator ran this frame (pinning test).
+        {
+            const int cpu = sched_getcpu();
+            if (cpu >= 0) {
+                ++g_cpuSamples;
+                if (CpuPin::isFast(cpu)) ++g_cpuFast;
+                if (cpu != g_cpuLast && g_cpuLast >= 0) ++g_cpuMoves;
+                g_cpuLast = cpu;
+            }
+        }
         if (t - statsAt >= 10000) {
+            log("cpu: pinning %s; emulator on a fast core %.0f%% of frames, %lu core changes, now cpu%d",
+                CpuPin::enabled() ? "on" : "off", g_cpuSamples ? 100.0 * g_cpuFast / g_cpuSamples : 0.0, g_cpuMoves,
+                g_cpuLast);
+            g_cpuSamples = g_cpuFast = g_cpuMoves = 0;
             log("stats: %.1f game fps, frame %dx%d, audio %u ms, rate %+.3f%%, underruns %lu, catch-ups %lu, dupes %lu",
                 (coreFrames - statFrames) * 1000.0 / (t - statsAt), g_frameW, g_frameH,
                 audio ? SDL_GetQueuedAudioSize(audio) * 1000 / bytesPerSec : 0,
