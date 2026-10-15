@@ -125,8 +125,8 @@ std::vector<ButtonPreset> buttonPresets(const std::string& systemId);
 // Playfield-card lines ("A" -> "Jump") for a layout.
 std::vector<std::pair<std::string, std::string>> controlHints(const std::string& systemId, const ButtonMap& m);
 
-// Log to data/launcher.log and stdout (stdout reaches logs/output.txt when the
-// app XML has <logging>true</logging>).
+// Log to data/launcher.log and stdout (stdout reaches logs/output.txt only when
+// the app XML has <logging>true</logging>; it ships off, see quietFirmwareLog).
 void openLog(const std::string& appDir, const char* mode);
 // Logs every input device the kernel reports (name and its event / js nodes).
 void logInputDevices();

@@ -5,5 +5,5 @@
     <year>2026</year>
     <copyright>Bla1ze</copyright>
     <description>A neon front-end for retro systems: Arcade (FBNeo, MAME, Neo Geo, NAOMI, Atomiswave), NES to N64, Genesis to Dreamcast, PlayStation, PSP, Game Boy and more. With Retro Launcher, you can choose to play games on the Backglass or Playfield.</description>
-    <logging>true</logging>
+    <logging>false</logging>
 </root>

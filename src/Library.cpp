@@ -998,6 +998,29 @@ static void writeGuides(const std::string& appDir) {
         "you: https://github.com/Bla1ze/retro-launcher#artwork\n");
 }
 
+// The firmware's <logging> capture (logs/output.txt) also takes in its own
+// launch scripts' noise; everything of ours is in data/launcher.log. Updates
+// keep the owner's retro-launcher.xml, so switch just that tag off in place.
+static void quietFirmwareLog(const std::string& appDir) {
+    const std::string path = appDir + "/retro-launcher.xml";
+    std::ifstream in(path, std::ios::binary);
+    if (!in) return;
+    std::stringstream ss;
+    ss << in.rdbuf();
+    std::string xml = ss.str();
+    const std::string on = "<logging>true</logging>";
+    size_t at = xml.find(on);
+    if (at == std::string::npos) return;
+    xml.replace(at, on.size(), "<logging>false</logging>");
+    const std::string part = path + ".part";
+    std::ofstream out(part, std::ios::binary);
+    out << xml;
+    out.close();
+    bool ok = out && ::rename(part.c_str(), path.c_str()) == 0;
+    if (!ok) ::unlink(part.c_str());
+    log("retro-launcher.xml: firmware log (logs/output.txt) %s", ok ? "turned off" : "could not be turned off (read-only stick?)");
+}
+
 void ensureFolders(const std::string& appDir) {
     for (const char* sub : {"/roms", "/saves", "/system", "/cores", "/data", "/media"})
         ::mkdir((appDir + sub).c_str(), 0755);
@@ -1007,6 +1030,7 @@ void ensureFolders(const std::string& appDir) {
         ::mkdir((appDir + "/media/" + s.id).c_str(), 0755);
     }
     writeGuides(appDir);
+    quietFirmwareLog(appDir);
 }
 
 // ------------------------------------------------------------------ settings
