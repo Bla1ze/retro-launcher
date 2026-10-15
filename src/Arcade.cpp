@@ -322,7 +322,34 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         ::closedir(d);
     }
     if (sys.id == "arcade") shareSamples(appDir);
-    if (zips.empty()) return games;
+    // A zip put inside its disk folder (<set>/<set>.zip beside <set>/<disk>.chd)
+    // isn't found by the emulators, which look for <set>.zip here: list it with
+    // what to do about it.
+    std::vector<Library::Game> misplaced;
+    if (DIR* d = ::opendir(dir.c_str())) {
+        while (struct dirent* de = ::readdir(d)) {
+            std::string sub = de->d_name;
+            if (sub.empty() || sub[0] == '.' || zips.count(lowerStr(sub))) continue;
+            struct stat st;
+            const std::string inner = dir + "/" + sub + "/" + sub + ".zip";
+            if (::stat(inner.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) continue;
+            Library::Game g;
+            g.file = sub + "/" + sub + ".zip";
+            g.path = inner;
+            g.title = lowerStr(sub);
+            g.arcade = true;
+            g.broken = true;
+            g.problem = "Move " + sub + ".zip up one folder, next to the " + sub + " folder";
+            g.tags = g.problem;
+            misplaced.push_back(g);
+            log("%s: %s is inside its folder; it belongs in roms/%s/", sys.id.c_str(), g.file.c_str(), sys.id.c_str());
+        }
+        ::closedir(d);
+    }
+    if (zips.empty()) {
+        games = misplaced;
+        return games;
+    }
     // Neo Geo: neogeo.zip may be in roms/arcade/ only; FBNeo won't look there,
     // so copy it to system/fbneo/, one of the places it does look.
     if (sys.id == "neogeo" && !zips.count("neogeo")) {
@@ -446,6 +473,14 @@ std::vector<Library::Game> scan(const std::string& appDir, const Library::System
         g.broken = !g.problem.empty() || (named && named->flags.find('P') != std::string::npos);
         if (!g.problem.empty()) g.tags = g.problem + (g.tags.empty() ? "" : "  -  " + g.tags);
         else ++complete;
+        games.push_back(g);
+    }
+    // Misplaced zips: named from the databases when they know the set.
+    for (Library::Game& g : misplaced) {
+        for (const auto& db : dbs) {
+            auto e = db.second.find(g.title);
+            if (e != db.second.end()) { g.title = e->second.title; break; }
+        }
         games.push_back(g);
     }
     std::sort(games.begin(), games.end(),

@@ -625,6 +625,13 @@ void Menu::launch(int sys, int game, const std::string& returnTo, int returnInde
     SystemEntry& e = m_systems[sys];
     if (game < 0 || game >= (int)e.games.size()) return;
     const Library::Game& g = e.games[game];
+    // A zip inside its disk folder (see Arcade::scan): no emulator can start it
+    // from there, so say what to do instead of failing in the wrong one.
+    if (g.arcade && g.problem.compare(0, 5, "Move ") == 0) {
+        m_toast = g.problem;
+        m_toastTime = 0.0f;
+        return;
+    }
     Library::pushRecent(m_appDir, e.sys->id, g.file);
     const ScreenId screen = gameScreen(sys, game);
     // Draw a "Starting" frame so the press registers before the screen goes dark.
