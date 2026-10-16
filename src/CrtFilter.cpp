@@ -3,6 +3,7 @@
 #include "Library.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <vector>
@@ -11,6 +12,18 @@ using Library::log;
 
 namespace CrtFilter {
 namespace {
+
+// Three passes, all in SDL's renderer context:
+//   1. linearize: the shown part of the frame, at the game's own size, to
+//      linear light stored as its square root (8 bits keep the darks that way);
+//      done once per new frame instead of in every tap of the CRT shader;
+//   2. crt: the CRT shader, into an offscreen picture no bigger than the work
+//      budget allows (or straight to the screen when it fits);
+//   3. present: that picture stretched onto the screen, turned like the plain
+//      copy would be.
+// The cost is per drawn pixel, so a 4K playfield is 4x a 1080p backglass. When
+// the screen can't keep up, the offscreen picture shrinks (never below about
+// three pixels per game line, which scanlines need).
 
 // ------------------------------------------------------------------ shaders
 
@@ -24,26 +37,41 @@ void main() {
 }
 )";
 
-// Shared by both filters. uSrcOrigin/uSrcSize: the shown part of the frame
-// (blank edge columns cropped), in frame pixels. uOutSize: the picture's size
-// on screen, upright. texel() takes a position in source pixels.
-const char* kHead = R"(
+const char* kPrecision = R"(
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;
 #else
 precision mediump float;
 #endif
+varying vec2 vUV;
+)";
+
+// Pass 1. uSrcOrigin/uSrcSize: the shown part of the frame (blank edge columns
+// cropped), in frame pixels. XRGB8888 rows hold B, G, R, X (uSwap).
+const char* kLinearize = R"(
 uniform sampler2D uTex;
 uniform vec2 uTexSize;
 uniform vec2 uSrcOrigin;
 uniform vec2 uSrcSize;
-uniform vec2 uOutSize;
 uniform float uSwap;
-varying vec2 vUV;
-vec3 texel(vec2 px) {
-    vec3 c = texture2D(uTex, (px + uSrcOrigin) / uTexSize).rgb;
-    return uSwap > 0.5 ? c.bgr : c;
+float ToLinear1(float c) { return (c <= 0.04045) ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
+void main() {
+    vec3 c = texture2D(uTex, (vUV * uSrcSize + uSrcOrigin) / uTexSize).rgb;
+    if (uSwap > 0.5) c = c.bgr;
+    gl_FragColor = vec4(sqrt(vec3(ToLinear1(c.r), ToLinear1(c.g), ToLinear1(c.b))), 1.0);
 }
+)";
+
+// Pass 2's shared part: uLin is pass 1's output, uSrcSize its size; lin() takes
+// a position in source pixels and gives linear light. uOutSize: the size being
+// drawn, upright.
+const char* kCrtHead = R"(
+uniform sampler2D uLin;
+uniform vec2 uSrcSize;
+uniform vec2 uOutSize;
+vec3 lin(vec2 px) { vec3 t = texture2D(uLin, px / uSrcSize).rgb; return t * t; }
+float ToSrgb1(float c) { return (c < 0.0031308 ? c * 12.92 : 1.055 * pow(c, 0.41666) - 0.055); }
+vec3 ToSrgb(vec3 c) { return vec3(ToSrgb1(c.r), ToSrgb1(c.g), ToSrgb1(c.b)); }
 )";
 
 // crt-lottes, the original:
@@ -53,8 +81,12 @@ vec3 texel(vec2 px) {
 //   With RGB inputs instead of NTSC.
 //   Please take and use, change, or whatever.
 // From libretro's glsl-shaders (crt/shaders/crt-lottes.glsl) with its default
-// parameters, the stretched VGA shadow mask (3) and bloom on; reads the frame
-// through texel() and blacks out samples beyond its edges.
+// parameters, the stretched VGA shadow mask (3) and bloom on. Same math,
+// rearranged for speed: the picture's 3 lines and the bloom's 5 read the same
+// texels, so the 31 are read once (the original read 42); the Gaussian weights
+// depend only on the distance to the texel grid, so the 20 are computed once
+// (it computed 50); its kernel shape is 2.0, so pow(|x|, shape) is x*x; and the
+// input arrives already linear (pass 1). Taps beyond the picture are black.
 const char* kLottes = R"(
 const float hardScan = -8.0;
 const float hardPix = -3.0;
@@ -62,99 +94,17 @@ const float warpX = 0.031;
 const float warpY = 0.041;
 const float maskDark = 0.5;
 const float maskLight = 1.5;
-const float brightBoost = 1.0;
 const float hardBloomPix = -1.5;
 const float hardBloomScan = -2.0;
 const float bloomAmount = 0.15;
-const float shape = 2.0;
 
-float ToLinear1(float c) { return (c <= 0.04045) ? c / 12.92 : pow((c + 0.055) / 1.055, 2.4); }
-vec3 ToLinear(vec3 c) { return vec3(ToLinear1(c.r), ToLinear1(c.g), ToLinear1(c.b)); }
-float ToSrgb1(float c) { return (c < 0.0031308 ? c * 12.92 : 1.055 * pow(c, 0.41666) - 0.055); }
-vec3 ToSrgb(vec3 c) { return vec3(ToSrgb1(c.r), ToSrgb1(c.g), ToSrgb1(c.b)); }
-
-// Nearest emulated sample given floating point position and texel offset.
-vec3 Fetch(vec2 pos, vec2 off) {
-    vec2 p = floor(pos * uSrcSize + off) + vec2(0.5, 0.5);
+vec2 g_base;
+vec3 T(float i, float j) {
+    vec2 p = g_base + vec2(i, j) + vec2(0.5);
     if (p.x < 0.0 || p.y < 0.0 || p.x > uSrcSize.x || p.y > uSrcSize.y) return vec3(0.0);
-    return ToLinear(brightBoost * texel(p));
+    return lin(p);
 }
-// Distance in emulated pixels to nearest texel.
-vec2 Dist(vec2 pos) {
-    pos = pos * uSrcSize;
-    return -((pos - floor(pos)) - vec2(0.5));
-}
-// 1D Gaussian.
-float Gaus(float pos, float scale) { return exp2(scale * pow(abs(pos), shape)); }
-// 3-tap Gaussian filter along horz line.
-vec3 Horz3(vec2 pos, float off) {
-    vec3 b = Fetch(pos, vec2(-1.0, off));
-    vec3 c = Fetch(pos, vec2( 0.0, off));
-    vec3 d = Fetch(pos, vec2( 1.0, off));
-    float dst = Dist(pos).x;
-    float scale = hardPix;
-    float wb = Gaus(dst - 1.0, scale);
-    float wc = Gaus(dst + 0.0, scale);
-    float wd = Gaus(dst + 1.0, scale);
-    return (b * wb + c * wc + d * wd) / (wb + wc + wd);
-}
-// 5-tap Gaussian filter along horz line.
-vec3 Horz5(vec2 pos, float off) {
-    vec3 a = Fetch(pos, vec2(-2.0, off));
-    vec3 b = Fetch(pos, vec2(-1.0, off));
-    vec3 c = Fetch(pos, vec2( 0.0, off));
-    vec3 d = Fetch(pos, vec2( 1.0, off));
-    vec3 e = Fetch(pos, vec2( 2.0, off));
-    float dst = Dist(pos).x;
-    float scale = hardPix;
-    float wa = Gaus(dst - 2.0, scale);
-    float wb = Gaus(dst - 1.0, scale);
-    float wc = Gaus(dst + 0.0, scale);
-    float wd = Gaus(dst + 1.0, scale);
-    float we = Gaus(dst + 2.0, scale);
-    return (a * wa + b * wb + c * wc + d * wd + e * we) / (wa + wb + wc + wd + we);
-}
-// 7-tap Gaussian filter along horz line.
-vec3 Horz7(vec2 pos, float off) {
-    vec3 a = Fetch(pos, vec2(-3.0, off));
-    vec3 b = Fetch(pos, vec2(-2.0, off));
-    vec3 c = Fetch(pos, vec2(-1.0, off));
-    vec3 d = Fetch(pos, vec2( 0.0, off));
-    vec3 e = Fetch(pos, vec2( 1.0, off));
-    vec3 f = Fetch(pos, vec2( 2.0, off));
-    vec3 g = Fetch(pos, vec2( 3.0, off));
-    float dst = Dist(pos).x;
-    float scale = hardBloomPix;
-    float wa = Gaus(dst - 3.0, scale);
-    float wb = Gaus(dst - 2.0, scale);
-    float wc = Gaus(dst - 1.0, scale);
-    float wd = Gaus(dst + 0.0, scale);
-    float we = Gaus(dst + 1.0, scale);
-    float wf = Gaus(dst + 2.0, scale);
-    float wg = Gaus(dst + 3.0, scale);
-    return (a * wa + b * wb + c * wc + d * wd + e * we + f * wf + g * wg) / (wa + wb + wc + wd + we + wf + wg);
-}
-// Return scanline weight.
-float Scan(vec2 pos, float off) { return Gaus(Dist(pos).y + off, hardScan); }
-// Return scanline weight for bloom.
-float BloomScan(vec2 pos, float off) { return Gaus(Dist(pos).y + off, hardBloomScan); }
-// Allow nearest three lines to effect pixel.
-vec3 Tri(vec2 pos) {
-    vec3 a = Horz3(pos, -1.0);
-    vec3 b = Horz5(pos, 0.0);
-    vec3 c = Horz3(pos, 1.0);
-    return a * Scan(pos, -1.0) + b * Scan(pos, 0.0) + c * Scan(pos, 1.0);
-}
-// Small bloom.
-vec3 Bloom(vec2 pos) {
-    vec3 a = Horz5(pos, -2.0);
-    vec3 b = Horz7(pos, -1.0);
-    vec3 c = Horz7(pos, 0.0);
-    vec3 d = Horz7(pos, 1.0);
-    vec3 e = Horz5(pos, 2.0);
-    return a * BloomScan(pos, -2.0) + b * BloomScan(pos, -1.0) + c * BloomScan(pos, 0.0) +
-           d * BloomScan(pos, 1.0) + e * BloomScan(pos, 2.0);
-}
+float G(float x, float scale) { return exp2(scale * x * x); }
 // Distortion of scanlines, and end of screen alpha.
 vec2 Warp(vec2 pos) {
     pos = pos * 2.0 - 1.0;
@@ -173,9 +123,43 @@ vec3 Mask(vec2 pos) {
 }
 void main() {
     vec2 pos = Warp(vUV);
-    vec3 outColor = Tri(pos);
-    outColor += Bloom(pos) * bloomAmount;
-    outColor *= Mask(gl_FragCoord.xy * 1.000001);
+    vec2 P = pos * uSrcSize;
+    g_base = floor(P);
+    vec2 d = -((P - g_base) - vec2(0.5));  // Dist()
+
+    // Horizontal weights for taps -3..3 (picture: hardPix, bloom: hardBloomPix).
+    float p2m = G(d.x - 2.0, hardPix), p1m = G(d.x - 1.0, hardPix), p0 = G(d.x, hardPix);
+    float p1 = G(d.x + 1.0, hardPix), p2 = G(d.x + 2.0, hardPix);
+    float b3m = G(d.x - 3.0, hardBloomPix), b2m = G(d.x - 2.0, hardBloomPix), b1m = G(d.x - 1.0, hardBloomPix);
+    float b0 = G(d.x, hardBloomPix), b1 = G(d.x + 1.0, hardBloomPix), b2 = G(d.x + 2.0, hardBloomPix);
+    float b3 = G(d.x + 3.0, hardBloomPix);
+    float s3 = p1m + p0 + p1, s5 = p2m + s3 + p2;
+    float t5 = b2m + b1m + b0 + b1 + b2, t7 = b3m + t5 + b3;
+
+    // Lines -1, 0, 1: seven taps each, for the picture and the bloom.
+    vec3 a3 = T(-3.0, -1.0), a2 = T(-2.0, -1.0), a1 = T(-1.0, -1.0), a0 = T(0.0, -1.0);
+    vec3 a4 = T(1.0, -1.0), a5 = T(2.0, -1.0), a6 = T(3.0, -1.0);
+    vec3 c3 = T(-3.0, 0.0), c2 = T(-2.0, 0.0), c1 = T(-1.0, 0.0), c0 = T(0.0, 0.0);
+    vec3 c4 = T(1.0, 0.0), c5 = T(2.0, 0.0), c6 = T(3.0, 0.0);
+    vec3 e3 = T(-3.0, 1.0), e2 = T(-2.0, 1.0), e1 = T(-1.0, 1.0), e0 = T(0.0, 1.0);
+    vec3 e4 = T(1.0, 1.0), e5 = T(2.0, 1.0), e6 = T(3.0, 1.0);
+
+    // Tri(): Horz3 above and below, Horz5 on the line, by scanline weight.
+    vec3 tri = (a1 * p1m + a0 * p0 + a4 * p1) / s3 * G(d.y - 1.0, hardScan) +
+               (c2 * p2m + c1 * p1m + c0 * p0 + c4 * p1 + c5 * p2) / s5 * G(d.y, hardScan) +
+               (e1 * p1m + e0 * p0 + e4 * p1) / s3 * G(d.y + 1.0, hardScan);
+
+    // Bloom(): Horz5 two lines out, Horz7 on the three in the middle.
+    vec3 bloom =
+        (T(-2.0, -2.0) * b2m + T(-1.0, -2.0) * b1m + T(0.0, -2.0) * b0 + T(1.0, -2.0) * b1 + T(2.0, -2.0) * b2) / t5 *
+            G(d.y - 2.0, hardBloomScan) +
+        (a3 * b3m + a2 * b2m + a1 * b1m + a0 * b0 + a4 * b1 + a5 * b2 + a6 * b3) / t7 * G(d.y - 1.0, hardBloomScan) +
+        (c3 * b3m + c2 * b2m + c1 * b1m + c0 * b0 + c4 * b1 + c5 * b2 + c6 * b3) / t7 * G(d.y, hardBloomScan) +
+        (e3 * b3m + e2 * b2m + e1 * b1m + e0 * b0 + e4 * b1 + e5 * b2 + e6 * b3) / t7 * G(d.y + 1.0, hardBloomScan) +
+        (T(-2.0, 2.0) * b2m + T(-1.0, 2.0) * b1m + T(0.0, 2.0) * b0 + T(1.0, 2.0) * b1 + T(2.0, 2.0) * b2) / t5 *
+            G(d.y + 2.0, hardBloomScan);
+
+    vec3 outColor = (tri + bloom * bloomAmount) * Mask(gl_FragCoord.xy * 1.000001);
     if (pos.x <= 0.0001 || pos.x >= 0.9999 || pos.y <= 0.0001 || pos.y >= 0.9999) outColor = vec3(0.0);
     gl_FragColor = vec4(ToSrgb(outColor), 1.0);
 }
@@ -187,23 +171,18 @@ void main() {
 //     https://www.shadertoy.com/view/MtSfRK
 //     adapted for RetroArch by hunterk
 // From libretro's glsl-shaders (crt/shaders/crt-lottes-fast.glsl) with its
-// default parameters: the 8-tap filter, warp, tone mapping, mask type 1.
-// (Its contrast and saturation steps are no-ops at those defaults.)
+// default parameters: the 8-tap filter, warp, tone mapping, mask type 1. (Its
+// contrast and saturation steps are no-ops at those defaults.) The input
+// arrives already linear (pass 1; its CRT_GAMMA is 2.4, the same curve).
 const char* kLottesFast = R"(
-const float CRT_GAMMA = 2.4;
 const float SCANLINE_THINNESS = 0.5;
 const float SCAN_BLUR = 2.5;
 const float MASK_INTENSITY = 0.54;
 const float CURVATURE = 0.02;
 const float CORNER = 3.0;
 
-float FromSrgb1(float c) { return (c <= 0.04045) ? c * (1.0 / 12.92) : pow(c * (1.0 / 1.055) + (0.055 / 1.055), CRT_GAMMA); }
-vec3 FromSrgb(vec3 c) { return vec3(FromSrgb1(c.r), FromSrgb1(c.g), FromSrgb1(c.b)); }
-float ToSrgb1(float c) { return (c < 0.0031308 ? c * 12.92 : 1.055 * pow(c, 0.41666) - 0.055); }
-vec3 ToSrgb(vec3 c) { return vec3(ToSrgb1(c.r), ToSrgb1(c.g), ToSrgb1(c.b)); }
-
-// uv: 0-1 over the shown source, at texel centers.
-vec3 CrtsFetch(vec2 uv) { return FromSrgb(texel(clamp(uv * uSrcSize, vec2(0.5), uSrcSize - vec2(0.5)))); }
+// uv: 0-1 over the source, at texel centers.
+vec3 CrtsFetch(vec2 uv) { return lin(clamp(uv * uSrcSize, vec2(0.5), uSrcSize - vec2(0.5))); }
 
 vec4 CrtsTone(float contrast, float saturation, float thin, float mask) {
     mask = 0.5 + mask * 0.5;
@@ -284,6 +263,12 @@ void main() {
 }
 )";
 
+// Pass 3: the offscreen picture onto the screen, smoothed.
+const char* kPresent = R"(
+uniform sampler2D uTex;
+void main() { gl_FragColor = vec4(texture2D(uTex, vUV).rgb, 1.0); }
+)";
+
 // ------------------------------------------------------------------- GL
 
 typedef unsigned int GLuintT;
@@ -295,9 +280,11 @@ enum : unsigned {
     kGL_TEXTURE0 = 0x84C0, kGL_BLEND = 0x0BE2, kGL_SCISSOR_TEST = 0x0C11, kGL_VIEWPORT = 0x0BA2,
     kGL_UNPACK_ALIGNMENT = 0x0CF5, kGL_VERTEX_ATTRIB_ARRAY_ENABLED = 0x8622, kGL_TEXTURE_2D = 0x0DE1,
     kGL_RGBA = 0x1908, kGL_RGB = 0x1907, kGL_UNSIGNED_BYTE = 0x1401, kGL_UNSIGNED_SHORT_5_6_5 = 0x8363,
-    kGL_TEXTURE_MIN_FILTER = 0x2801, kGL_TEXTURE_MAG_FILTER = 0x2800, kGL_NEAREST = 0x2600,
+    kGL_TEXTURE_MIN_FILTER = 0x2801, kGL_TEXTURE_MAG_FILTER = 0x2800, kGL_NEAREST = 0x2600, kGL_LINEAR = 0x2601,
     kGL_TEXTURE_WRAP_S = 0x2802, kGL_TEXTURE_WRAP_T = 0x2803, kGL_CLAMP_TO_EDGE = 0x812F,
-    kGL_TRIANGLE_STRIP = 0x0005, kGL_FLOAT = 0x1406, kGL_SHADING_LANGUAGE_VERSION = 0x8B8C
+    kGL_TRIANGLE_STRIP = 0x0005, kGL_FLOAT = 0x1406, kGL_SHADING_LANGUAGE_VERSION = 0x8B8C,
+    kGL_FRAMEBUFFER = 0x8D40, kGL_FRAMEBUFFER_BINDING = 0x8CA6, kGL_COLOR_ATTACHMENT0 = 0x8CE0,
+    kGL_FRAMEBUFFER_COMPLETE = 0x8CD5
 };
 
 struct Fns {
@@ -338,6 +325,11 @@ struct Fns {
     void (*DisableVertexAttribArray)(GLuintT);
     void (*VertexAttribPointer)(GLuintT, int, unsigned, unsigned char, int, const void*);
     void (*DrawArrays)(unsigned, int, int);
+    void (*GenFramebuffers)(int, GLuintT*);
+    void (*DeleteFramebuffers)(int, const GLuintT*);
+    void (*BindFramebuffer)(unsigned, GLuintT);
+    void (*FramebufferTexture2D)(unsigned, unsigned, unsigned, GLuintT, int);
+    unsigned (*CheckFramebufferStatus)(unsigned);
     const unsigned char* (*GetString)(unsigned);
     unsigned (*GetError)();
 } gl{};
@@ -368,7 +360,10 @@ bool loadFns() {
            load(gl.EnableVertexAttribArray, "glEnableVertexAttribArray") &
            load(gl.DisableVertexAttribArray, "glDisableVertexAttribArray") &
            load(gl.VertexAttribPointer, "glVertexAttribPointer") & load(gl.DrawArrays, "glDrawArrays") &
-           load(gl.GetString, "glGetString") & load(gl.GetError, "glGetError");
+           load(gl.GenFramebuffers, "glGenFramebuffers") & load(gl.DeleteFramebuffers, "glDeleteFramebuffers") &
+           load(gl.BindFramebuffer, "glBindFramebuffer") & load(gl.FramebufferTexture2D, "glFramebufferTexture2D") &
+           load(gl.CheckFramebufferStatus, "glCheckFramebufferStatus") & load(gl.GetString, "glGetString") &
+           load(gl.GetError, "glGetError");
 }
 
 GLuintT compile(unsigned type, const std::vector<const char*>& parts, const char* what) {
@@ -387,12 +382,86 @@ GLuintT compile(unsigned type, const std::vector<const char*>& parts, const char
     return s;
 }
 
+struct Program {
+    GLuintT id = 0;
+    GLintT uTex = -1, uTexSize = -1, uSrcOrigin = -1, uSrcSize = -1, uOutSize = -1, uSwap = -1, uLin = -1;
+};
+
+bool link(Program& p, GLuintT vs, const std::vector<const char*>& fragment, const char* what) {
+    GLuintT fs = compile(kGL_FRAGMENT_SHADER, fragment, what);
+    if (!fs) return false;
+    p.id = gl.CreateProgram();
+    gl.AttachShader(p.id, vs);
+    gl.AttachShader(p.id, fs);
+    gl.BindAttribLocation(p.id, 0, "aPos");
+    gl.BindAttribLocation(p.id, 1, "aUV");
+    gl.LinkProgram(p.id);
+    gl.DeleteShader(fs);
+    GLintT ok = 0;
+    gl.GetProgramiv(p.id, kGL_LINK_STATUS, &ok);
+    if (!ok) {
+        char msg[1024] = {};
+        gl.GetProgramInfoLog(p.id, sizeof msg, nullptr, msg);
+        log("crt: %s shader didn't link: %s", what, msg);
+        gl.DeleteProgram(p.id);
+        p.id = 0;
+        return false;
+    }
+    p.uTex = gl.GetUniformLocation(p.id, "uTex");
+    p.uTexSize = gl.GetUniformLocation(p.id, "uTexSize");
+    p.uSrcOrigin = gl.GetUniformLocation(p.id, "uSrcOrigin");
+    p.uSrcSize = gl.GetUniformLocation(p.id, "uSrcSize");
+    p.uOutSize = gl.GetUniformLocation(p.id, "uOutSize");
+    p.uSwap = gl.GetUniformLocation(p.id, "uSwap");
+    p.uLin = gl.GetUniformLocation(p.id, "uLin");
+    gl.UseProgram(p.id);
+    if (p.uTex >= 0) gl.Uniform1i(p.uTex, 0);
+    if (p.uLin >= 0) gl.Uniform1i(p.uLin, 0);
+    return true;
+}
+
+// A texture with a framebuffer drawing into it.
+struct Target {
+    GLuintT tex = 0, fbo = 0;
+    int w = 0, h = 0;
+};
+
+bool resize(Target& t, int w, int h, unsigned filter, const char* what) {
+    if (t.tex && t.w == w && t.h == h) return true;
+    if (!t.tex) gl.GenTextures(1, &t.tex);
+    if (!t.fbo) gl.GenFramebuffers(1, &t.fbo);
+    gl.BindTexture(kGL_TEXTURE_2D, t.tex);
+    gl.TexImage2D(kGL_TEXTURE_2D, 0, (int)kGL_RGBA, w, h, 0, kGL_RGBA, kGL_UNSIGNED_BYTE, nullptr);
+    gl.TexParameteri(kGL_TEXTURE_2D, kGL_TEXTURE_MIN_FILTER, (int)filter);
+    gl.TexParameteri(kGL_TEXTURE_2D, kGL_TEXTURE_MAG_FILTER, (int)filter);
+    gl.TexParameteri(kGL_TEXTURE_2D, kGL_TEXTURE_WRAP_S, kGL_CLAMP_TO_EDGE);
+    gl.TexParameteri(kGL_TEXTURE_2D, kGL_TEXTURE_WRAP_T, kGL_CLAMP_TO_EDGE);
+    gl.BindFramebuffer(kGL_FRAMEBUFFER, t.fbo);
+    gl.FramebufferTexture2D(kGL_FRAMEBUFFER, kGL_COLOR_ATTACHMENT0, kGL_TEXTURE_2D, t.tex, 0);
+    const unsigned status = gl.CheckFramebufferStatus(kGL_FRAMEBUFFER);
+    t.w = w;
+    t.h = h;
+    log("crt: %s %dx%d: %s", what, w, h, status == kGL_FRAMEBUFFER_COMPLETE ? "ok" : "INCOMPLETE");
+    return status == kGL_FRAMEBUFFER_COMPLETE;
+}
+
+void quad(const float* pos, const float* uv) {
+    gl.VertexAttribPointer(0, 2, kGL_FLOAT, 0, 0, pos);
+    gl.VertexAttribPointer(1, 2, kGL_FLOAT, 0, 0, uv);
+    gl.DrawArrays(kGL_TRIANGLE_STRIP, 0, 4);
+}
+
+// A whole offscreen target: its first row is the picture's top.
+const float kFullPos[8] = {-1, -1, 1, -1, -1, 1, 1, 1};
+const float kFullUV[8] = {0, 0, 1, 0, 0, 1, 1, 1};
+
 // ------------------------------------------------------------------ state
 
 Kind g_kind = Kind::Off;
 bool g_ready = false, g_failed = false;
-GLuintT g_prog = 0, g_tex = 0;
-GLintT g_uTex = -1, g_uTexSize = -1, g_uSrcOrigin = -1, g_uSrcSize = -1, g_uOutSize = -1, g_uSwap = -1;
+Program g_linProg, g_crtProg, g_presentProg;
+GLuintT g_frameTex = 0;
+Target g_lin, g_out;
 // The latest frame, packed rows: 4 bytes a pixel (B, G, R, X) or RGB565.
 std::vector<uint8_t> g_frame;
 unsigned g_w = 0, g_h = 0;
@@ -400,7 +469,17 @@ bool g_wide = true;  // 32-bit
 bool g_dirty = false;
 unsigned g_texW = 0, g_texH = 0;
 bool g_texWide = true;
+SDL_Rect g_linSrc{0, 0, 0, 0};  // what g_lin holds
 bool g_errorLogged = false;
+
+// The work budget: the offscreen picture's share of the screen-sized one, in
+// pixels (1920x1080 to start), and the frame-rate watch that lowers it.
+double g_budget = 1920.0 * 1080.0;
+double g_refresh = 60.0;
+double g_lastFull = 1.0;  // the last picture's full size, in pixels
+Uint32 g_watchStart = 0;
+unsigned g_watchFrames = 0;
+int g_watchRounds = 0;
 
 bool init() {
     g_failed = true;
@@ -408,46 +487,40 @@ bool init() {
     if (!loadFns()) return false;
     const unsigned char* ver = gl.GetString(kGL_SHADING_LANGUAGE_VERSION);
     log("crt: %s, GLSL %s", g_kind == Kind::Lottes ? "Lottes" : "Lottes (fast)", ver ? (const char*)ver : "?");
-    GLuintT vs = compile(kGL_VERTEX_SHADER, {kVertex}, "vertex");
-    GLuintT fs = compile(kGL_FRAGMENT_SHADER, {kHead, g_kind == Kind::Lottes ? kLottes : kLottesFast}, "fragment");
-    if (!vs || !fs) {
-        if (vs) gl.DeleteShader(vs);
-        if (fs) gl.DeleteShader(fs);
-        return false;
-    }
     GLintT prevProg = 0;
     gl.GetIntegerv(kGL_CURRENT_PROGRAM, &prevProg);
-    g_prog = gl.CreateProgram();
-    gl.AttachShader(g_prog, vs);
-    gl.AttachShader(g_prog, fs);
-    gl.BindAttribLocation(g_prog, 0, "aPos");
-    gl.BindAttribLocation(g_prog, 1, "aUV");
-    gl.LinkProgram(g_prog);
-    gl.DeleteShader(vs);
-    gl.DeleteShader(fs);
-    GLintT ok = 0;
-    gl.GetProgramiv(g_prog, kGL_LINK_STATUS, &ok);
-    if (!ok) {
-        char msg[1024] = {};
-        gl.GetProgramInfoLog(g_prog, sizeof msg, nullptr, msg);
-        log("crt: shader didn't link: %s", msg);
-        gl.DeleteProgram(g_prog);
-        g_prog = 0;
-        return false;
-    }
-    g_uTex = gl.GetUniformLocation(g_prog, "uTex");
-    g_uTexSize = gl.GetUniformLocation(g_prog, "uTexSize");
-    g_uSrcOrigin = gl.GetUniformLocation(g_prog, "uSrcOrigin");
-    g_uSrcSize = gl.GetUniformLocation(g_prog, "uSrcSize");
-    g_uOutSize = gl.GetUniformLocation(g_prog, "uOutSize");
-    g_uSwap = gl.GetUniformLocation(g_prog, "uSwap");
-    gl.UseProgram(g_prog);
-    gl.Uniform1i(g_uTex, 0);
+    GLuintT vs = compile(kGL_VERTEX_SHADER, {kVertex}, "vertex");
+    bool ok = vs && link(g_linProg, vs, {kPrecision, kLinearize}, "linearize") &&
+              link(g_crtProg, vs, {kPrecision, kCrtHead, g_kind == Kind::Lottes ? kLottes : kLottesFast}, "crt") &&
+              link(g_presentProg, vs, {kPrecision, kPresent}, "present");
+    if (vs) gl.DeleteShader(vs);
     gl.UseProgram((GLuintT)prevProg);
+    if (!ok) return false;
     g_failed = false;
     g_ready = true;
-    log("crt: shader ready");
+    g_watchStart = 0;
+    log("crt: shaders ready");
     return true;
+}
+
+// The screen fell behind: draw the CRT picture smaller.
+void watchRate(int srcH, int fullH) {
+    const Uint32 now = SDL_GetTicks();
+    if (!g_watchStart) { g_watchStart = now; g_watchFrames = 0; return; }
+    ++g_watchFrames;
+    if (now - g_watchStart < 2000) return;
+    const double fps = g_watchFrames * 1000.0 / (now - g_watchStart);
+    g_watchStart = now;
+    g_watchFrames = 0;
+    if (++g_watchRounds <= 1) return;  // the first two seconds include loading
+    if (fps >= g_refresh * 0.92) return;
+    // Floor: three screen lines per game line, or the full size if that's less.
+    const double floorScale = std::min(1.0, 3.0 * srcH / (double)fullH);
+    const double scale = std::sqrt(std::min(1.0, g_budget / g_lastFull));
+    if (scale <= floorScale + 1e-3) return;
+    g_budget *= 0.7;
+    log("crt: %.1f fps shown (screen %.0f Hz): drawing smaller, %.0f%% of full size", fps, g_refresh,
+        100.0 * std::max(floorScale, std::sqrt(std::min(1.0, g_budget / g_lastFull))));
 }
 
 }  // namespace
@@ -460,6 +533,8 @@ Kind kindNamed(const char* s) {
 }
 
 void setKind(Kind k) { g_kind = k; }
+
+void setRefresh(double hz) { if (hz > 1.0) g_refresh = hz; }
 
 bool wanted() { return g_kind != Kind::Off && !g_failed; }
 
@@ -490,15 +565,20 @@ void store(const void* data, unsigned w, unsigned h, size_t pitch, int format) {
     g_dirty = true;
 }
 
-bool draw(const SDL_Rect& src, const SDL_Rect& dst, int angle, int winW, int winH) {
-    if (!wanted() || g_w == 0 || src.w <= 0 || src.h <= 0 || dst.w <= 0 || dst.h <= 0) return false;
+bool draw(const SDL_Rect& srcIn, const SDL_Rect& dst, int angle, int winW, int winH) {
+    if (!wanted() || g_w == 0 || srcIn.w <= 0 || srcIn.h <= 0 || dst.w <= 0 || dst.h <= 0) return false;
     if (!g_ready && !init()) return false;
+    SDL_Rect src = srcIn;
+    src.w = std::min(src.w, (int)g_w - src.x);
+    src.h = std::min(src.h, (int)g_h - src.y);
+    if (src.w <= 0 || src.h <= 0) return false;
 
     // Everything SDL 2.0.7's GLES2 renderer caches or assumes, put back below.
-    GLintT prog = 0, abuf = 0, tex = 0, active = 0, unpack = 1, view[4] = {};
+    GLintT prog = 0, abuf = 0, tex = 0, active = 0, unpack = 1, fbo = 0, view[4] = {};
     GLintT en0 = 0, en1 = 0;
     gl.GetIntegerv(kGL_CURRENT_PROGRAM, &prog);
     gl.GetIntegerv(kGL_ARRAY_BUFFER_BINDING, &abuf);
+    gl.GetIntegerv(kGL_FRAMEBUFFER_BINDING, &fbo);
     gl.GetIntegerv(kGL_ACTIVE_TEXTURE, &active);
     gl.ActiveTexture(kGL_TEXTURE0);
     gl.GetIntegerv(kGL_TEXTURE_BINDING_2D, &tex);
@@ -508,8 +588,17 @@ bool draw(const SDL_Rect& src, const SDL_Rect& dst, int angle, int winW, int win
     gl.GetVertexAttribiv(1, kGL_VERTEX_ATTRIB_ARRAY_ENABLED, &en1);
     const bool blend = gl.IsEnabled(kGL_BLEND), scissor = gl.IsEnabled(kGL_SCISSOR_TEST);
 
-    if (!g_tex) gl.GenTextures(1, &g_tex);
-    gl.BindTexture(kGL_TEXTURE_2D, g_tex);
+    gl.BindBuffer(kGL_ARRAY_BUFFER, 0);  // our arrays are client-side
+    if (blend) gl.Disable(kGL_BLEND);
+    if (scissor) gl.Disable(kGL_SCISSOR_TEST);
+    gl.EnableVertexAttribArray(0);
+    gl.EnableVertexAttribArray(1);
+    bool ok = true;
+
+    // The frame, uploaded.
+    if (!g_frameTex) gl.GenTextures(1, &g_frameTex);
+    gl.BindTexture(kGL_TEXTURE_2D, g_frameTex);
+    const bool fresh = g_dirty;
     if (g_dirty) {
         gl.PixelStorei(kGL_UNPACK_ALIGNMENT, 1);
         const unsigned fmt = g_wide ? kGL_RGBA : kGL_RGB, type = g_wide ? kGL_UNSIGNED_BYTE : kGL_UNSIGNED_SHORT_5_6_5;
@@ -527,6 +616,33 @@ bool draw(const SDL_Rect& src, const SDL_Rect& dst, int angle, int winW, int win
         g_dirty = false;
     }
 
+    // 1. Linear light, at the game's size.
+    const bool sameSrc = g_linSrc.x == src.x && g_linSrc.y == src.y && g_linSrc.w == src.w && g_linSrc.h == src.h;
+    if (fresh || !sameSrc) {
+        ok = resize(g_lin, src.w, src.h, kGL_NEAREST, "linear frame");
+        if (ok) {
+            gl.BindFramebuffer(kGL_FRAMEBUFFER, g_lin.fbo);
+            gl.BindTexture(kGL_TEXTURE_2D, g_frameTex);
+            gl.Viewport(0, 0, src.w, src.h);
+            gl.UseProgram(g_linProg.id);
+            gl.Uniform2f(g_linProg.uTexSize, (float)g_texW, (float)g_texH);
+            gl.Uniform2f(g_linProg.uSrcOrigin, (float)src.x, (float)src.y);
+            gl.Uniform2f(g_linProg.uSrcSize, (float)src.w, (float)src.h);
+            gl.Uniform1f(g_linProg.uSwap, g_texWide ? 1.0f : 0.0f);
+            quad(kFullPos, kFullUV);
+            g_linSrc = src;
+        }
+    }
+
+    // 2. The CRT picture: offscreen at the budget, or straight to the screen.
+    const double full = (double)dst.w * dst.h;
+    g_lastFull = full;
+    const double floorScale = std::min(1.0, 3.0 * src.h / (double)dst.h);
+    const double scale = std::max(floorScale, std::sqrt(std::min(1.0, g_budget / full)));
+    const bool offscreen = scale < 0.999;
+    const int ow = offscreen ? std::max(1, (int)std::lround(dst.w * scale)) : dst.w;
+    const int oh = offscreen ? std::max(1, (int)std::lround(dst.h * scale)) : dst.h;
+
     // dst's corners turned clockwise around its center (screen y runs down),
     // then to clip space. Strip order: top-left, top-right, bottom-left,
     // bottom-right of the upright picture.
@@ -536,28 +652,37 @@ bool draw(const SDL_Rect& src, const SDL_Rect& dst, int angle, int winW, int win
     const float sn = a == 90 ? 1.0f : a == 180 ? 0.0f : a == 270 ? -1.0f : 0.0f;
     const float hx[4] = {-dst.w * 0.5f, dst.w * 0.5f, -dst.w * 0.5f, dst.w * 0.5f};
     const float hy[4] = {-dst.h * 0.5f, -dst.h * 0.5f, dst.h * 0.5f, dst.h * 0.5f};
-    float pos[8], uv[8] = {0, 0, 1, 0, 0, 1, 1, 1};
+    float screenPos[8];
+    const float screenUV[8] = {0, 0, 1, 0, 0, 1, 1, 1};
     for (int i = 0; i < 4; ++i) {
         const float x = cx + hx[i] * cs - hy[i] * sn, y = cy + hx[i] * sn + hy[i] * cs;
-        pos[i * 2] = 2.0f * x / winW - 1.0f;
-        pos[i * 2 + 1] = 1.0f - 2.0f * y / winH;
+        screenPos[i * 2] = 2.0f * x / winW - 1.0f;
+        screenPos[i * 2 + 1] = 1.0f - 2.0f * y / winH;
     }
 
-    gl.UseProgram(g_prog);
-    gl.Uniform2f(g_uTexSize, (float)g_texW, (float)g_texH);
-    gl.Uniform2f(g_uSrcOrigin, (float)src.x, (float)src.y);
-    gl.Uniform2f(g_uSrcSize, (float)std::min<int>(src.w, (int)g_texW - src.x), (float)std::min<int>(src.h, (int)g_texH - src.y));
-    gl.Uniform2f(g_uOutSize, (float)dst.w, (float)dst.h);
-    gl.Uniform1f(g_uSwap, g_texWide ? 1.0f : 0.0f);  // XRGB8888 rows hold B, G, R, X
-    gl.BindBuffer(kGL_ARRAY_BUFFER, 0);              // our arrays are client-side
-    if (blend) gl.Disable(kGL_BLEND);
-    if (scissor) gl.Disable(kGL_SCISSOR_TEST);
-    gl.Viewport(0, 0, winW, winH);
-    gl.EnableVertexAttribArray(0);
-    gl.EnableVertexAttribArray(1);
-    gl.VertexAttribPointer(0, 2, kGL_FLOAT, 0, 0, pos);
-    gl.VertexAttribPointer(1, 2, kGL_FLOAT, 0, 0, uv);
-    gl.DrawArrays(kGL_TRIANGLE_STRIP, 0, 4);
+    if (ok && offscreen) ok = resize(g_out, ow, oh, kGL_LINEAR, "crt picture");
+    if (ok) {
+        gl.BindTexture(kGL_TEXTURE_2D, g_lin.tex);
+        gl.UseProgram(g_crtProg.id);
+        gl.Uniform2f(g_crtProg.uSrcSize, (float)src.w, (float)src.h);
+        gl.Uniform2f(g_crtProg.uOutSize, (float)ow, (float)oh);
+        if (offscreen) {
+            gl.BindFramebuffer(kGL_FRAMEBUFFER, g_out.fbo);
+            gl.Viewport(0, 0, ow, oh);
+            quad(kFullPos, kFullUV);
+            // 3. Onto the screen.
+            gl.BindFramebuffer(kGL_FRAMEBUFFER, (GLuintT)fbo);
+            gl.Viewport(0, 0, winW, winH);
+            gl.BindTexture(kGL_TEXTURE_2D, g_out.tex);
+            gl.UseProgram(g_presentProg.id);
+            quad(screenPos, screenUV);
+        } else {
+            gl.BindFramebuffer(kGL_FRAMEBUFFER, (GLuintT)fbo);
+            gl.Viewport(0, 0, winW, winH);
+            quad(screenPos, screenUV);
+        }
+    }
+    gl.BindFramebuffer(kGL_FRAMEBUFFER, (GLuintT)fbo);
 
     if (!en0) gl.DisableVertexAttribArray(0);
     if (!en1) gl.DisableVertexAttribArray(1);
@@ -572,14 +697,26 @@ bool draw(const SDL_Rect& src, const SDL_Rect& dst, int angle, int winW, int win
     if (!g_errorLogged) {
         if (unsigned e = gl.GetError()) { log("crt: GL error 0x%x while drawing", e); g_errorLogged = true; }
     }
+    if (!ok) {
+        log("crt: an offscreen picture failed, filter off");
+        g_failed = true;
+        return false;
+    }
+    watchRate(src.h, dst.h);
     return true;
 }
 
 void shutdown() {
     if (!g_ready) return;
-    if (g_tex) gl.DeleteTextures(1, &g_tex);
-    if (g_prog) gl.DeleteProgram(g_prog);
-    g_tex = g_prog = 0;
+    if (g_frameTex) gl.DeleteTextures(1, &g_frameTex);
+    for (Target* t : {&g_lin, &g_out}) {
+        if (t->tex) gl.DeleteTextures(1, &t->tex);
+        if (t->fbo) gl.DeleteFramebuffers(1, &t->fbo);
+        *t = Target{};
+    }
+    for (Program* p : {&g_linProg, &g_crtProg, &g_presentProg})
+        if (p->id) { gl.DeleteProgram(p->id); p->id = 0; }
+    g_frameTex = 0;
     g_ready = false;
 }
 

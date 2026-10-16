@@ -1616,6 +1616,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     // instead, showing its latest frame on each refresh.
     double fps = g_av.timing.fps > 0 ? g_av.timing.fps : 60.0;
     double refresh = mode.refresh_rate > 0 ? mode.refresh_rate : 60.0;
+    CrtFilter::setRefresh(refresh);
     double rate = g_av.timing.sample_rate > 0 ? g_av.timing.sample_rate : 44100.0;
     const bool vsyncLock = std::fabs(fps - refresh) / refresh < 0.02;
     // The device runs at its own rate and every conversion happens here, in

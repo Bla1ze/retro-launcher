@@ -16,6 +16,7 @@ enum class Kind { Off, Lottes, LottesFast };
 
 Kind kindNamed(const char* setting);  // "lottes", "lottes-fast", anything else = Off
 void setKind(Kind k);
+void setRefresh(double hz);  // the screen's rate: below it, the filter draws smaller
 bool wanted();  // a filter is chosen and hasn't failed
 
 // From the video callback (renderer context current): copies the frame.
