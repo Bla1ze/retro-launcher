@@ -3,6 +3,7 @@
 
 #include "Ambient.h"
 #include "CpuPin.h"
+#include "CrtFilter.h"
 #include "AppFont.h"
 #include "Gfx.h"
 #include "Theme.h"
@@ -899,6 +900,7 @@ void videoRefresh(const void* data, unsigned w, unsigned h, size_t pitch) {
     if (!g_texture) return;
     SDL_Rect r{0, 0, (int)w, (int)h};
     SDL_UpdateTexture(g_texture, &r, data, (int)pitch);
+    CrtFilter::store(data, w, h, pitch, (int)g_pixelFormat);
     g_frameW = (int)w; g_frameH = (int)h;
     g_ambient.sample(data, w, h, pitch, (int)g_pixelFormat);
     if (g_cvAuto.key) {
@@ -1541,8 +1543,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     g_ambient.init(g_renderer, bars == "black" ? Ambient::Style::Black : Ambient::Style::Ambient);
     const std::string scaling = settings.value("scaling", "smooth");  // smooth | sharp | integer
     g_sharp = scaling == "sharp" || scaling == "integer";
-    const std::string scan = settings.value("scanlines", "off");      // off | light | strong
+    const std::string scan = settings.value("scanlines", "off");      // off | light | strong | lottes | lottes-fast
     const int scanDark = scan == "strong" ? 150 : scan == "light" ? 80 : 0;
+    CrtFilter::setKind(CrtFilter::kindNamed(scan.c_str()));  // draws its own scanlines
     SDL_Texture* scanTex = nullptr;
     int scanLines = 0;
     log("display: sides %s, scaling %s, scanlines %s", sides.c_str(), scaling.c_str(), scan.c_str());
@@ -1663,6 +1666,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         rotate, userTurn, picAngle, g_av.geometry.base_width, g_av.geometry.base_height, g_av.geometry.aspect_ratio);
     Uint32 started = SDL_GetTicks(), statsAt = started, startHeld = 0;
     unsigned long statFrames = 0, coreFrames = 0, underruns = 0, catchUps = 0;
+    unsigned long shownFrames = 0, crtFrames = 0;  // presents since the last stats line, and how many went through the CRT filter
     Uint32 lastPresent = SDL_GetTicks();
     SDL_Texture* menuLayer = nullptr;  // pause menu, turned with the game on rotated screens
     double drcRange = 0.005;  // how far audio may stretch to keep the queue fed (see runFrame)
@@ -2061,7 +2065,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             } else {
                 g_ambient.draw(shown, winW, winH, frameDt);
             }
-            SDL_RenderCopyEx(g_renderer, g_texture, &src, &dst, picAngle, nullptr, SDL_FLIP_NONE);
+            if (CrtFilter::draw(src, dst, picAngle, winW, winH)) ++crtFrames;
+            else SDL_RenderCopyEx(g_renderer, g_texture, &src, &dst, picAngle, nullptr, SDL_FLIP_NONE);
+            ++shownFrames;
             if (scanDark > 0) {
                 if (!scanLines) {  // once: at the game's line count when first shown
                     scanLines = std::max(1, src.h);
@@ -2131,6 +2137,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 ratioCount ? (ratioSum / ratioCount - 1.0) * 100.0 : 0.0, underruns, catchUps, g_dupes);
             ratioSum = 0.0;
             ratioCount = 0;
+            if (scan == "lottes" || scan == "lottes-fast")
+                log("crt: %.1f fps shown, %lu of %lu frames filtered", shownFrames * 1000.0 / (t - statsAt), crtFrames, shownFrames);
+            shownFrames = crtFrames = 0;
             statsAt = t;
             statFrames = coreFrames;
         }
@@ -2172,6 +2181,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     if (scanTex) SDL_DestroyTexture(scanTex);
     if (menuLayer) SDL_DestroyTexture(menuLayer);
     panels.reset();  // join its worker and release buffers before SDL closes the fd
+    CrtFilter::shutdown();
     if (g_texture) SDL_DestroyTexture(g_texture);
     SDL_DestroyRenderer(g_renderer);
     SDL_DestroyWindow(window);
