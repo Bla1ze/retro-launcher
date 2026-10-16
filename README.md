@@ -48,7 +48,7 @@ already in the cabinet's firmware, or better ones built for it (see
 - **Button layouts** per system and per game: presets or press-to-assign, from
   Home > Controls.
 - **Pause menu**: hold Start or press Home for Resume, Save state, Load state,
-  Reset, Core options, Rotate picture, Swap players (with a second controller), Change disc (multi-disc
+  Reset, Core options, Rotate picture, Cabinet plays as (with a second controller), Change disc (multi-disc
   games) and Quit. Core options lists every setting the running emulator offers and applies changes
   straight away. Quitting saves your place, and the next launch offers "Continue where you left off".
 - **Rotate picture** per game, for games that come up sideways (PSP, GBA and Dreamcast games with a
@@ -372,8 +372,10 @@ ROM.
 | Pause menu | A / B or Start | Select / resume |
 
 **Players**: the cabinet's controls are player 1; each other controller is the next player in
-connection order, up to four (with no cabinet controls, the first is player 1). Pause menu > **Swap
-players 1 and 2** (`players.swap`, every game) makes a controller player 1. On non-cabinet
+connection order, up to four (with no cabinet controls, the first is player 1). Pause menu > **Cabinet
+plays as** (`players.cabinet` = 1-4, every game) moves the cabinet to another player, and the
+controllers fill the other places in order: player 2 makes a lone controller player 1, player 3
+makes two controllers players 1 and 2. A `players.swap = on` from before 1.0.7 counts as player 2. On non-cabinet
 controllers, Rewind is View / Back and stick clicks do nothing (the cabinet reports its Rewind buttons as
 stick clicks).
 

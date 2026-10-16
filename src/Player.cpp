@@ -1011,10 +1011,13 @@ std::vector<int> g_padPlayer;  // per pad: 0 = player 1 ...
 std::vector<bool> g_padCabinet;  // per pad: the cabinet's own controls (vendor 0838)
 // The cabinet's own controls (CE's virtual controller and the arcade panel,
 // USB vendor 0838) are player 1. Every other controller gets the next player
-// in the order it was connected; "Swap players 1 and 2" (pause menu, kept in
-// settings) trades the first two, for playing on a pad alone.
+// in the order it was connected. "Cabinet plays as" (pause menu, kept in
+// settings) moves the cabinet to another player and the controllers fill the
+// places around it: as player 2 a pad alone is player 1; as player 3 two pads
+// are players 1 and 2.
 std::vector<SDL_JoystickID> g_extraOrder;
-bool g_swapPlayers = false;
+int g_cabinetPlayer = 0;  // wanted: 0 = player 1 ...
+int g_cabinetPlays = 0;   // in effect, at most one past the last controller
 std::vector<uint32_t> g_padHeldButtons;  // per pad, bit per SDL_GameControllerButton
 std::vector<uint32_t> g_padHeldAxes;     // per pad, bit per SDL_GameControllerAxis
 constexpr int kStuckAxis = 16000;
@@ -1049,11 +1052,18 @@ void openPads() {
     }), g_extraOrder.end());
     for (SDL_JoystickID id : present)
         if (std::find(g_extraOrder.begin(), g_extraOrder.end(), id) == g_extraOrder.end()) g_extraOrder.push_back(id);
+    // The cabinet takes its chosen place, never past the last controller (no
+    // gap); the controllers take the others in order.
+    g_cabinetPlays = cabinet ? std::min({g_cabinetPlayer, (int)g_extraOrder.size(), kPlayers - 1}) : 0;
     for (size_t n = 0; n < g_pads.size(); ++n) {
         SDL_Joystick* j = SDL_GameControllerGetJoystick(g_pads[n]);
         auto it = std::find(g_extraOrder.begin(), g_extraOrder.end(), SDL_JoystickInstanceID(j));
-        int player = it == g_extraOrder.end() ? 0 : std::min(kPlayers - 1, (cabinet ? 1 : 0) + (int)(it - g_extraOrder.begin()));
-        if (g_swapPlayers && player <= 1) player = 1 - player;
+        int player = g_cabinetPlays;
+        if (it != g_extraOrder.end()) {
+            player = (int)(it - g_extraOrder.begin());
+            if (cabinet && player >= g_cabinetPlays) ++player;
+            player = std::min(kPlayers - 1, player);
+        }
         g_padPlayer[n] = player;
         log("pad %zu (%s): player %d", n, SDL_GameControllerName(g_pads[n]), player + 1);
     }
@@ -1317,7 +1327,9 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     Library::Settings settings;
     settings.load(appDir);
     Theme::setStyle(Theme::styleNamed(settings.value("theme", "neon")));  // the menu's look, before anything is drawn
-    g_swapPlayers = settings.value("players.swap", "off") == "on";
+    // players.cabinet = 1-4; before 1.0.7, players.swap = on meant 2.
+    g_cabinetPlayer = std::max(1, std::min(kPlayers, std::atoi(settings.value("players.cabinet",
+        settings.value("players.swap", "off") == "on" ? "2" : "1").c_str()))) - 1;
     // CPU pinning: the emulator (this thread) on the fast cores. The
     // panel worker, started later, pins itself to the slow ones.
     {
@@ -1781,7 +1793,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
         if (menu == Menu::Pause) {
             pauseIds = {PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseTurn};
             if (userTurn == 90 || userTurn == 270) pauseIds.push_back(PauseTurnControls);
-            if (havePlayer2() || g_swapPlayers) pauseIds.push_back(PausePlayers);
+            if (havePlayer2() && std::find(g_padCabinet.begin(), g_padCabinet.end(), true) != g_padCabinet.end())
+                pauseIds.push_back(PausePlayers);
             if (discs > 1) pauseIds.push_back(PauseDisc);
             pauseIds.push_back(PauseQuit);
             for (int id : pauseIds) {
@@ -1792,7 +1805,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 case PauseReset: items.push_back("Reset"); enabled.push_back(core.reset != nullptr); break;
                 case PauseOptions: items.push_back("Core options"); enabled.push_back(!g_optDefs.empty()); break;
                 case PauseTurn: items.push_back(std::string("Rotate picture: ") + (userTurn == 90 ? "turned right" : userTurn == 180 ? "upside down" : userTurn == 270 ? "turned left" : "off")); enabled.push_back(true); break;
-                case PausePlayers: items.push_back(g_swapPlayers ? "Swap players 1 and 2: on" : "Swap players 1 and 2: off"); enabled.push_back(true); break;
+                case PausePlayers: items.push_back("Cabinet plays as: player " + std::to_string(g_cabinetPlays + 1)); enabled.push_back(true); break;
                 case PauseTurnControls: items.push_back(std::string("Turn controls with it: ") + (turnControls ? "on" : "off")); enabled.push_back(true); break;
                 case PauseDisc: items.push_back("Change disc (" + std::to_string(discIndex + 1) + " of " + std::to_string(discs) + ")"); enabled.push_back(true); break;
                 case PauseQuit: items.push_back("Quit to menu"); enabled.push_back(true); break;
@@ -1922,9 +1935,10 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     log("picture: turned %d for this game, drawn at %d degrees", userTurn, picAngle);
                     break;
                 case PausePlayers:
-                    // For playing on a pad alone: it becomes player 1. Kept for every game.
-                    g_swapPlayers = !g_swapPlayers;
-                    settings.set("players.swap", g_swapPlayers ? "on" : "off");
+                    // Next place for the cabinet, back to 1 after the last
+                    // controller's. Kept for every game.
+                    g_cabinetPlayer = (g_cabinetPlays + 1) % std::min(kPlayers, (int)g_extraOrder.size() + 1);
+                    settings.set("players.cabinet", std::to_string(g_cabinetPlayer + 1));
                     settings.save();
                     openPads();
                     toast = playersSummary();
