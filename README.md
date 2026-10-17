@@ -41,8 +41,8 @@ already in the cabinet's firmware, or better ones built for it (see
 - **Games on the backglass** (or the playfield), with the picture shape correct
   per system. Bezels (The Bezel Project format) or an ambient glow taken from the
   game's own colors fill the sides. Smooth, sharp or pixel-perfect scaling, and
-  optional CRT scanlines. Blank edge columns (Master System, NES) are cropped so the
-  picture is centered.
+  optional CRT scanlines or a CRT shader (Lottes). Blank edge columns (Master
+  System, NES) are cropped so the picture is centered.
 - **While playing**: a "Now playing" card on the playfield with the cover and the
   game's controls, and a photo of the console on the DMD.
 - **Button layouts** per system and per game: presets or press-to-assign, from
@@ -397,7 +397,7 @@ stored in `data/settings.cfg` (key = value):
 | Theme | `theme` | `neon`, `attract` (changing it restarts the menu) | `neon` |
 | Picture sides | `sides` | `bezel`, `glow`, `black` | `bezel` |
 | Scaling | `scaling` | `smooth`, `sharp`, `integer` (pixel-perfect) | `smooth` |
-| CRT scanlines | `scanlines` | `off`, `light`, `strong` | `off` |
+| CRT effect | `scanlines` | `off`, `light`, `strong` (scanlines), `lottes` (CRT shader) | `off` |
 | Screen artwork | `panels` | `on`, `off` | `on` |
 | Default game screen | `screen.default` | `backglass`, `playfield` | `backglass` |
 | Playfield game rotation | `rotate.playfield` | `90`, `270` | `90` |
@@ -556,6 +556,7 @@ tools/make_arcade_db.py "$SDK/cores-src" /Volumes/USB/external/retro-launcher/co
 | `libretro_min.h` (subset of `libretro.h`) | [libretro-common](https://github.com/libretro/libretro-common) | MIT |
 | `stb_truetype.h`, `stb_image.h` | [nothings/stb](https://github.com/nothings/stb), Sean Barrett | Public domain / MIT |
 | `drm_mode.h` | Linux kernel DRM UAPI | MIT |
+| CRT shader (`src/CrtFilter.cpp`): crt-lottes-fast ("CRTS") by Timothy Lottes, adapted for RetroArch by hunterk | [libretro/glsl-shaders](https://github.com/libretro/glsl-shaders) (`crt/shaders/crt-lottes-fast.glsl`), modified | Public domain |
 | Noto Sans | [Google Fonts](https://fonts.google.com/noto/specimen/Noto+Sans) | SIL OFL 1.1 (`assets/fonts/OFL.txt`) |
 | Bebas Neue | [Dharma Type / Google Fonts](https://fonts.google.com/specimen/Bebas+Neue) | SIL OFL 1.1 (`assets/fonts/BebasNeue-OFL.txt`) |
 | Root certificates ISRG Root X1, USERTrust ECC and RSA (in `src/ArtDownload.cpp`) | [Internet Security Research Group](https://letsencrypt.org/certificates/) / [Sectigo](https://www.sectigo.com/) | Public trust anchors, added to the firmware's CA bundle for the artwork servers |
