@@ -1543,7 +1543,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     g_ambient.init(g_renderer, bars == "black" ? Ambient::Style::Black : Ambient::Style::Ambient);
     const std::string scaling = settings.value("scaling", "smooth");  // smooth | sharp | integer
     g_sharp = scaling == "sharp" || scaling == "integer";
-    const std::string scan = settings.value("scanlines", "off");      // off | light | strong | lottes | lottes-fast
+    const std::string scan = settings.value("scanlines", "off");      // off | light | strong | lottes
     const int scanDark = scan == "strong" ? 150 : scan == "light" ? 80 : 0;
     CrtFilter::setKind(CrtFilter::kindNamed(scan.c_str()));  // draws its own scanlines
     SDL_Texture* scanTex = nullptr;
@@ -2138,7 +2138,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 ratioCount ? (ratioSum / ratioCount - 1.0) * 100.0 : 0.0, underruns, catchUps, g_dupes);
             ratioSum = 0.0;
             ratioCount = 0;
-            if (scan == "lottes" || scan == "lottes-fast")
+            if (CrtFilter::kindNamed(scan.c_str()) != CrtFilter::Kind::Off)
                 log("crt: %.1f fps shown, %lu of %lu frames filtered", shownFrames * 1000.0 / (t - statsAt), crtFrames, shownFrames);
             shownFrames = crtFrames = 0;
             statsAt = t;

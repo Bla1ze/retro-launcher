@@ -22,8 +22,8 @@ namespace {
 //   3. present: that picture stretched onto the screen, turned like the plain
 //      copy would be.
 // The cost is per drawn pixel, so a 4K playfield is 4x a 1080p backglass. When
-// the screen can't keep up, the offscreen picture shrinks (never below about
-// three pixels per game line, which scanlines need).
+// the screen can't keep up (below 97% of its rate), the offscreen picture
+// shrinks (never below about three pixels per game line, which scanlines need).
 
 // ------------------------------------------------------------------ shaders
 
@@ -72,97 +72,6 @@ uniform vec2 uOutSize;
 vec3 lin(vec2 px) { vec3 t = texture2D(uLin, px / uSrcSize).rgb; return t * t; }
 float ToSrgb1(float c) { return (c < 0.0031308 ? c * 12.92 : 1.055 * pow(c, 0.41666) - 0.055); }
 vec3 ToSrgb(vec3 c) { return vec3(ToSrgb1(c.r), ToSrgb1(c.g), ToSrgb1(c.b)); }
-)";
-
-// crt-lottes, the original:
-//   PUBLIC DOMAIN CRT STYLED SCAN-LINE SHADER
-//     by Timothy Lottes
-//   This is more along the style of a really good CGA arcade monitor.
-//   With RGB inputs instead of NTSC.
-//   Please take and use, change, or whatever.
-// From libretro's glsl-shaders (crt/shaders/crt-lottes.glsl) with its default
-// parameters, the stretched VGA shadow mask (3) and bloom on. Same math,
-// rearranged for speed: the picture's 3 lines and the bloom's 5 read the same
-// texels, so the 31 are read once (the original read 42); the Gaussian weights
-// depend only on the distance to the texel grid, so the 20 are computed once
-// (it computed 50); its kernel shape is 2.0, so pow(|x|, shape) is x*x; and the
-// input arrives already linear (pass 1). Taps beyond the picture are black.
-const char* kLottes = R"(
-const float hardScan = -8.0;
-const float hardPix = -3.0;
-const float warpX = 0.031;
-const float warpY = 0.041;
-const float maskDark = 0.5;
-const float maskLight = 1.5;
-const float hardBloomPix = -1.5;
-const float hardBloomScan = -2.0;
-const float bloomAmount = 0.15;
-
-vec2 g_base;
-vec3 T(float i, float j) {
-    vec2 p = g_base + vec2(i, j) + vec2(0.5);
-    if (p.x < 0.0 || p.y < 0.0 || p.x > uSrcSize.x || p.y > uSrcSize.y) return vec3(0.0);
-    return lin(p);
-}
-float G(float x, float scale) { return exp2(scale * x * x); }
-// Distortion of scanlines, and end of screen alpha.
-vec2 Warp(vec2 pos) {
-    pos = pos * 2.0 - 1.0;
-    pos *= vec2(1.0 + (pos.y * pos.y) * warpX, 1.0 + (pos.x * pos.x) * warpY);
-    return pos * 0.5 + 0.5;
-}
-// Stretched VGA style shadow mask.
-vec3 Mask(vec2 pos) {
-    vec3 mask = vec3(maskDark, maskDark, maskDark);
-    pos.x += pos.y * 3.0;
-    pos.x = fract(pos.x * 0.166666666);
-    if (pos.x < 0.333) mask.r = maskLight;
-    else if (pos.x < 0.666) mask.g = maskLight;
-    else mask.b = maskLight;
-    return mask;
-}
-void main() {
-    vec2 pos = Warp(vUV);
-    vec2 P = pos * uSrcSize;
-    g_base = floor(P);
-    vec2 d = -((P - g_base) - vec2(0.5));  // Dist()
-
-    // Horizontal weights for taps -3..3 (picture: hardPix, bloom: hardBloomPix).
-    float p2m = G(d.x - 2.0, hardPix), p1m = G(d.x - 1.0, hardPix), p0 = G(d.x, hardPix);
-    float p1 = G(d.x + 1.0, hardPix), p2 = G(d.x + 2.0, hardPix);
-    float b3m = G(d.x - 3.0, hardBloomPix), b2m = G(d.x - 2.0, hardBloomPix), b1m = G(d.x - 1.0, hardBloomPix);
-    float b0 = G(d.x, hardBloomPix), b1 = G(d.x + 1.0, hardBloomPix), b2 = G(d.x + 2.0, hardBloomPix);
-    float b3 = G(d.x + 3.0, hardBloomPix);
-    float s3 = p1m + p0 + p1, s5 = p2m + s3 + p2;
-    float t5 = b2m + b1m + b0 + b1 + b2, t7 = b3m + t5 + b3;
-
-    // Lines -1, 0, 1: seven taps each, for the picture and the bloom.
-    vec3 a3 = T(-3.0, -1.0), a2 = T(-2.0, -1.0), a1 = T(-1.0, -1.0), a0 = T(0.0, -1.0);
-    vec3 a4 = T(1.0, -1.0), a5 = T(2.0, -1.0), a6 = T(3.0, -1.0);
-    vec3 c3 = T(-3.0, 0.0), c2 = T(-2.0, 0.0), c1 = T(-1.0, 0.0), c0 = T(0.0, 0.0);
-    vec3 c4 = T(1.0, 0.0), c5 = T(2.0, 0.0), c6 = T(3.0, 0.0);
-    vec3 e3 = T(-3.0, 1.0), e2 = T(-2.0, 1.0), e1 = T(-1.0, 1.0), e0 = T(0.0, 1.0);
-    vec3 e4 = T(1.0, 1.0), e5 = T(2.0, 1.0), e6 = T(3.0, 1.0);
-
-    // Tri(): Horz3 above and below, Horz5 on the line, by scanline weight.
-    vec3 tri = (a1 * p1m + a0 * p0 + a4 * p1) / s3 * G(d.y - 1.0, hardScan) +
-               (c2 * p2m + c1 * p1m + c0 * p0 + c4 * p1 + c5 * p2) / s5 * G(d.y, hardScan) +
-               (e1 * p1m + e0 * p0 + e4 * p1) / s3 * G(d.y + 1.0, hardScan);
-
-    // Bloom(): Horz5 two lines out, Horz7 on the three in the middle.
-    vec3 bloom =
-        (T(-2.0, -2.0) * b2m + T(-1.0, -2.0) * b1m + T(0.0, -2.0) * b0 + T(1.0, -2.0) * b1 + T(2.0, -2.0) * b2) / t5 *
-            G(d.y - 2.0, hardBloomScan) +
-        (a3 * b3m + a2 * b2m + a1 * b1m + a0 * b0 + a4 * b1 + a5 * b2 + a6 * b3) / t7 * G(d.y - 1.0, hardBloomScan) +
-        (c3 * b3m + c2 * b2m + c1 * b1m + c0 * b0 + c4 * b1 + c5 * b2 + c6 * b3) / t7 * G(d.y, hardBloomScan) +
-        (e3 * b3m + e2 * b2m + e1 * b1m + e0 * b0 + e4 * b1 + e5 * b2 + e6 * b3) / t7 * G(d.y + 1.0, hardBloomScan) +
-        (T(-2.0, 2.0) * b2m + T(-1.0, 2.0) * b1m + T(0.0, 2.0) * b0 + T(1.0, 2.0) * b1 + T(2.0, 2.0) * b2) / t5 *
-            G(d.y + 2.0, hardBloomScan);
-
-    vec3 outColor = (tri + bloom * bloomAmount) * Mask(gl_FragCoord.xy * 1.000001);
-    if (pos.x <= 0.0001 || pos.x >= 0.9999 || pos.y <= 0.0001 || pos.y >= 0.9999) outColor = vec3(0.0);
-    gl_FragColor = vec4(ToSrgb(outColor), 1.0);
-}
 )";
 
 // crt-lottes-fast:
@@ -486,12 +395,12 @@ bool init() {
     if (!SDL_GL_GetCurrentContext()) { log("crt: no GL context (software renderer), filter off"); return false; }
     if (!loadFns()) return false;
     const unsigned char* ver = gl.GetString(kGL_SHADING_LANGUAGE_VERSION);
-    log("crt: %s, GLSL %s", g_kind == Kind::Lottes ? "Lottes" : "Lottes (fast)", ver ? (const char*)ver : "?");
+    log("crt: Lottes, GLSL %s", ver ? (const char*)ver : "?");
     GLintT prevProg = 0;
     gl.GetIntegerv(kGL_CURRENT_PROGRAM, &prevProg);
     GLuintT vs = compile(kGL_VERTEX_SHADER, {kVertex}, "vertex");
     bool ok = vs && link(g_linProg, vs, {kPrecision, kLinearize}, "linearize") &&
-              link(g_crtProg, vs, {kPrecision, kCrtHead, g_kind == Kind::Lottes ? kLottes : kLottesFast}, "crt") &&
+              link(g_crtProg, vs, {kPrecision, kCrtHead, kLottesFast}, "crt") &&
               link(g_presentProg, vs, {kPrecision, kPresent}, "present");
     if (vs) gl.DeleteShader(vs);
     gl.UseProgram((GLuintT)prevProg);
@@ -513,7 +422,7 @@ void watchRate(int srcH, int fullH) {
     g_watchStart = now;
     g_watchFrames = 0;
     if (++g_watchRounds <= 1) return;  // the first two seconds include loading
-    if (fps >= g_refresh * 0.92) return;
+    if (fps >= g_refresh * 0.97) return;  // 56 of 60 already crackles
     // Floor: three screen lines per game line, or the full size if that's less.
     const double floorScale = std::min(1.0, 3.0 * srcH / (double)fullH);
     const double scale = std::sqrt(std::min(1.0, g_budget / g_lastFull));
@@ -527,8 +436,8 @@ void watchRate(int srcH, int fullH) {
 
 Kind kindNamed(const char* s) {
     if (!s) return Kind::Off;
-    if (std::strcmp(s, "lottes") == 0) return Kind::Lottes;
-    if (std::strcmp(s, "lottes-fast") == 0) return Kind::LottesFast;
+    // "lottes-fast": a 1.0.7 test build's name for it.
+    if (std::strcmp(s, "lottes") == 0 || std::strcmp(s, "lottes-fast") == 0) return Kind::Lottes;
     return Kind::Off;
 }
 
