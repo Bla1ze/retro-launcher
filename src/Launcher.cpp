@@ -792,7 +792,8 @@ const std::vector<Menu::SettingDef>& Menu::settingDefs() {
         {"Theme", "theme", {"neon", "attract"}, {"Neon", "Attract"}},
         {"Picture sides", "sides", {"bezel", "glow", "black"}, {"Bezel", "Glow", "Black"}},
         {"Scaling", "scaling", {"smooth", "sharp", "integer"}, {"Smooth", "Sharp", "Pixel-perfect"}},
-        {"CRT scanlines", "scanlines", {"off", "light", "strong"}, {"Off", "Light", "Strong"}},
+        {"CRT effect", "scanlines", {"off", "light", "strong", "lottes"},
+         {"Off", "Scanlines light", "Scanlines strong", "CRT (Lottes)"}},
         {"Screen artwork", "panels", {"on", "off"}, {"On", "Off"}},
         {"Default game screen", "screen.default", {"backglass", "playfield"}, {"Backglass", "Playfield"}},
         {"Playfield game rotation", "rotate.playfield", {"90", "270"}, {"90 degrees", "270 degrees"}},
@@ -811,6 +812,7 @@ void Menu::changeSetting(int dir) {
     if (d.key == "sides" && m_settings.value("sides", "").empty())
         cur = m_settings.value("bezels", "on") == "off" ? (m_settings.value("bars", "ambient") == "black" ? "black" : "glow")
                                                         : "bezel";
+    if (d.key == "scanlines" && cur == "lottes-fast") cur = "lottes";  // a 1.0.7 test build's name
     auto it = std::find(d.values.begin(), d.values.end(), cur);
     int i = it == d.values.end() ? 0 : (int)(it - d.values.begin());
     int n = (int)d.values.size();
@@ -1940,6 +1942,7 @@ void Menu::renderSettings() {
         if (d.key == "sides" && m_settings.value("sides", "").empty())
             cur = m_settings.value("bezels", "on") == "off"
                       ? (m_settings.value("bars", "ambient") == "black" ? "black" : "glow") : "bezel";
+        if (d.key == "scanlines" && cur == "lottes-fast") cur = "lottes";  // a 1.0.7 test build's name
         auto it = std::find(d.values.begin(), d.values.end(), cur);
         std::string label = d.labels[it == d.values.end() ? 0 : it - d.values.begin()];
         AppFont::draw(r, d.label, row.x + 24.0f, y + (kRowH - Theme::Type::Body) * 0.5f - 4.0f, Theme::Type::Body,

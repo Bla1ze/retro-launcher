@@ -43,6 +43,7 @@ add_executable(${ATGAMES_APP_NAME}
     src/AppFont.cpp
     src/ArtDownload.cpp
     src/Arcade.cpp
+    src/CrtFilter.cpp
     src/GamePanels.cpp
     src/Gfx.cpp
     src/PanelFont.cpp
