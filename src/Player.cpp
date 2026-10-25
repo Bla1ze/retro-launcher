@@ -2119,7 +2119,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
 
         // Where the emulator ran this frame, for the log.
         {
-            const int cpu = sched_getcpu();
+            const int cpu = CpuPin::currentCpu();
             if (cpu >= 0) {
                 ++g_cpuSamples;
                 if (CpuPin::isFast(cpu)) ++g_cpuFast;

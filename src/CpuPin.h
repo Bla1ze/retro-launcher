@@ -58,10 +58,24 @@ inline std::string list(const std::vector<int>& cores)
 inline bool pinSelf(const std::vector<int>& cores)
 {
     if (cores.empty()) return false;
+#ifdef __linux__
     cpu_set_t set;
     CPU_ZERO(&set);
     for (int c : cores) CPU_SET(c, &set);
     return pthread_setaffinity_np(pthread_self(), sizeof(set), &set) == 0;
+#else
+    return false;  // the Mac simulator: no affinity
+#endif
+}
+
+// The core this thread is on, or -1 where that can't be asked (the Mac simulator).
+inline int currentCpu()
+{
+#ifdef __linux__
+    return sched_getcpu();
+#else
+    return -1;
+#endif
 }
 
 inline bool isFast(int cpu)
