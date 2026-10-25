@@ -53,6 +53,20 @@ for d in "$SRC"/media/*/; do
     [ -f "$f" ] && { mkdir -p "$APP/media/$sys"; cp "$f" "$APP/media/$sys/"; }
   done
 done
+# Every system in the app needs its console picture in the zip: the updater adds
+# only what a release ships, so a system added without one would stay a drawn
+# gamepad on every cabinet that updates. Fix: tools/fetch_media.sh <staging>.
+LIB="$(cd "$(dirname "$0")/.." && pwd)/src/Library.cpp"
+MISSING=""
+for sys in $(sed -n 's/^ *{"\([a-z0-9]*\)", "[^"]*", "[A-Z0-9]*",.*$/\1/p' "$LIB"); do
+  [ -f "$APP/media/$sys/console.png" ] || [ -f "$APP/media/$sys/console.jpg" ] || MISSING="$MISSING $sys"
+  [ -f "$APP/media/$sys/console.credit" ] || MISSING="$MISSING $sys(credit)"
+done
+if [ -n "$MISSING" ]; then
+  echo "refusing to package: no console picture (or its credit) in media/ for:$MISSING"
+  echo "run: tools/fetch_media.sh \"$SRC\"   (then build the release again)"
+  exit 1
+fi
 # The credits list, without the bezel line (no bezels ship).
 {
   echo "Console pictures shipped with Retro Launcher. Photos from Wikimedia Commons, shown with the white"
