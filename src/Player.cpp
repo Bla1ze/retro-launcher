@@ -249,6 +249,7 @@ retro_pixel_format g_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
 retro_system_av_info g_av{};
 unsigned g_coreRotation = 0;
 retro_disk_control_ext_callback g_disc{};  // multi-disc games; label calls only from the EXT interface
+std::string g_coreMessage;  // the core's latest SET_MESSAGE text (the FDS side flip answers with it)
 bool g_discExt = false;  // RETRO_ENVIRONMENT_SET_ROTATION: picture turned 90 * n degrees counter-clockwise
 
 SDL_Renderer* g_renderer = nullptr;
@@ -725,7 +726,10 @@ bool environment(unsigned cmd, void* data) {
         log("core asks for rotation %u (x90 counter-clockwise)", g_coreRotation);
         return true;
     case RETRO_ENVIRONMENT_SET_MESSAGE:
-        if (data) log("core message: %s", ((const retro_message*)data)->msg);
+        if (data) {
+            log("core message: %s", ((const retro_message*)data)->msg);
+            g_coreMessage = ((const retro_message*)data)->msg ? ((const retro_message*)data)->msg : "";
+        }
         return true;
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: *(const char**)data = g_systemDir.c_str(); return true;
     case RETRO_ENVIRONMENT_GET_SAVE_DIRECTORY: *(const char**)data = g_saveDir.c_str(); return true;
@@ -1688,7 +1692,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
     const std::string coreTitle = std::string(info.library_name ? info.library_name : "Core") + " " +
                                   (info.library_version ? info.library_version : "");
     int menuSel = 0;
-    enum { PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseTurn, PauseTurnControls, PausePlayers, PauseDisc, PauseQuit };
+    enum { PauseResume, PauseSave, PauseLoad, PauseReset, PauseOptions, PauseTurn, PauseTurnControls, PausePlayers, PauseDisc, PauseFlip, PauseQuit };
     std::vector<int> pauseIds;
     // Multi-disc games: how many discs, which one is in (asked once; changed here).
     unsigned discs = 0, discIndex = 0;
@@ -1801,6 +1805,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
             if (havePlayer2() && std::find(g_padCabinet.begin(), g_padCabinet.end(), true) != g_padCabinet.end())
                 pauseIds.push_back(PausePlayers);
             if (discs > 1) pauseIds.push_back(PauseDisc);
+            if (sysId == "fds") pauseIds.push_back(PauseFlip);
             pauseIds.push_back(PauseQuit);
             for (int id : pauseIds) {
                 switch (id) {
@@ -1812,7 +1817,8 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 case PauseTurn: items.push_back(std::string("Rotate picture: ") + (userTurn == 90 ? "turned right" : userTurn == 180 ? "upside down" : userTurn == 270 ? "turned left" : "off")); enabled.push_back(true); break;
                 case PausePlayers: items.push_back("Cabinet plays as: player " + std::to_string(g_cabinetPlays + 1)); enabled.push_back(true); break;
                 case PauseTurnControls: items.push_back(std::string("Turn controls with it: ") + (turnControls ? "on" : "off")); enabled.push_back(true); break;
-                case PauseDisc: items.push_back((sysId == "fds" ? "Flip disk side (" : "Change disc (") + std::to_string(discIndex + 1) + " of " + std::to_string(discs) + ")"); enabled.push_back(true); break;
+                case PauseDisc: items.push_back("Change disc (" + std::to_string(discIndex + 1) + " of " + std::to_string(discs) + ")"); enabled.push_back(true); break;
+                case PauseFlip: items.push_back("Flip disk side"); enabled.push_back(true); break;
                 case PauseQuit: items.push_back("Quit to menu"); enabled.push_back(true); break;
                 }
             }
@@ -1963,10 +1969,31 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     char label[128] = "";
                     if (ok && g_discExt && g_disc.get_image_label) g_disc.get_image_label(discIndex, label, sizeof(label));
                     toast = !ok ? "Could not change the disc"
-                                : std::string(sysId == "fds" ? "Disk side " : "Disc ") + std::to_string(discIndex + 1) + " of " + std::to_string(discs) +
+                                : "Disc " + std::to_string(discIndex + 1) + " of " + std::to_string(discs) +
                                       (label[0] ? std::string(": ") + label : "");
                     toastAt = t;
                     log("disc: %s", toast.c_str());
+                    break;
+                }
+                case PauseFlip: {
+                    // FCEUmm's Famicom Disk System has no disk-control interface: R ejects the
+                    // disk, L changes the side, R inserts it. Do those three presses for the
+                    // player, a few frames each (tested with the real core), and show what the
+                    // core answered ("Disk 1 of 1 Side B Inserted").
+                    CoreGL glScope;
+                    g_coreMessage.clear();
+                    const uint16_t steps[3] = {(uint16_t)(1u << RETRO_DEVICE_ID_JOYPAD_R), (uint16_t)(1u << RETRO_DEVICE_ID_JOYPAD_L),
+                                               (uint16_t)(1u << RETRO_DEVICE_ID_JOYPAD_R)};
+                    for (uint16_t step : steps) {
+                        g_buttons = step;
+                        for (int i = 0; i < 6; ++i) { g_audioBatch.clear(); core.run(); }
+                        g_buttons = 0;
+                        for (int i = 0; i < 10; ++i) { g_audioBatch.clear(); core.run(); }
+                    }
+                    g_audioBatch.clear();
+                    toast = g_coreMessage.empty() ? "Disk side flipped" : g_coreMessage;
+                    toastAt = t;
+                    log("fds: flip -> %s", toast.c_str());
                     break;
                 }
                 case PauseQuit:

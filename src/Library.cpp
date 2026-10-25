@@ -245,6 +245,8 @@ std::vector<std::pair<int, std::string>> buttonTargets(const std::string& id) {
         return {{kB, "Button 1"}, {kA, "Button 2"}, {kStart, id == "gamegear" ? "Start" : "Pause"}};
     if (id == "nes")
         return {{kB, "B"}, {kA, "A"}, {kStart, "Start"}, {kSelect, "Select"}};
+    if (id == "fds")  // L / R are FCEUmm's disk keys: R ejects, L changes side, R inserts (or pause menu > Flip disk side)
+        return {{kB, "B"}, {kA, "A"}, {kL, "Disk side"}, {kR, "Eject / insert"}, {kStart, "Start"}, {kSelect, "Select"}};
     if (id == "snes")
         return {{kB, "B"}, {kA, "A"}, {kY, "Y"}, {kX, "X"}, {kL, "L"}, {kR, "R"}, {kStart, "Start"}, {kSelect, "Select"}};
     if (id == "atari2600")
@@ -934,7 +936,7 @@ static const char* biosNote(const std::string& id) {
         return "Required: the BIOS of the game's region in system/: bios_CD_U.bin (USA), bios_CD_E.bin (Europe), "
                "bios_CD_J.bin (Japan). Use .chd or .cue + tracks.";
     if (id == "fds")
-        return "Required: disksys.rom in system/. Two-sided disks: pause menu > Change disc flips the side.";
+        return "Required: disksys.rom in system/. Two-sided disks: pause menu > Flip disk side when the game asks for side B.";
     if (id == "sg1000") return "";
     if (id == "n64") return "";
     if (id == "saturn")
