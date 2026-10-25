@@ -79,10 +79,10 @@ bezel psx bezelproject-PSX;                     photo psx PSX-Console-wControlle
 bezel dreamcast bezelproject-Dreamcast;         photo dreamcast Dreamcast-Console-Set.png
 bezel n64 bezelproject-N64;                     photo n64 N64-Console-Set.png
 bezel saturn bezelproject-Saturn;               photo saturn Sega-Saturn-Console-Set-Mk1.png
-bezel segacd bezelproject-SegaCD
-bezel sg1000 bezelproject-SG-1000
-bezel fds bezelproject-FDS
-bezel pcecd bezelproject-TG-CD
+bezel segacd bezelproject-SegaCD;               photo segacd Sega-CD-Model1-Set.jpg Sega-CD-Model2-Set.jpg
+bezel sg1000 bezelproject-SG-1000;              photo sg1000 Sega-SG-1000-Console-Set.jpg Sega-SG-1000-Console-Set.png
+bezel fds bezelproject-FDS;                     photo fds Nintendo-Famicom-Disk-System.jpg
+bezel pcecd bezelproject-TG-CD;                 photo pcecd NEC-TurboGrafx-16-CD-FL.png NEC-TurboGrafx-16-CD-FL.jpg
 bezel naomi bezelproject-Naomi;                 drawing naomi
 bezel atomiswave bezelproject-Atomiswave;       drawing atomiswave
 drawing arcade
