@@ -249,6 +249,7 @@ retro_pixel_format g_pixelFormat = RETRO_PIXEL_FORMAT_0RGB1555;
 retro_system_av_info g_av{};
 unsigned g_coreRotation = 0;
 retro_disk_control_ext_callback g_disc{};  // multi-disc games; label calls only from the EXT interface
+bool g_fdsEjected = false;  // FCEUmm said "...Ejected" last (not "...Inserted"): R, L and R on the pad are all it has
 std::string g_coreMessage;  // the core's latest SET_MESSAGE text (the FDS side flip answers with it)
 bool g_discExt = false;  // RETRO_ENVIRONMENT_SET_ROTATION: picture turned 90 * n degrees counter-clockwise
 
@@ -729,6 +730,12 @@ bool environment(unsigned cmd, void* data) {
         if (data) {
             log("core message: %s", ((const retro_message*)data)->msg);
             g_coreMessage = ((const retro_message*)data)->msg ? ((const retro_message*)data)->msg : "";
+            auto ends = [&](const char* w) {
+                const size_t n = std::strlen(w);
+                return g_coreMessage.size() >= n && g_coreMessage.compare(g_coreMessage.size() - n, n, w) == 0;
+            };
+            if (ends("Ejected")) g_fdsEjected = true;
+            else if (ends("Inserted")) g_fdsEjected = false;
         }
         return true;
     case RETRO_ENVIRONMENT_GET_SYSTEM_DIRECTORY: *(const char**)data = g_systemDir.c_str(); return true;
@@ -1976,20 +1983,24 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     break;
                 }
                 case PauseFlip: {
-                    // FCEUmm's Famicom Disk System has no disk-control interface: R ejects the
-                    // disk, L changes the side, R inserts it. Do those three presses for the
-                    // player, a few frames each (tested with the real core), and show what the
-                    // core answered ("Disk 1 of 1 Side B Inserted").
+                    // FCEUmm's Famicom Disk System has no disk-control interface: R ejects or
+                    // inserts the disk, L changes the side (only while it is out). Start from
+                    // wherever the disk is (the core's own messages say: the player may have
+                    // pressed R by hand), end with it inserted, and show the core's last reply
+                    // ("Disk 1 of 1 Side B Inserted").
                     CoreGL glScope;
                     g_coreMessage.clear();
-                    const uint16_t steps[3] = {(uint16_t)(1u << RETRO_DEVICE_ID_JOYPAD_R), (uint16_t)(1u << RETRO_DEVICE_ID_JOYPAD_L),
-                                               (uint16_t)(1u << RETRO_DEVICE_ID_JOYPAD_R)};
-                    for (uint16_t step : steps) {
-                        g_buttons = step;
+                    const uint16_t pressR = (uint16_t)(1u << RETRO_DEVICE_ID_JOYPAD_R), pressL = (uint16_t)(1u << RETRO_DEVICE_ID_JOYPAD_L);
+                    auto press = [&](uint16_t mask) {
+                        g_buttons = mask;
                         for (int i = 0; i < 6; ++i) { g_audioBatch.clear(); core.run(); }
                         g_buttons = 0;
                         for (int i = 0; i < 10; ++i) { g_audioBatch.clear(); core.run(); }
-                    }
+                    };
+                    if (!g_fdsEjected) press(pressR);  // out
+                    press(pressL);                     // the other side
+                    press(pressR);                     // back in
+                    for (int tries = 0; g_fdsEjected && tries < 2; ++tries) press(pressR);  // never leave it out
                     g_audioBatch.clear();
                     toast = g_coreMessage.empty() ? "Disk side flipped" : g_coreMessage;
                     toastAt = t;
