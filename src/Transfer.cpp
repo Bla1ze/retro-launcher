@@ -149,7 +149,7 @@ function showExts() {
 async function loadBios() {
   try {
     const items = (await api('/api/bios')).items;
-    biosNames = items.flatMap(i => i.names);
+    biosNames = items.flatMap(i => i.names.map(n => n.toLowerCase()));
     const box = $('biosList'); box.textContent = '';
     for (const i of items) {
       const row = document.createElement('div'); row.className = 'bios';
@@ -332,7 +332,7 @@ bool isDirPath(const std::string& p) {
 
 // Systems whose games can be folders (disc sets, NAOMI / Atomiswave GD-ROM CHDs).
 bool takesFolders(const std::string& id) {
-    return id == "psx" || id == "saturn" || id == "dreamcast" || id == "psp" || id == "naomi" || id == "atomiswave";
+    return id == "psx" || id == "saturn" || id == "dreamcast" || id == "segacd" || id == "pcecd" || id == "psp" || id == "naomi" || id == "atomiswave";
 }
 
 std::vector<std::string> allowedExts(const Library::System& s) {
@@ -340,6 +340,8 @@ std::vector<std::string> allowedExts(const Library::System& s) {
     e.push_back("zip");
     if (s.id == "psx" || s.id == "saturn" || s.id == "dreamcast")
         for (const char* x : {"bin", "raw", "img", "sub", "ccd", "cue", "gdi", "iso", "chd", "m3u", "cdi", "pbp"}) e.push_back(x);
+    if (s.id == "segacd" || s.id == "pcecd")  // a .cue and its track files
+        for (const char* x : {"bin", "raw", "img", "sub", "ccd", "toc", "wav"}) e.push_back(x);
     if (s.id == "naomi" || s.id == "atomiswave") e.push_back("chd");
     std::sort(e.begin(), e.end());
     e.erase(std::unique(e.begin(), e.end()), e.end());

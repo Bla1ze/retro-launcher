@@ -27,7 +27,11 @@ APP = ""  # set from the command line
 # fills gaps: Game Boy games in the Color folder, SuperGrafx games in pce).
 REPOS = {
     "genesis": ["Sega_-_Mega_Drive_-_Genesis"],
+    "segacd": ["Sega_-_Mega-CD_-_Sega_CD"],
     "mastersystem": ["Sega_-_Master_System_-_Mark_III"],
+    "sg1000": ["Sega_-_SG-1000"],
+    "fds": ["Nintendo_-_Family_Computer_Disk_System"],
+    "pcecd": ["NEC_-_PC_Engine_CD_-_TurboGrafx-CD"],
     "gamegear": ["Sega_-_Game_Gear"],
     "nes": ["Nintendo_-_Nintendo_Entertainment_System"],
     "snes": ["Nintendo_-_Super_Nintendo_Entertainment_System"],
@@ -45,7 +49,7 @@ REPOS = {
     "saturn": ["Sega_-_Saturn"],
 }
 ROM_EXT = {".nes", ".sfc", ".smc", ".md", ".gen", ".smd", ".bin", ".sms", ".gg", ".a26", ".col", ".rom",
-           ".gb", ".gbc", ".gba", ".pce", ".sgx", ".lnx",
+           ".gb", ".gbc", ".gba", ".pce", ".sgx", ".lnx", ".sg", ".fds",
            ".chd", ".cue", ".pbp", ".m3u", ".iso", ".cdi", ".gdi", ".cso", ".n64", ".z64", ".v64", ".ccd", ".zip"}
 GOOD_REGION = {"U": "USA", "E": "Europe", "J": "Japan", "W": "World", "UE": "USA", "JU": "USA", "EU": "Europe"}
 

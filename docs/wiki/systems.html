@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Systems - Retro Launcher guides</title>
-<meta name="description" content="All 21 systems: the folder, the file types, the emulator, the BIOS files they can use, and what each cabinet button does.">
+<meta name="description" content="All 25 systems: the folder, the file types, the emulator, the BIOS files they can use, and what each cabinet button does.">
 <link rel="icon" href="../assets/retro-launcher.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -28,7 +28,7 @@
   <main>
     <div class="crumb">GUIDES / SYSTEMS</div>
     <h1>Systems</h1>
-    <p class="lede">All 21 systems: the folder, the file types, the emulator, the BIOS files they can use, and what each cabinet button does.</p>
+    <p class="lede">All 25 systems: the folder, the file types, the emulator, the BIOS files they can use, and what each cabinet button does.</p>
 <p>Buttons are written as <kbd>CABINET</kbd> console button. They're the defaults; change them for one game or a whole system with Home &gt; Controls (see <a href="controls-settings.html">Controls &amp; settings</a>). Settings &gt; BIOS check shows which BIOS files you have and where missing ones go.</p>
 <h2 id="overview">At a glance</h2>
 <table><tr><th>System</th><th>Folder</th><th>Emulator</th><th>BIOS</th></tr>
@@ -37,14 +37,18 @@
 <tr><td><a href="#naomi">NAOMI</a></td><td><code>roms/naomi/</code></td><td>Flycast <span class="tag gpu">GPU</span></td><td><span class="tag req">required</span></td></tr>
 <tr><td><a href="#atomiswave">Atomiswave</a></td><td><code>roms/atomiswave/</code></td><td>Flycast <span class="tag gpu">GPU</span></td><td><span class="tag req">required</span></td></tr>
 <tr><td><a href="#nes">NES</a></td><td><code>roms/nes/</code></td><td>FCEUmm</td><td>none</td></tr>
+<tr><td><a href="#fds">Famicom Disk System</a></td><td><code>roms/fds/</code></td><td>FCEUmm</td><td><span class="tag req">required</span></td></tr>
 <tr><td><a href="#snes">Super Nintendo</a></td><td><code>roms/snes/</code></td><td>Snes9x</td><td>none</td></tr>
 <tr><td><a href="#n64">Nintendo 64</a></td><td><code>roms/n64/</code></td><td>Mupen64Plus-Next <span class="tag gpu">GPU</span></td><td>none</td></tr>
 <tr><td><a href="#genesis">Genesis / Mega Drive</a></td><td><code>roms/genesis/</code></td><td>Genesis Plus GX</td><td>none</td></tr>
+<tr><td><a href="#segacd">Sega CD / Mega-CD</a></td><td><code>roms/segacd/</code></td><td>Genesis Plus GX</td><td><span class="tag req">required</span></td></tr>
 <tr><td><a href="#mastersystem">Master System</a></td><td><code>roms/mastersystem/</code></td><td>Genesis Plus GX</td><td>none</td></tr>
+<tr><td><a href="#sg1000">SG-1000</a></td><td><code>roms/sg1000/</code></td><td>Genesis Plus GX</td><td>none</td></tr>
 <tr><td><a href="#saturn">Saturn</a></td><td><code>roms/saturn/</code></td><td>YabaSanshiro <span class="tag gpu">GPU</span></td><td><span class="tag opt">good to have</span></td></tr>
 <tr><td><a href="#dreamcast">Dreamcast</a></td><td><code>roms/dreamcast/</code></td><td>Flycast <span class="tag gpu">GPU</span></td><td><span class="tag opt">good to have</span></td></tr>
 <tr><td><a href="#psx">PlayStation</a></td><td><code>roms/psx/</code></td><td>PCSX ReARMed</td><td><span class="tag opt">good to have</span></td></tr>
 <tr><td><a href="#pce">PC Engine / TurboGrafx-16</a></td><td><code>roms/pce/</code></td><td>Beetle PCE Fast</td><td>none</td></tr>
+<tr><td><a href="#pcecd">PC Engine CD / TurboGrafx-CD</a></td><td><code>roms/pcecd/</code></td><td>Beetle PCE Fast</td><td><span class="tag req">required</span></td></tr>
 <tr><td><a href="#atari2600">Atari 2600</a></td><td><code>roms/atari2600/</code></td><td>Stella</td><td>none</td></tr>
 <tr><td><a href="#colecovision">ColecoVision</a></td><td><code>roms/colecovision/</code></td><td>The cabinet&#x27;s own</td><td><span class="tag opt">good to have</span></td></tr>
 <tr><td><a href="#gb">Game Boy</a></td><td><code>roms/gb/</code></td><td>Gambatte</td><td><span class="tag opt">good to have</span></td></tr>
@@ -94,6 +98,14 @@
 <dt>BIOS</dt><dd>None needed</dd>
 <dt>Buttons</dt><dd><div class="keys"><span><kbd>A</kbd> B</span><span><kbd>B</kbd> A</span><span><kbd>Start</kbd> Start</span><span><kbd>Rewind</kbd> Select</span></div></dd>
 </dl></div>
+<div class="sys" id="fds"><h3>Famicom Disk System</h3><dl>
+<dt>Folder</dt><dd><code>roms/fds/</code></dd>
+<dt>Files</dt><dd>.fds, .zip</dd>
+<dt>Emulator</dt><dd>FCEUmm</dd>
+<dt>BIOS</dt><dd><code>disksys.rom</code> in <code>system/</code> <span class="tag req">required</span> &ndash; every Famicom Disk System game needs it</dd>
+<dt>Buttons</dt><dd><div class="keys"><span><kbd>A</kbd> B</span><span><kbd>B</kbd> A</span><span><kbd>Start</kbd> Start</span><span><kbd>Rewind</kbd> Select</span></div></dd>
+<dt>Notes</dt><dd>Two-sided disks: open the pause menu and choose Flip disk side when the game asks for side B.</dd>
+</dl></div>
 <div class="sys" id="snes"><h3>Super Nintendo</h3><dl>
 <dt>Folder</dt><dd><code>roms/snes/</code></dd>
 <dt>Files</dt><dd>.sfc, .smc, .zip</dd>
@@ -117,9 +129,24 @@
 <dt>BIOS</dt><dd>None needed</dd>
 <dt>Buttons</dt><dd><div class="keys"><span><kbd>X</kbd> A</span><span><kbd>A</kbd> B</span><span><kbd>B</kbd> C</span><span><kbd>LB</kbd> X</span><span><kbd>Y</kbd> Y</span><span><kbd>RB</kbd> Z</span><span><kbd>Start</kbd> Start</span><span><kbd>Rewind</kbd> Mode</span></div></dd>
 </dl></div>
+<div class="sys" id="segacd"><h3>Sega CD / Mega-CD</h3><dl>
+<dt>Folder</dt><dd><code>roms/segacd/</code></dd>
+<dt>Files</dt><dd>.chd, .cue, .iso (don&#x27;t zip them)</dd>
+<dt>Emulator</dt><dd>Genesis Plus GX (the firmware&#x27;s)</dd>
+<dt>BIOS</dt><dd><code>bios_CD_U.bin</code> in <code>system/</code> <span class="tag req">required</span> &ndash; the BIOS of the game&#x27;s region: bios_CD_U.bin (USA), bios_CD_E.bin (Europe) or bios_CD_J.bin (Japan)</dd>
+<dt>Buttons</dt><dd><div class="keys"><span><kbd>X</kbd> A</span><span><kbd>A</kbd> B</span><span><kbd>B</kbd> C</span><span><kbd>LB</kbd> X</span><span><kbd>Y</kbd> Y</span><span><kbd>RB</kbd> Z</span><span><kbd>Start</kbd> Start</span><span><kbd>Rewind</kbd> Mode</span></div></dd>
+<dt>Notes</dt><dd>A game can be a folder of its own: <code>roms/segacd/Game/Game.cue</code> with its tracks. Disc swapping isn't supported.</dd>
+</dl></div>
 <div class="sys" id="mastersystem"><h3>Master System</h3><dl>
 <dt>Folder</dt><dd><code>roms/mastersystem/</code></dd>
 <dt>Files</dt><dd>.sms, .zip</dd>
+<dt>Emulator</dt><dd>Genesis Plus GX (the firmware&#x27;s)</dd>
+<dt>BIOS</dt><dd>None needed</dd>
+<dt>Buttons</dt><dd><div class="keys"><span><kbd>A</kbd> Button 1</span><span><kbd>B</kbd> Button 2</span><span><kbd>Start</kbd> Pause</span></div></dd>
+</dl></div>
+<div class="sys" id="sg1000"><h3>SG-1000</h3><dl>
+<dt>Folder</dt><dd><code>roms/sg1000/</code></dd>
+<dt>Files</dt><dd>.sg, .zip</dd>
 <dt>Emulator</dt><dd>Genesis Plus GX (the firmware&#x27;s)</dd>
 <dt>BIOS</dt><dd>None needed</dd>
 <dt>Buttons</dt><dd><div class="keys"><span><kbd>A</kbd> Button 1</span><span><kbd>B</kbd> Button 2</span><span><kbd>Start</kbd> Pause</span></div></dd>
@@ -154,7 +181,15 @@
 <dt>Emulator</dt><dd>Beetle PCE Fast</dd>
 <dt>BIOS</dt><dd>None needed</dd>
 <dt>Buttons</dt><dd><div class="keys"><span><kbd>A</kbd> II</span><span><kbd>B</kbd> I</span><span><kbd>Start</kbd> Run</span><span><kbd>Rewind</kbd> Select</span></div></dd>
-<dt>Notes</dt><dd>HuCard games only; CD games aren't supported.</dd>
+<dt>Notes</dt><dd>HuCard games only; CD games are in PC Engine CD.</dd>
+</dl></div>
+<div class="sys" id="pcecd"><h3>PC Engine CD / TurboGrafx-CD</h3><dl>
+<dt>Folder</dt><dd><code>roms/pcecd/</code></dd>
+<dt>Files</dt><dd>.chd, .cue, .ccd, .m3u (don&#x27;t zip them)</dd>
+<dt>Emulator</dt><dd>Beetle PCE Fast</dd>
+<dt>BIOS</dt><dd><code>syscard3.pce</code> in <code>system/</code> <span class="tag req">required</span> &ndash; the Super System Card; every PC Engine CD game needs it</dd>
+<dt>Buttons</dt><dd><div class="keys"><span><kbd>A</kbd> II</span><span><kbd>B</kbd> I</span><span><kbd>Start</kbd> Run</span><span><kbd>Rewind</kbd> Select</span></div></dd>
+<dt>Notes</dt><dd>A game can be a folder of its own, with its .cue and tracks. Multi-disc games: an .m3u and Change disc in the pause menu.</dd>
 </dl></div>
 <div class="sys" id="atari2600"><h3>Atari 2600</h3><dl>
 <dt>Folder</dt><dd><code>roms/atari2600/</code></dd>

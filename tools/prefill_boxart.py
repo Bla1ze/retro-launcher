@@ -27,7 +27,11 @@ REPOS = {
     # matches against each set's name from its arcade database.
     "arcade": ["FBNeo_-_Arcade_Games", "MAME"],
     "genesis": ["Sega_-_Mega_Drive_-_Genesis"],
+    "segacd": ["Sega_-_Mega-CD_-_Sega_CD"],
     "mastersystem": ["Sega_-_Master_System_-_Mark_III"],
+    "sg1000": ["Sega_-_SG-1000"],
+    "fds": ["Nintendo_-_Family_Computer_Disk_System"],
+    "pcecd": ["NEC_-_PC_Engine_CD_-_TurboGrafx-CD"],
     "gamegear": ["Sega_-_Game_Gear"],
     "nes": ["Nintendo_-_Nintendo_Entertainment_System"],
     "snes": ["Nintendo_-_Super_Nintendo_Entertainment_System"],

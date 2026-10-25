@@ -145,12 +145,18 @@ const std::vector<System>& systems() {
         {"neogeo", "Neo Geo", "NEO", {"fbneo_libretro.so"}, {"zip"}, 4.0f / 3.0f, false},
         {"genesis", "Genesis / Mega Drive", "MD", {"genesis_plus_gx_libretro.so"},
          {"md", "gen", "smd", "bin"}, 4.0f / 3.0f, true},
+        // Sega CD / Mega-CD: the same Genesis Plus GX; disc images, a region BIOS in system/.
+        {"segacd", "Sega CD / Mega-CD", "SCD", {"genesis_plus_gx_libretro.so"},
+         {"chd", "cue", "iso"}, 4.0f / 3.0f, false},
         {"mastersystem", "Master System", "SMS", {"genesis_plus_gx_libretro.so"},
          {"sms"}, 4.0f / 3.0f, false},
+        {"sg1000", "SG-1000", "SG", {"genesis_plus_gx_libretro.so"}, {"sg"}, 4.0f / 3.0f, false},
         {"gamegear", "Game Gear", "GG", {"genesis_plus_gx_libretro.so"},
          {"gg"}, 10.0f / 9.0f, false},
         {"nes", "NES", "NES", {"fceumm_libretro.so", "nestopia_libretro.so", "quicknes_libretro.so"},
          {"nes"}, 4.0f / 3.0f, true},
+        // Famicom Disk System: FCEUmm with disksys.rom; two-sided disks flip in the pause menu.
+        {"fds", "Famicom Disk System", "FDS", {"fceumm_libretro.so"}, {"fds"}, 4.0f / 3.0f, false},
         {"snes", "Super Nintendo", "SNES", {"snes9x_libretro.so", "snes_mtfaust-arm64-cortex-a53.so"},
          {"sfc", "smc"}, 4.0f / 3.0f, true},
         {"atari2600", "Atari 2600", "2600", {"stella_libretro.so", "stella2014_libretro.so"},
@@ -162,6 +168,9 @@ const std::vector<System>& systems() {
         {"gbc", "Game Boy Color", "GBC", {"gambatte_libretro.so"}, {"gbc", "gb"}, 10.0f / 9.0f, false},
         {"gba", "Game Boy Advance", "GBA", {"gpsp_libretro.so"}, {"gba"}, 3.0f / 2.0f, false},
         {"pce", "PC Engine / TurboGrafx-16", "PCE", {"mednafen_pce_fast_libretro.so"}, {"pce", "sgx"}, 4.0f / 3.0f, false},
+        // The same core plays CD games with the system card (syscard3.pce) in system/.
+        {"pcecd", "PC Engine CD / TurboGrafx-CD", "PCD", {"mednafen_pce_fast_libretro.so"},
+         {"chd", "cue", "ccd", "m3u"}, 4.0f / 3.0f, false},
         {"lynx", "Atari Lynx", "LNX", {"handy_libretro.so"}, {"lnx"}, 160.0f / 102.0f, false},
         // Disc images are passed to the core where they are (cue tracks beside them).
         // GPU core (OpenGL ES): Flycast.
@@ -230,9 +239,9 @@ bool buttonMapFromString(const std::string& str, ButtonMap& out) {
 }
 
 std::vector<std::pair<int, std::string>> buttonTargets(const std::string& id) {
-    if (id == "genesis")
+    if (id == "genesis" || id == "segacd")
         return {{kY, "A"}, {kB, "B"}, {kA, "C"}, {kL, "X"}, {kX, "Y"}, {kR, "Z"}, {kStart, "Start"}, {kSelect, "Mode"}};
-    if (id == "mastersystem" || id == "gamegear")
+    if (id == "mastersystem" || id == "gamegear" || id == "sg1000")
         return {{kB, "Button 1"}, {kA, "Button 2"}, {kStart, id == "gamegear" ? "Start" : "Pause"}};
     if (id == "nes")
         return {{kB, "B"}, {kA, "A"}, {kStart, "Start"}, {kSelect, "Select"}};
@@ -249,7 +258,7 @@ std::vector<std::pair<int, std::string>> buttonTargets(const std::string& id) {
         return {{kB, "B"}, {kA, "A"}, {kStart, "Start"}, {kSelect, "Select"}};
     if (id == "gba")
         return {{kB, "B"}, {kA, "A"}, {kL, "L"}, {kR, "R"}, {kStart, "Start"}, {kSelect, "Select"}};
-    if (id == "pce")
+    if (id == "pce" || id == "pcecd")
         return {{kB, "II"}, {kA, "I"}, {kStart, "Run"}, {kSelect, "Select"}};
     if (id == "lynx")
         return {{kB, "B"}, {kA, "A"}, {kL, "Option 1"}, {kR, "Option 2"}, {kStart, "Pause"}};
@@ -634,8 +643,8 @@ std::vector<Game> scanGames(const std::string& appDir, const System& sys) {
     std::vector<Game> games;
     std::string dir = appDir + "/roms/" + sys.id;
     // Only where the core reads playlists and swaps discs: PCSX ReARMed and
-    // Flycast. YabaSanshiro (Saturn) has neither, so its discs stay separate.
-    if (sys.id == "psx" || sys.id == "dreamcast") {
+    // Flycast, and Beetle PCE Fast (PC Engine CD). Genesis Plus GX (Sega CD) and YabaSanshiro (Saturn) have neither, so its discs stay separate.
+    if (sys.id == "psx" || sys.id == "dreamcast" || sys.id == "pcecd") {
         makeDiscPlaylists(appDir, sys, dir, "");
         makeFolderDiscPlaylists(appDir, sys, dir);
         if (DIR* d = ::opendir(dir.c_str())) {  // and in games' own folders
@@ -830,6 +839,11 @@ const std::vector<BiosSpec>& biosSpecs() {
          {"490f666e1afb15b7362b406ed1cea246", "8dd7d5296a650fac7319bce665a6a53c", "32736f17079d0b2b7024407c39bd3050",
           "924e392ed05558ffdb115408c263dccf"},
          false, "runs more games than the built-in BIOS (USA: scph5501, Japan: scph5500, Europe: scph5502)"},
+        // Sega CD: one BIOS per console region; the game's region picks which one it needs.
+        {"segacd", {"bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"}, {"system/"}, {}, true,
+         "Sega CD games need the BIOS of their region: bios_CD_U.bin (USA), bios_CD_E.bin (Europe), bios_CD_J.bin (Japan)"},
+        {"pcecd", {"syscard3.pce"}, {"system/"}, {}, true, "every PC Engine CD game needs the Super System Card"},
+        {"fds", {"disksys.rom"}, {"system/"}, {}, true, "every Famicom Disk System game needs it"},
         {"saturn", {"saturn_bios.bin"}, {"system/"}, {"af5828fdff51384f99b3c4926be27762"}, false,
          "runs more games than the built-in BIOS"},
         {"dreamcast", {"dc_boot.bin", "boot.bin"}, {"system/dc/"}, {"e10c53c2f8b90bab96ead2d368858623"}, false,
@@ -881,7 +895,7 @@ bool biosTarget(const std::string& name, BiosTarget& out) {
     const std::string want = lower(name);
     for (const BiosSpec& b : biosSpecs())
         for (const char* n : b.names)
-            if (want == n) {
+            if (want == lower(n)) {
                 out.file = n;
                 out.where = b.dirs[0];
                 out.dirs.clear();
@@ -913,7 +927,15 @@ static const char* biosNote(const std::string& id) {
     if (id == "gba")
         return "Optional: gba_bios.bin. gpSP has a built-in BIOS; the original improves compatibility with a few games.";
     if (id == "lynx") return "Recommended: lynxboot.img (512 bytes). Handy can start most games without it.";
-    if (id == "pce") return "None for HuCard games (CD games are not supported).";
+    if (id == "pce") return "None for HuCard games. CD games are in PC Engine CD.";
+    if (id == "pcecd")
+        return "Required: syscard3.pce (the Super System Card), in system/. Use .chd or .cue + tracks; a game can be in a folder.";
+    if (id == "segacd")
+        return "Required: the BIOS of the game's region in system/: bios_CD_U.bin (USA), bios_CD_E.bin (Europe), "
+               "bios_CD_J.bin (Japan). Use .chd or .cue + tracks.";
+    if (id == "fds")
+        return "Required: disksys.rom in system/. Two-sided disks: pause menu > Change disc flips the side.";
+    if (id == "sg1000") return "";
     if (id == "n64") return "";
     if (id == "saturn")
         return "Optional: saturn_bios.bin. YabaSanshiro has a built-in BIOS replacement; a real one runs more games.";
@@ -961,7 +983,7 @@ static void writeGuides(const std::string& appDir) {
             s.name + " games go here.\n\nFile types: " +
             (s.id == "psp" ? exts.substr(0, exts.size() - 2) +
                                  "\n.cso (compressed .iso) or .chd saves space. Don't zip them.\n"
-             : s.id == "psx" || s.id == "dreamcast" || s.id == "saturn"
+             : s.id == "psx" || s.id == "dreamcast" || s.id == "saturn" || s.id == "pcecd" || s.id == "segacd"
                  ? exts.substr(0, exts.size() - 2) +
                        "\nUse .chd if you can (one small file per disc). A .cue or .gdi needs its track\n"
                        "files beside it. Don't zip disc images.\n" +

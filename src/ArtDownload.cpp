@@ -54,9 +54,12 @@ const std::vector<Src>& sources() {
         {"atomiswave", {"Atomiswave"}, {"MAME"}, "arcade"},
         {"neogeo", {"SNK_-_Neo_Geo", "FBNeo_-_Arcade_Games"}, {"MAME"}, "arcade"},
         {"genesis", {"Sega_-_Mega_Drive_-_Genesis"}, {"Sega_-_Mega_Drive_-_Genesis"}, "genesis"},
+        {"segacd", {"Sega_-_Mega-CD_-_Sega_CD"}, {"Sega_-_Mega-CD_-_Sega_CD"}, "segacd"},
         {"mastersystem", {"Sega_-_Master_System_-_Mark_III"}, {"Sega_-_Master_System_-_Mark_III"}, "mastersystem"},
+        {"sg1000", {"Sega_-_SG-1000"}, {"Sega_-_SG-1000"}, "sg1000"},
         {"gamegear", {"Sega_-_Game_Gear"}, {"Sega_-_Game_Gear"}, "gamegear"},
         {"nes", {"Nintendo_-_Nintendo_Entertainment_System"}, {"Nintendo_-_Nintendo_Entertainment_System"}, "nes"},
+        {"fds", {"Nintendo_-_Family_Computer_Disk_System"}, {"Nintendo_-_Family_Computer_Disk_System"}, "fds"},
         {"snes", {"Nintendo_-_Super_Nintendo_Entertainment_System"}, {"Nintendo_-_Super_Nintendo_Entertainment_System"}, "snes"},
         {"atari2600", {"Atari_-_2600"}, {"Atari_-_2600"}, "atari2600"},
         {"colecovision", {"Coleco_-_ColecoVision"}, {"Coleco_-_ColecoVision"}, "colecovision"},
@@ -65,6 +68,7 @@ const std::vector<Src>& sources() {
         {"gba", {"Nintendo_-_Game_Boy_Advance"}, {"Nintendo_-_Game_Boy_Advance"}, "gba"},
         {"pce", {"NEC_-_PC_Engine_-_TurboGrafx_16", "NEC_-_PC_Engine_SuperGrafx"},
          {"NEC_-_PC_Engine_-_TurboGrafx_16", "NEC_-_PC_Engine_SuperGrafx"}, "pce"},
+        {"pcecd", {"NEC_-_PC_Engine_CD_-_TurboGrafx-CD"}, {"NEC_-_PC_Engine_CD_-_TurboGrafx-CD"}, "pcecd"},
         {"lynx", {"Atari_-_Lynx"}, {"Atari_-_Lynx"}, "lynx"},
         {"psx", {"Sony_-_PlayStation"}, {"Sony_-_PlayStation"}, "psx"},
         {"dreamcast", {"Sega_-_Dreamcast"}, {"Sega_-_Dreamcast"}, "dreamcast"},
@@ -84,7 +88,9 @@ const char* bezelRepo(const std::string& id) {
         {"gb", "bezelproject-GB"}, {"gbc", "bezelproject-GBC"}, {"gba", "bezelproject-GBA"},
         {"pce", "bezelproject-PCEngine"}, {"lynx", "bezelproject-AtariLynx"}, {"psx", "bezelproject-PSX"},
         {"dreamcast", "bezelproject-Dreamcast"}, {"n64", "bezelproject-N64"}, {"saturn", "bezelproject-Saturn"},
-        {"naomi", "bezelproject-Naomi"}, {"atomiswave", "bezelproject-Atomiswave"}};
+        {"naomi", "bezelproject-Naomi"}, {"atomiswave", "bezelproject-Atomiswave"},
+        {"segacd", "bezelproject-SegaCD"}, {"sg1000", "bezelproject-SG-1000"}, {"fds", "bezelproject-FDS"},
+        {"pcecd", "bezelproject-TG-CD"}};
     for (const auto& r : repos)
         if (id == r.first) return r.second;
     return nullptr;

@@ -69,9 +69,12 @@ already in the cabinet's firmware, or better ones built for it (see
 | System | Folder | Core | Source |
 |---|---|---|---|
 | Genesis / Mega Drive | `roms/genesis` | Genesis Plus GX | firmware |
+| Sega CD / Mega-CD | `roms/segacd` | Genesis Plus GX, BIOS in `system/` | firmware |
 | Master System | `roms/mastersystem` | Genesis Plus GX | firmware |
+| SG-1000 | `roms/sg1000` | Genesis Plus GX | firmware |
 | Game Gear | `roms/gamegear` | Genesis Plus GX | firmware |
 | NES | `roms/nes` | FCEUmm (else QuickNES) | `cores/` (else firmware) |
+| Famicom Disk System | `roms/fds` | FCEUmm, `disksys.rom` in `system/` | `cores/` |
 | Super Nintendo | `roms/snes` | Snes9x (else SNES Faust) | `cores/` (else firmware) |
 | Atari 2600 | `roms/atari2600` | Stella | firmware |
 | ColecoVision | `roms/colecovision` | Gearcoleco with a BIOS in `system/`, else the firmware's (built-in BIOS) | `cores/` |
@@ -79,6 +82,7 @@ already in the cabinet's firmware, or better ones built for it (see
 | Game Boy Color | `roms/gbc` | Gambatte | `cores/` |
 | Game Boy Advance | `roms/gba` | gpSP | `cores/` |
 | PC Engine / TurboGrafx-16 | `roms/pce` | Beetle PCE Fast | `cores/` |
+| PC Engine CD / TurboGrafx-CD | `roms/pcecd` | Beetle PCE Fast, `syscard3.pce` in `system/` | `cores/` |
 | Atari Lynx | `roms/lynx` | Handy | `cores/` |
 | PlayStation | `roms/psx` | PCSX ReARMed | `cores/` |
 | Dreamcast | `roms/dreamcast` | Flycast (GPU) | `cores/` |

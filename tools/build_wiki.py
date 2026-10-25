@@ -10,7 +10,7 @@ Each guide is an HTML fragment in site/wiki/<slug>.html, starting with:
 followed by its content (<h2>, <p>, <table>...). This script wraps every page in
 the shared layout (top bar, the list of guides, the page's contents, previous /
 next links), adds ids to <h2>s for the contents list, and renders the Systems
-guide from the SYSTEMS table below, so its 21 sections stay alike.
+guide from the SYSTEMS table below, so its 25 sections stay alike.
 
 Usage: tools/build_wiki.py      (then commit docs/wiki/)
 """
@@ -51,8 +51,18 @@ SYSTEMS = [
      "The C buttons have buttons of their own (the cabinet has no right stick). Renders at 2x (1280x960) by default."),
     ("genesis", "Genesis / Mega Drive", ".md, .gen, .smd, .bin, .zip", "Genesis Plus GX (the firmware's)", False, [],
      "X=A, A=B, B=C, LB=X, Y=Y, RB=Z, Start=Start, Rewind=Mode", ""),
+    ("segacd", "Sega CD / Mega-CD", ".chd, .cue, .iso (don't zip them)", "Genesis Plus GX (the firmware's)", False,
+     [("bios_CD_U.bin", "system/", True, "the BIOS of the game's region: bios_CD_U.bin (USA), bios_CD_E.bin (Europe) or bios_CD_J.bin (Japan)")],
+     "X=A, A=B, B=C, LB=X, Y=Y, RB=Z, Start=Start, Rewind=Mode",
+     "A game can be a folder of its own: <code>roms/segacd/Game/Game.cue</code> with its tracks. Disc swapping isn't supported."),
     ("mastersystem", "Master System", ".sms, .zip", "Genesis Plus GX (the firmware's)", False, [],
      "A=Button 1, B=Button 2, Start=Pause", ""),
+    ("sg1000", "SG-1000", ".sg, .zip", "Genesis Plus GX (the firmware's)", False, [],
+     "A=Button 1, B=Button 2, Start=Pause", ""),
+    ("fds", "Famicom Disk System", ".fds, .zip", "FCEUmm", False,
+     [("disksys.rom", "system/", True, "every Famicom Disk System game needs it")],
+     "A=B, B=A, Start=Start, Rewind=Select",
+     "Two-sided disks: open the pause menu and choose Flip disk side when the game asks for side B."),
     ("saturn", "Saturn", ".chd, .cue, .iso, .ccd", "YabaSanshiro", True,
      [("saturn_bios.bin", "system/", False, "runs more games than the built-in BIOS")],
      "A=A, B=B, LB=C, X=X, Y=Y, RB=Z, LB2=L, RB2=R, Start=Start",
@@ -67,7 +77,11 @@ SYSTEMS = [
      "A=Cross, B=Circle, X=Square, Y=Triangle, LB=L1, RB=R1, LB2=L2, RB2=R2, Start=Start, Rewind=Select",
      "Multi-disc games: list the discs in an .m3u and use Change disc in the pause menu."),
     ("pce", "PC Engine / TurboGrafx-16", ".pce, .sgx, .zip", "Beetle PCE Fast", False, [],
-     "A=II, B=I, Start=Run, Rewind=Select", "HuCard games only; CD games aren't supported."),
+     "A=II, B=I, Start=Run, Rewind=Select", "HuCard games only; CD games are in PC Engine CD."),
+    ("pcecd", "PC Engine CD / TurboGrafx-CD", ".chd, .cue, .ccd, .m3u (don't zip them)", "Beetle PCE Fast", False,
+     [("syscard3.pce", "system/", True, "the Super System Card; every PC Engine CD game needs it")],
+     "A=II, B=I, Start=Run, Rewind=Select",
+     "A game can be a folder of its own, with its .cue and tracks. Multi-disc games: an .m3u and Change disc in the pause menu."),
     ("atari2600", "Atari 2600", ".a26, .bin, .zip", "Stella (the firmware's)", False, [],
      "A=Fire, Start=Reset, Rewind=Select", ""),
     ("colecovision", "ColecoVision", ".col, .rom, .bin, .zip", "The cabinet's own (built-in BIOS); Gearcoleco if you add a BIOS", False,
@@ -92,7 +106,7 @@ SYSTEMS = [
 ]
 
 GROUPS = [("Arcade", ["arcade", "neogeo", "naomi", "atomiswave"]),
-          ("Consoles", ["nes", "snes", "n64", "genesis", "mastersystem", "saturn", "dreamcast", "psx", "pce", "atari2600", "colecovision"]),
+          ("Consoles", ["nes", "fds", "snes", "n64", "genesis", "segacd", "mastersystem", "sg1000", "saturn", "dreamcast", "psx", "pce", "pcecd", "atari2600", "colecovision"]),
           ("Handhelds", ["gb", "gbc", "gba", "gamegear", "lynx", "psp"])]
 
 

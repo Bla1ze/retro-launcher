@@ -1812,7 +1812,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                 case PauseTurn: items.push_back(std::string("Rotate picture: ") + (userTurn == 90 ? "turned right" : userTurn == 180 ? "upside down" : userTurn == 270 ? "turned left" : "off")); enabled.push_back(true); break;
                 case PausePlayers: items.push_back("Cabinet plays as: player " + std::to_string(g_cabinetPlays + 1)); enabled.push_back(true); break;
                 case PauseTurnControls: items.push_back(std::string("Turn controls with it: ") + (turnControls ? "on" : "off")); enabled.push_back(true); break;
-                case PauseDisc: items.push_back("Change disc (" + std::to_string(discIndex + 1) + " of " + std::to_string(discs) + ")"); enabled.push_back(true); break;
+                case PauseDisc: items.push_back((sysId == "fds" ? "Flip disk side (" : "Change disc (") + std::to_string(discIndex + 1) + " of " + std::to_string(discs) + ")"); enabled.push_back(true); break;
                 case PauseQuit: items.push_back("Quit to menu"); enabled.push_back(true); break;
                 }
             }
@@ -1963,7 +1963,7 @@ int runPlayer(const std::string& appDir, const std::string& sysId, const std::st
                     char label[128] = "";
                     if (ok && g_discExt && g_disc.get_image_label) g_disc.get_image_label(discIndex, label, sizeof(label));
                     toast = !ok ? "Could not change the disc"
-                                : "Disc " + std::to_string(discIndex + 1) + " of " + std::to_string(discs) +
+                                : std::string(sysId == "fds" ? "Disk side " : "Disc ") + std::to_string(discIndex + 1) + " of " + std::to_string(discs) +
                                       (label[0] ? std::string(": ") + label : "");
                     toastAt = t;
                     log("disc: %s", toast.c_str());
