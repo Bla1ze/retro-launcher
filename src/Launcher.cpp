@@ -1988,20 +1988,32 @@ void Menu::renderSettings() {
 // ----------------------------------------------------------------- BIOS check
 
 void Menu::openBios() {
-    std::vector<std::string> withGames;
-    for (const SystemEntry& e : m_systems)
+    // Every system's BIOS files, those of systems with games first (only those
+    // count as missing); the rest are listed so a BIOS can be added before the games.
+    std::vector<std::string> withGames, all;
+    for (const SystemEntry& e : m_systems) {
+        all.push_back(e.sys->id);
         if (!e.games.empty()) withGames.push_back(e.sys->id);
+    }
     m_biosRows.clear();
     m_biosRequiredMissing = 0;
-    std::string report = "Retro Launcher BIOS check (Settings > BIOS check), for the systems with games.\n"
+    std::string report = "Retro Launcher BIOS check (Settings > BIOS check). Systems with games come first.\n"
                          "Retro Launcher ships no BIOS files: use your own dumps, named as below.\n\n";
-    for (const Library::BiosCheck& c : Library::checkBios(m_appDir, withGames)) {
+    std::vector<Library::BiosCheck> checks = Library::checkBios(m_appDir, all);
+    auto hasGames = [&](const Library::BiosCheck& c) { return std::find(withGames.begin(), withGames.end(), c.system) != withGames.end(); };
+    std::stable_partition(checks.begin(), checks.end(), hasGames);
+    for (const Library::BiosCheck& c : checks) {
         const Library::System* sys = Library::findSystem(c.system);
+        const bool used = hasGames(c);
         BiosRow r;
         r.title = (sys ? sys->name : c.system) + ":  " + c.file;
         r.why = c.why;
         const char* need = c.required ? "Required" : "Good to have";
-        if (c.state == Library::BiosCheck::Ok) {
+        if (!used && c.state == Library::BiosCheck::Missing) {
+            r.kind = BiosRow::Optional;
+            r.status = "No games yet";
+            r.line = std::string(need) + " for " + (sys ? sys->name : c.system) + " games  -  put it in " + c.where;
+        } else if (c.state == Library::BiosCheck::Ok) {
             r.kind = BiosRow::Ok;
             r.status = "Found";
             r.line = std::string(need) + "  -  found in " + c.foundAt;
