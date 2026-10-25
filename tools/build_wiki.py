@@ -54,7 +54,7 @@ SYSTEMS = [
     ("segacd", "Sega CD / Mega-CD", ".chd, .cue, .iso (don't zip them)", "Genesis Plus GX (the firmware's)", False,
      [("bios_CD_U.bin", "system/", True, "the BIOS of the game's region: bios_CD_U.bin (USA), bios_CD_E.bin (Europe) or bios_CD_J.bin (Japan)")],
      "X=A, A=B, B=C, LB=X, Y=Y, RB=Z, Start=Start, Rewind=Mode",
-     "A game can be a folder of its own: <code>roms/segacd/Game/Game.cue</code> with its tracks. Disc swapping isn't supported."),
+     "A game can be a folder of its own: <code>roms/segacd/Game/Game.cue</code> with its tracks. Disc swapping isn't supported: a multi-disc game is started one disc at a time from the list, and its in-game saves are kept in one file per region, so they should carry over to the next disc."),
     ("mastersystem", "Master System", ".sms, .zip", "Genesis Plus GX (the firmware's)", False, [],
      "A=Button 1, B=Button 2, Start=Pause", ""),
     ("sg1000", "SG-1000", ".sg, .zip", "Genesis Plus GX (the firmware's)", False, [],
