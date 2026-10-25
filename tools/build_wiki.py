@@ -81,7 +81,7 @@ SYSTEMS = [
     ("pcecd", "PC Engine CD / TurboGrafx-CD", ".chd, .cue, .ccd, .m3u (don't zip them)", "Beetle PCE Fast", False,
      [("syscard3.pce", "system/", True, "the Super System Card; every PC Engine CD game needs it")],
      "A=II, B=I, Start=Run, Rewind=Select",
-     "A game can be a folder of its own, with its .cue and tracks. Multi-disc games: an .m3u and Change disc in the pause menu."),
+     "A game can be a folder of its own, with its .cue and tracks."),
     ("atari2600", "Atari 2600", ".a26, .bin, .zip", "Stella (the firmware's)", False, [],
      "A=Fire, Start=Reset, Rewind=Select", ""),
     ("colecovision", "ColecoVision", ".col, .rom, .bin, .zip", "The cabinet's own (built-in BIOS); Gearcoleco if you add a BIOS", False,
