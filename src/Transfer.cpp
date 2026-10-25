@@ -72,6 +72,10 @@ button:disabled{opacity:.4;cursor:default}
 .bar{height:4px;background:#2c2552;border-radius:2px;margin-top:6px;overflow:hidden}
 .bar i{display:block;height:100%;width:0;background:linear-gradient(90deg,var(--violet),var(--teal))}
 .err{color:var(--rose)}
+.bios{display:flex;gap:10px;text-align:left;padding:8px 0;border-top:1px solid var(--line);font-size:14px}
+.bios:first-child{border-top:0}
+.bios b{flex:none;width:18px;text-align:center}
+.bios small{display:block;color:var(--dim)}
 .hidden{display:none}
 </style></head><body><main>
 <h1>Retro Launcher <span>Network transfer</span></h1>
@@ -89,9 +93,10 @@ button:disabled{opacity:.4;cursor:default}
   <label for="sys">System</label>
   <select id="sys"></select>
   <p class="hint" id="exts"></p>
+  <div id="biosList" class="hidden"></div>
  </div>
  <div class="card">
-  <div id="drop" class="drop">Drop games here<br><span class="hint">Disc games can come as a folder</span></div>
+  <div id="drop" class="drop"><span id="dropTitle">Drop games here</span><br><span class="hint" id="dropHint">Disc games can come as a folder</span></div>
   <div class="row" style="margin-top:12px">
    <button id="pick">Choose files</button>
    <button id="pickDir" class="alt">Choose a folder</button>
@@ -130,14 +135,39 @@ async function connect() {
   }
 }
 const current = () => systems.find(s => s.id === $('sys').value);
+let biosNames = [];
 function showExts() {
   const s = current(); if (!s) return;
+  const isBios = !!s.bios;
+  $('biosList').classList.toggle('hidden', !isBios);
+  $('pickDir').classList.toggle('hidden', isBios);
+  $('dropTitle').textContent = isBios ? 'Drop BIOS files here' : 'Drop games here';
+  $('dropHint').textContent = isBios ? 'Your own dumps; they are saved under the right name in the right folder' : 'Disc games can come as a folder';
+  if (isBios) { $('exts').textContent = ''; loadBios(); return; }
   $('exts').textContent = 'Accepts ' + s.exts.map(e => '.' + e).join(' ') + (s.folders ? ' (a game can be a folder)' : '');
+}
+async function loadBios() {
+  try {
+    const items = (await api('/api/bios')).items;
+    biosNames = items.flatMap(i => i.names);
+    const box = $('biosList'); box.textContent = '';
+    for (const i of items) {
+      const row = document.createElement('div'); row.className = 'bios';
+      const mark = document.createElement('b'), txt = document.createElement('div');
+      mark.textContent = i.state === 'ok' ? '\u2713' : i.state === 'unrecognized' ? '?' : i.required ? '!' : '\u2013';
+      mark.style.color = i.state === 'ok' ? 'var(--teal)' : i.state === 'unrecognized' ? 'var(--gold)' : i.required ? 'var(--rose)' : 'var(--dim)';
+      txt.textContent = i.system + ': ' + i.names.join(' / ') + (i.required ? ' (required)' : '');
+      const sm = document.createElement('small');
+      sm.textContent = (i.state === 'ok' ? 'Found. ' : i.state === 'unrecognized' ? 'Found, but not a known dump. ' : 'Missing. ') + i.why;
+      txt.appendChild(sm); row.append(mark, txt); box.appendChild(row);
+    }
+  } catch (e) {}
 }
 // The name it gets on the stick: folders kept (one level) only where the system takes game folders.
 function target(file, rel) {
   const parts = (rel || file.name).split('/').filter(p => p);
   const s = current();
+  if (s.bios) return parts[parts.length - 1].toLowerCase();
   return s.folders && parts.length > 1 ? parts[parts.length - 2] + '/' + parts[parts.length - 1] : parts[parts.length - 1];
 }
 async function add(list) {
@@ -153,7 +183,7 @@ async function add(list) {
     const nameBox = el.querySelector('.name'), st = el.querySelector('.state');
     $('queue').prepend(el);
     if (name.startsWith('.') || file.name.startsWith('.')) { el.remove(); continue; }
-    if (!s.exts.includes(ext)) { st.textContent = 'not a ' + s.name + ' file'; st.className = 'state skip'; continue; }
+    if (s.bios ? !biosNames.includes(name) : !s.exts.includes(ext)) { st.textContent = s.bios ? 'not a BIOS file this uses' : 'not a ' + s.name + ' file'; st.className = 'state skip'; continue; }
     if (have.has(name)) { st.textContent = 'already there'; st.className = 'state skip'; continue; }
     const bar = document.createElement('div'); bar.className = 'bar'; bar.innerHTML = '<i></i>';
     nameBox.appendChild(bar);
@@ -176,7 +206,11 @@ function upload(job) {
     };
     x.onload = () => {
       let msg = ''; try { msg = JSON.parse(x.responseText).error || ''; } catch (e) {}
-      if (x.status === 200) { job.st.textContent = 'sent'; job.st.className = 'state ok'; job.bar.style.width = '100%'; }
+      if (x.status === 200) {
+        let r = {}; try { r = JSON.parse(x.responseText); } catch (e) {}
+        job.st.textContent = job.sys !== 'bios' ? 'sent' : r.recognized === false ? 'sent (not a known dump)' : 'sent to ' + (r.where || 'system/');
+        job.st.className = r.recognized === false ? 'state skip' : 'state ok'; job.bar.style.width = '100%';
+      }
       else if (x.status === 409) { job.st.textContent = 'already there'; job.st.className = 'state skip'; }
       else { job.st.textContent = msg || ('error ' + x.status); job.st.className = 'state err'; }
       done();
@@ -395,6 +429,24 @@ bool TransferServer::start(const std::string& appDir) {
         }
     }
 
+    {
+        std::set<std::string> biosDirs;
+        std::vector<std::string> all;
+        for (const Library::System& s : Library::systems()) all.push_back(s.id);
+        for (const Library::BiosCheck& c : Library::checkBios(appDir, all)) {
+            Library::BiosTarget t;
+            if (Library::biosTarget(c.file, t)) biosDirs.insert(appDir + "/" + t.where);
+        }
+        for (const std::string& dir : biosDirs)
+            if (DIR* d = ::opendir(dir.c_str())) {
+                while (struct dirent* e = ::readdir(d)) {
+                    std::string n = e->d_name;
+                    if (n.compare(0, 8, ".upload-") == 0) ::unlink((dir + n).c_str());
+                }
+                ::closedir(d);
+            }
+    }
+
     m_listen = ::socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);  // CLOEXEC: curl children must not inherit it
     std::string error = m_listen < 0 ? std::string("socket: ") + std::strerror(errno) : "";
     int port = 0;
@@ -579,14 +631,38 @@ void TransferServer::serve(int fd) {
                    ",\"exts\":[" + exts + "]}";
             first = false;
         }
+        out += ",{\"id\":\"bios\",\"name\":\"BIOS files\",\"bios\":true,\"count\":0,\"folders\":false,\"exts\":[]}";
+        respond(fd, 200, "application/json", out + "]}");
+        return;
+    }
+
+    if (method == "GET" && path == "/api/bios") {
+        // Every BIOS file the cores can use, with its state, for the page's BIOS list.
+        std::vector<std::string> all;
+        for (const Library::System& s : Library::systems()) all.push_back(s.id);
+        std::string out = "{\"items\":[";
+        bool first = true;
+        for (const Library::BiosCheck& c : Library::checkBios(m_appDir, all)) {
+            const Library::System* cs = Library::findSystem(c.system);
+            std::string names;
+            for (const std::string& n : c.names) names += (names.empty() ? "" : ",") + jsonStr(n);
+            out += std::string(first ? "" : ",") + "{\"system\":" + jsonStr(cs ? cs->name : c.system) +
+                   ",\"names\":[" + names + "],\"required\":" + (c.required ? "true" : "false") +
+                   ",\"why\":" + jsonStr(c.why) + ",\"where\":" + jsonStr(c.where) +
+                   ",\"state\":" + jsonStr(c.state == Library::BiosCheck::Ok ? "ok"
+                                           : c.state == Library::BiosCheck::Unrecognized ? "unrecognized" : "missing") + "}";
+            first = false;
+        }
         respond(fd, 200, "application/json", out + "]}");
         return;
     }
 
     const std::string sysId = param("sys");
-    const Library::System* sys = Library::findSystem(sysId);
-    if (!sys) { respondError(fd, 400, "unknown system"); return; }
-    const std::string dir = roms + sys->id;
+    const bool bios = sysId == "bios";  // BIOS files go to the folders the cores look in, not roms/
+    const Library::System* sys = bios ? nullptr : Library::findSystem(sysId);
+    if (!bios && !sys) { respondError(fd, 400, "unknown system"); return; }
+    if (bios && path != "/api/upload") { respondError(fd, 404, "not found"); return; }
+    const std::string dir = bios ? "" : roms + sys->id;
 
     if (method == "GET" && path == "/api/files") {
         // Names as the page would send them: files, and folder/file one level down.
@@ -615,13 +691,31 @@ void TransferServer::serve(int fd) {
 
     if (method != "PUT" || path != "/api/upload") { respondError(fd, 404, "not found"); return; }
     if (!transferEncoding.empty() || length < 0) { respondError(fd, 411, "send the file with a Content-Length"); return; }
-    std::string why;
-    const std::string name = safeName(param("name"), takesFolders(sys->id), why);
-    if (name.empty()) { respondError(fd, 400, why); return; }
-    const std::vector<std::string> exts = allowedExts(*sys);
-    const std::string ext = extOf(name);
-    if (std::find(exts.begin(), exts.end(), ext) == exts.end()) { respondError(fd, 400, "not a " + sys->name + " file type"); return; }
-    const std::string dest = dir + "/" + name;
+    std::string why, name, updir, dest;
+    Library::BiosTarget biosT;
+    if (bios) {
+        // Only the file names the BIOS check knows, saved under that exact name in
+        // the folder it suggests; a copy in any folder the cores read counts as there.
+        if (!Library::biosTarget(param("name"), biosT)) { respondError(fd, 400, "not a BIOS file Retro Launcher uses"); return; }
+        if (length > (128ll << 20)) { respondError(fd, 413, "too big for a BIOS file"); return; }
+        for (const std::string& d : biosT.dirs) {
+            struct stat bs;
+            if (::stat((m_appDir + "/" + d + biosT.file).c_str(), &bs) == 0) { respondError(fd, 409, "already there"); return; }
+        }
+        name = biosT.file;
+        updir = m_appDir + "/" + biosT.where;
+        updir.pop_back();  // the trailing /
+        dest = updir + "/" + name;
+    } else {
+        name = safeName(param("name"), takesFolders(sys->id), why);
+        if (name.empty()) { respondError(fd, 400, why); return; }
+        const std::vector<std::string> exts = allowedExts(*sys);
+        const std::string ext = extOf(name);
+        if (std::find(exts.begin(), exts.end(), ext) == exts.end()) { respondError(fd, 400, "not a " + sys->name + " file type"); return; }
+        updir = dir;
+        dest = dir + "/" + name;
+    }
+    const std::string logId = bios ? "bios" : sys->id, label = bios ? "BIOS" : sys->shortName;
     struct stat st;
     if (::stat(dest.c_str(), &st) == 0) { respondError(fd, 409, "already there"); return; }
     {
@@ -637,16 +731,16 @@ void TransferServer::serve(int fd) {
             return;
         }
     }
-    ::mkdir(dir.c_str(), 0755);
+    ::mkdir(updir.c_str(), 0755);
     std::string folder = dest.substr(0, dest.find_last_of('/'));
-    if (folder != dir) ::mkdir(folder.c_str(), 0755);
+    if (folder != updir) ::mkdir(folder.c_str(), 0755);
     const std::string part = folder + "/.upload-" + std::to_string((long)::getpid()) + "-" + std::to_string(fd) + ".part";
     FILE* f = std::fopen(part.c_str(), "wb");
     if (!f) { respondError(fd, 500, std::string("can't write: ") + std::strerror(errno)); return; }
     if (expect == "100-continue") sendAll(fd, "HTTP/1.1 100 Continue\r\n\r\n", 25);
     {
         std::lock_guard<std::mutex> lock(m_mu);
-        m_status.current = sys->shortName + ": " + name;
+        m_status.current = label + ": " + name;
         m_status.currentDone = 0;
         m_status.currentTotal = (uint64_t)length;
     }
@@ -679,13 +773,20 @@ void TransferServer::serve(int fd) {
     }
     if (!ok) {
         ::unlink(part.c_str());
-        if (folder != dir) ::rmdir(folder.c_str());  // only if it is empty
-        log("transfer: %s/%s failed after %llu of %lld bytes", sys->id.c_str(), name.c_str(), got, length);
-        note(sys->shortName + ": " + name + " - failed");
+        if (folder != updir) ::rmdir(folder.c_str());  // only if it is empty
+        log("transfer: %s/%s failed after %llu of %lld bytes", logId.c_str(), name.c_str(), got, length);
+        note(label + ": " + name + " - failed");
         respondError(fd, 500, "the upload was cut off");
         return;
     }
-    log("transfer: received %s/%s (%llu bytes)", sys->id.c_str(), name.c_str(), got);
-    note(sys->shortName + ": " + name);
+    log("transfer: received %s/%s (%llu bytes)", logId.c_str(), name.c_str(), got);
+    note(label + ": " + name);
+    if (bios) {
+        const bool known = Library::biosRecognized(m_appDir, biosT);
+        log("transfer: %s%s is %s", biosT.where.c_str(), biosT.file.c_str(), known ? "a known dump" : "not a known dump");
+        respond(fd, 200, "application/json", std::string("{\"ok\":true,\"recognized\":") + (known ? "true" : "false") +
+                                                 ",\"where\":" + jsonStr(biosT.where) + "}");
+        return;
+    }
     respond(fd, 200, "application/json", "{\"ok\":true}");
 }

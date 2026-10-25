@@ -279,6 +279,11 @@ out the USB stick:
   a game as a folder, such as a .cue with its .bin tracks. For other systems,
   folders are flattened.
 - The page accepts only the system's own file types.
+- **BIOS files** are in the system list too ("BIOS files"). The page shows which
+  ones are missing, and saves each file you drop under its exact name in the
+  folder the cores read (`system/`, `system/dc/`, or `roms/naomi/` for `naomi.zip`),
+  whatever its capitals. It refuses any other name, never replaces a BIOS you
+  already have, and says whether the file is a known good dump.
 
 **While it's open:**
 - The transfer runs only while the screen is open. Each time it opens, it uses a

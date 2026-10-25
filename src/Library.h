@@ -147,6 +147,7 @@ bool hasColecoBios(const std::string& appDir);
 struct BiosCheck {
     std::string system;    // "psx"
     std::string file;      // "scph5501.bin" (the first accepted name)
+    std::vector<std::string> names;  // every accepted name, `file` first
     bool required = false; // false: good to have
     std::string why;       // what it adds, or why it is needed
     std::string where;     // folder to put it in, relative to the app ("system/dc/")
@@ -154,6 +155,18 @@ struct BiosCheck {
     enum State { Ok, Unrecognized, Missing } state = Missing;
 };
 std::vector<BiosCheck> checkBios(const std::string& appDir, const std::vector<std::string>& systems);
+// A BIOS file sent over the network: `name` (any case) must be one checkBios
+// accepts. On success: `file` is the exact name to save it as, `where` the
+// folder (relative to the app, "system/dc/") and `dirs` every folder the cores
+// also look in (an existing copy in any of them means it is already there).
+struct BiosTarget {
+    std::string file, where;
+    std::vector<std::string> dirs;
+};
+bool biosTarget(const std::string& name, BiosTarget& out);
+// After saving `dir + file`: true if it is a known good dump (always true for
+// BIOS zips, which have no list of dumps to compare with).
+bool biosRecognized(const std::string& appDir, const BiosTarget& t);
 // The same for one named core file (an arcade game's pick).
 std::string findCoreFile(const std::string& appDir, const std::string& coreFile, std::string& where);
 

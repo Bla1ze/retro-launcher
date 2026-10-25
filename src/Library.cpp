@@ -857,6 +857,7 @@ std::vector<BiosCheck> checkBios(const std::string& appDir, const std::vector<st
         BiosCheck c;
         c.system = b.system;
         c.file = b.names[0];
+        for (const char* n : b.names) c.names.push_back(n);
         c.required = b.required;
         c.why = b.why;
         c.where = b.dirs[0];
@@ -874,6 +875,33 @@ std::vector<BiosCheck> checkBios(const std::string& appDir, const std::vector<st
         out.push_back(c);
     }
     return out;
+}
+
+bool biosTarget(const std::string& name, BiosTarget& out) {
+    const std::string want = lower(name);
+    for (const BiosSpec& b : biosSpecs())
+        for (const char* n : b.names)
+            if (want == n) {
+                out.file = n;
+                out.where = b.dirs[0];
+                out.dirs.clear();
+                for (const char* d : b.dirs) out.dirs.push_back(d);
+                return true;
+            }
+    return false;
+}
+
+bool biosRecognized(const std::string& appDir, const BiosTarget& t) {
+    for (const BiosSpec& b : biosSpecs())
+        for (const char* n : b.names)
+            if (t.file == n) {
+                if (b.md5s.empty()) return true;
+                const std::string sum = md5File(appDir + "/" + t.where + t.file);
+                for (const char* m : b.md5s)
+                    if (sum == m) return true;
+                return false;
+            }
+    return false;
 }
 
 static const char* biosNote(const std::string& id) {
